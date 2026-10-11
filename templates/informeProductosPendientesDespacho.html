@@ -4,7 +4,6 @@
   <title>Informe de Productos Pendientes de Despacho - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta id="foo" data-name="{{datos.data}}">
   
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -13,10 +12,20 @@
 </head>
 <script>
 
-
-    function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
+    function cargarTablas(){
+        var test = document.querySelector('#inventario').value 
         const data = JSON.parse(test)
+        var test2 = document.querySelector('#pedidos').value 
+        const data2 = JSON.parse(test2)
+        tablaInventario = 'tablaPendientesInventario'
+        tablaPedidos = 'tablaPendientesPedidos'
+        createTableFromJSON(data, tablaInventario);
+        createTableFromJSON(data2, tablaPedidos);
+    }
+
+    function createTableFromJSON(data, tabla) {
+        var prod = document.querySelector('#productos').value
+        const dataProductos = JSON.parse(prod)
         if (!data || !data.length) return;
 
         const table = document.createElement('table');
@@ -27,7 +36,7 @@
 
         // Extract headers from the first object's keys
         const headers = Object.keys(data[0]);
-        console.log(headers)
+        //console.log(headers)
         headers.forEach(key => {
             const th = document.createElement('th');
             th.textContent = key;
@@ -39,23 +48,160 @@
         data.forEach((rowData) => {
             const tr = document.createElement('tr');
             headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
+                const td = document.createElement('td');
+                // Handle null/undefined or nested objects
+                const value = rowData[key];
+                //console.log(key)
+                if (key == 'id_variante'){
+                    var prueba = dataProductos.find(e=>e['id_variante'] === value);
+                    td.textContent = prueba['descripcion'];
+                } else if (key == 'detalle_pedidos'){
+                    var hola = dataProductos.find(e=>e['id_variante']=== value[0]['id_variante']);
+                    td.textContent = hola['descripcion'];
+                } else {
+                    td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
+                }
+                //td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
+                tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
         });
 
         table.appendChild(thead);
         table.appendChild(tbody);
-        document.getElementById('tablaColores').appendChild(table);
+        document.getElementById(tabla).appendChild(table);
         } 
 </script>
 
-<body>
-
+<body onload="cargarTablas()">
+{% if  datosPedidos %}<input type="hidden"  id="pedidos" value='{{ datosPedidos | tojson}}'>{% endif %}
+{% if datosInventario %}<input type="hidden"  id="inventario" value='{{ datosInventario | tojson}}'>{% endif %}
+{% if datosProductos %}<input type="hidden"  id="productos" value='{{ datosProductos | tojson}}'>{% endif %}
+<div>
+    <P>Productos en inventario presentes en pedidos pendientes</P>
+    <div class="data-table-wrap" id="tablaPendientesInventario" onload="createTableFromJSON()"></div>
+    {% if not datosInventario %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+    <P>Pedidos pendientes con productos relevantes</P>
+    <div class="data-table-wrap" id="tablaPendientesPedidos" onload="createTableFromJSON()"></div>
+    {% if not datosPedidos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+</div>
 </body>
+
+<div class="modal" id="buscarPedidosModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar productos pendientes de despacho</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarPedidos" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="productosForm" class="form-label">Por pedido:</label>
+                <select class="form-select" id="pedidoBuscar" name="PedidoBuscarn" required>
+                  <option value="" selected disabled>Seleccione un pedido</option>
+                  {% for pedido in pedidos %}
+                  <option value="{{ pedido.id_pedido }}">{{ pedido.id_pedido }}</option>
+                  {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarClientesModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar productos pendientes de despacho</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarClientes" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="clientesBuscar" class="form-label">Por cliente:</label>
+                <select class="form-select" id="clienteBuscar" name="ClienteBuscarn" required>
+                  <option value="" selected disabled>Seleccione un cliente</option>
+                  {% for cliente in clientes %}
+                  <option value="{{ cliente.id_cliente }}">{{ cliente.nombre }}</option>
+                  {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarVendedoresModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar productos pendientes de despacho</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarVendedores" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="vendedoresBuscar" class="form-label">Por vendedor:</label>
+                <select class="form-select" id="vendedorBuscar" name="VendedorBuscarn" required>
+                  <option value="" selected disabled>Seleccione un vendedor</option>
+                  {% for vendedor in vendedores %}
+                  <option value="{{ vendedor.id_vendedor }}">{{ vendedor.nombre }}</option>
+                  {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
 
 </html>

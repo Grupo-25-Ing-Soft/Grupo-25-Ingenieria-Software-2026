@@ -4,7 +4,7 @@
   <title>Informe de Productos Despachados - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta id="foo" data-name="{{datos.data}}">
+  {% if datos %}<meta id="foo" data-name="{{datos.data}}">{% endif %}
   
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -13,10 +13,17 @@
 </head>
 <script>
 
+    function cargarTablas(){
+        var datosDes = document.querySelector('#datosDespacho').value 
+        const datosDespachos = JSON.parse(datosDes)
+        var datosDet = document.querySelector('#datosDetallePedidos').value 
+        const datosDetalles = JSON.parse(datosDet)
+        createTableFromJSON(datosDespachos, 'tablaDespachados');
+        createTableFromJSON(datosDetalles, 'tablaDetalles');
+    }
 
-    function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
+    function createTableFromJSON(data, tabla) {
+
         if (!data || !data.length) return;
 
         const table = document.createElement('table');
@@ -50,12 +57,33 @@
 
         table.appendChild(thead);
         table.appendChild(tbody);
-        document.getElementById('tablaColores').appendChild(table);
+        document.getElementById(tabla).appendChild(table);
         } 
 </script>
 
-<body>
-
+<body onload="cargarTablas()">
+{% if datos %}<input type="hidden"  id="datosDespacho" value='{{ datos | tojson }}'>{% endif %}
+{% if detallePedidos %}<input type="hidden"  id="datosDetallePedidos" value='{{ detallePedidos | tojson }}'>{% endif %}
+<div>
+    <P>Productos despachados</P>
+    <form method="POST" role="form" action="#">
+        <div class="mb-3 mt-3">
+            <!--<label for="DesdeForm" class="form-label">Desde:</label>-->
+            <label for="desdeFechaID" class="form-label">Desde:</label>
+            <input type="date" class="form-control" id="desdeFechaID" placeholder="Productos despachados desde..." name="desdeFecha">
+        </div>
+        <div class="mb-3 mt-3">
+            <!--<label for="HastaForm" class="form-label">Hasta:</label>-->
+            <label for="hastaFechaID" class="form-label">Hasta:</label>
+            <input type="date" class="form-control" id="hastaFechaID" placeholder="Productos despachados hasta..." name="hastaFecha">
+        </div>
+        <button type="submit" class="btn btn-primary">Buscar</button>
+    </form>
+    <div class="data-table-wrap" id="tablaDespachados"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+        <div class="data-table-wrap" id="tablaDetalles"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+</div>
 </body>
 
 </html>

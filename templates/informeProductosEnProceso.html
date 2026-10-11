@@ -14,9 +14,11 @@
 <script>
 
 
-    function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
+    function TablaEnProceso() {
+        var test = document.querySelector('#cortes').value 
         const data = JSON.parse(test)
+        var productos = document.querySelector('#productos').value 
+        const dataProductos = JSON.parse(productos)
         if (!data || !data.length) return;
 
         const table = document.createElement('table');
@@ -39,23 +41,37 @@
         data.forEach((rowData) => {
             const tr = document.createElement('tr');
             headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-            tr.appendChild(td);
+                const td = document.createElement('td');
+                // Handle null/undefined or nested objects
+                const value = rowData[key];
+                console.log(key);
+                if (key == 'producto_asociado'){
+                    var prueba = dataProductos.find(e=>e['id_producto'] === value);
+                    td.textContent = prueba['descripcion'];
+                } else{
+                    td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
+                }
+                
+                tr.appendChild(td);
             });
             tbody.appendChild(tr);
         });
 
         table.appendChild(thead);
         table.appendChild(tbody);
-        document.getElementById('tablaColores').appendChild(table);
+        document.getElementById('tablaProceso').appendChild(table);
         } 
 </script>
 
-<body>
-
+<body onload="TablaEnProceso()">
+<input type="hidden"  id="cortes" value='{{ datos | tojson }}'>
+<input type="hidden"  id="productos" value='{{ productos | tojson }}'>
+<div>
+    <P>Productos en proceso</P>
+    <div class="data-table-wrap" id="tablaProceso" onload="createTableFromJSON()"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+</div>
+    
 </body>
 
 </html>
