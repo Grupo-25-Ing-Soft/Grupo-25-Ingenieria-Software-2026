@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>D Nix - Gestión de Productos</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background: #111827;
+      color: white;
+      padding: 20px;
+    }
+
+    main {
+      padding: 24px;
+    }
+
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    input, select, button {
+      padding: 10px;
+      margin: 6px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    .delete {
+      background: #dc2626;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+
+    th {
+      background: #e5e7eb;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Sistema D Nix</h1>
+    <p>Prototipo de gestión de productos conectado a MongoDB</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Registrar producto</h2>
+
+      <form id="formProducto">
+        <input type="text" id="codigo" placeholder="Código" required>
+        <input type="text" id="nombre" placeholder="Nombre" required>
+        <input type="text" id="descripcion" placeholder="Descripción">
+        <input type="text" id="categoria" placeholder="Categoría">
+        <input type="number" id="precio_venta" placeholder="Precio venta" required>
+        <input type="number" id="stock" placeholder="Stock" required>
+        <input type="text" id="color" placeholder="Color">
+        <input type="text" id="talla" placeholder="Talla">
+
+        <select id="estado">
+          <option value="activo">Activo</option>
+          <option value="inactivo">Inactivo</option>
+        </select>
+
+        <button type="submit">Guardar producto</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Listado de productos</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Nombre</th>
+            <th>Categoría</th>
+            <th>Precio</th>
+            <th>Stock</th>
+            <th>Estado</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody id="tablaProductos"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const API_URL = 'http://localhost:3000/api/productos';
+
+    const formProducto = document.getElementById('formProducto');
+    const tablaProductos = document.getElementById('tablaProductos');
+
+    async function cargarProductos() {
+      try {
+        const respuesta = await fetch(API_URL);
+        const productos = await respuesta.json();
+
+        tablaProductos.innerHTML = '';
+
+        productos.forEach(producto => {
+          const fila = document.createElement('tr');
+
+          fila.innerHTML = `
+            <td>${producto.codigo}</td>
+            <td>${producto.nombre}</td>
+            <td>${producto.categoria || '-'}</td>
+            <td>$${producto.precio_venta}</td>
+            <td>${producto.stock}</td>
+            <td>${producto.estado}</td>
+            <td>
+              <button class="delete" onclick="eliminarProducto('${producto._id}')">
+                Eliminar
+              </button>
+            </td>
+          `;
+
+          tablaProductos.appendChild(fila);
+        });
+      } catch (error) {
+        alert('No se pudieron cargar los productos. Revisa que el servidor esté encendido.');
+        console.error(error);
+      }
+    }
+
+    formProducto.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const producto = {
+        codigo: document.getElementById('codigo').value,
+        nombre: document.getElementById('nombre').value,
+        descripcion: document.getElementById('descripcion').value,
+        categoria: document.getElementById('categoria').value,
+        precio_venta: Number(document.getElementById('precio_venta').value),
+        stock: Number(document.getElementById('stock').value),
+        color: document.getElementById('color').value,
+        talla: document.getElementById('talla').value,
+        estado: document.getElementById('estado').value
+      };
+
+      const respuesta = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(producto)
+      });
+
+      if (!respuesta.ok) {
+        const error = await respuesta.json();
+        alert(error.mensaje + ': ' + error.error);
+        return;
+      }
+
+      formProducto.reset();
+      cargarProductos();
+    });
+
+    async function eliminarProducto(id) {
+      const confirmar = confirm('¿Seguro que quieres eliminar este producto?');
+
+      if (!confirmar) return;
+
+      await fetch(`${API_URL}/${id}`, {
+        method: 'DELETE'
+      });
+
+      cargarProductos();
+    }
+
+    cargarProductos();
+  </script>
+</body>
+</html>
