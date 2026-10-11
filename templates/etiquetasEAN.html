@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Etiquetas EAN - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    /* Medidas del rollo de la impresora SATO (3 etiquetas por fila).
+       Si las etiquetas reales miden distinto, basta con cambiar estos valores
+       y el tamaño de @page (ancho total del rollo x alto de una etiqueta). */
+    :root {
+      --ancho-etiqueta: 32mm;
+      --alto-etiqueta: 25mm;
+      --separacion: 2mm;
+      --margen-lateral: 2mm;
+      /* Ancho de cada barra mínima. La SATO imprime a 203 dpi (0,125 mm por
+         punto): 0,25 mm = 2 puntos exactos, así las barras salen parejas y
+         el lector las lee bien. El código completo mide 95 barras mínimas. */
+      --modulo: 0.25mm;
+    }
+    @page {
+      size: 104mm 25mm;
+      margin: 0;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e9ecef;
+      color: #000;
+      font-family: "Courier New", Courier, monospace;
+    }
+    .barra-herramientas {
+      position: sticky; top: 0; z-index: 1;
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      padding: 10px 16px; background: #fff; border-bottom: 1px solid #ccc;
+      font-family: system-ui, sans-serif; font-size: 14px;
+    }
+    .barra-herramientas button {
+      padding: 6px 14px; font-size: 14px; cursor: pointer;
+      border: 1px solid #527d13; background: #9acd32; border-radius: 6px;
+    }
+    .hoja { padding: 16px; }
+    .fila {
+      display: flex; gap: var(--separacion);
+      height: var(--alto-etiqueta);
+      padding: 0 var(--margen-lateral);
+      margin-bottom: 4mm;
+    }
+    .etiqueta {
+      width: var(--ancho-etiqueta); height: var(--alto-etiqueta);
+      padding: 1.2mm 1.5mm; overflow: hidden;
+      background: #fff; border-radius: 2mm;
+      display: flex; flex-direction: column;
+    }
+    .articulo { font-weight: 700; font-size: 11pt; line-height: 1; }
+    .descripcion, .color-talla {
+      font-size: 6pt; line-height: 1.15; white-space: nowrap; overflow: hidden;
+    }
+    .color-talla { display: flex; justify-content: space-between; }
+    .barras { flex: 1; min-height: 0; margin-top: .6mm; }
+    .barras svg { display: block; width: calc(95 * var(--modulo)); height: 100%; margin: 0 auto; fill: #000; }
+    .numeros { font-size: 5.5pt; line-height: 1; text-align: center; white-space: nowrap; }
+
+    @media print {
+      body { background: #fff; }
+      .barra-herramientas { display: none; }
+      .hoja { padding: 0; }
+      .fila { margin: 0; break-after: page; page-break-after: always; }
+      .fila:last-child { break-after: auto; page-break-after: auto; }
+      .etiqueta { border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="barra-herramientas">
+    <button type="button" onclick="window.print()">Imprimir {{ total }} etiquetas</button>
+    <span>En el cuadro de impresión elija la impresora SATO, tamaño de papel de la etiqueta, márgenes «Ninguno» y escala 100%.</span>
+  </div>
+  <div class="hoja">
+    {% for fila in filas %}
+    <div class="fila">
+      {% for etiqueta in fila %}
+      <div class="etiqueta">
+        <div class="articulo">{{ etiqueta.articulo }}</div>
+        <div class="descripcion">{{ etiqueta.descripcion }}</div>
+        <div class="color-talla"><span>{{ etiqueta.color | upper }}</span><span>T:{{ etiqueta.talla }}</span></div>
+        <div class="barras">{{ etiqueta.barras }}</div>
+        <div class="numeros">{{ etiqueta.ean[0] }} {{ etiqueta.ean[1:7] }} {{ etiqueta.ean[7:] }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

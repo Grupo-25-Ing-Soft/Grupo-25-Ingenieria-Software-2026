@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Notas de crédito - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+<aside class="shared-sidebar">
+  <div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div>
+  <div class="shared-caption">Operación</div>
+  <a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a>
+  <div class="shared-caption">Ventas</div>
+  <a class="active" href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a>
+  <div class="shared-caption">Datos maestros</div>
+  <a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a>
+  <a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a>
+  <a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a>
+  <a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a>
+  <a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a>
+</aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Ventas / Notas de crédito</div>
+      <h1>Notas de crédito</h1>
+      <p>Consulta y filtra el historial de notas de crédito asociadas a facturas.</p>
+    </div>
+  </div>
+
+  <div class="data-card mb-4">
+    <div class="data-card-header">
+      <div><h2>Filtros</h2><span>Combina los criterios disponibles</span></div>
+    </div>
+    <div class="modal-body">
+      <form method="GET" action="{{ url_for('notasCredito') }}" class="row g-3 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label" for="folio">Folio</label>
+          <input type="number" class="form-control" id="folio" name="folio" value="{{ request.args.get('folio','') }}" min="1">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="cliente">Cliente</label>
+          <input type="text" class="form-control" id="cliente" name="cliente" value="{{ request.args.get('cliente','') }}" placeholder="Nombre cliente">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="factura_referencia">Factura de referencia</label>
+          <input type="number" class="form-control" id="factura_referencia" name="factura_referencia" value="{{ request.args.get('factura_referencia','') }}" min="1">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="fecha_desde">Desde</label>
+          <input type="date" class="form-control" id="fecha_desde" name="fecha_desde" value="{{ request.args.get('fecha_desde','') }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="fecha_hasta">Hasta</label>
+          <input type="date" class="form-control" id="fecha_hasta" name="fecha_hasta" value="{{ request.args.get('fecha_hasta','') }}">
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2">
+          <a href="{{ url_for('notasCredito') }}" class="btn btn-outline-secondary">Limpiar</a>
+          <button type="submit" class="btn btn-primary">Filtrar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <div><h2>Resultados</h2><span>Listado de notas de crédito</span></div>
+    </div>
+    {% if not datos %}
+      <div class="empty-state">Excepción 1: No hay notas de crédito registradas.</div>
+    {% elif datos|length == 0 %}
+      <div class="empty-state">Excepción 1: No hay notas de crédito registradas.</div>
+    {% else %}
+      {% set sort_field = request.args.get('orden_por', 'fecha') %}
+      {% set sort_dir = request.args.get('orden_dir', 'desc') %}
+      {% set query_params = request.args.to_dict(flat=True) %}
+      <div class="data-table-wrap data-table-wrap--scroll">
+        <table class="table table-striped align-middle mb-0">
+          <thead>
+            <tr>
+              {% set cols = [('folio','Folio'),('fecha','Fecha'),('cliente','Cliente'),('factura_referencia','Factura de referencia'),('monto','Monto'),('motivo','Motivo'),('estado','Estado')] %}
+              {% for key, label in cols %}
+                {% set next_dir = 'asc' if sort_dir == 'desc' and sort_field == key else 'desc' %}
+                {% set final_params = dict(query_params) %}
+                {% set _ = final_params.update({'orden_por': key, 'orden_dir': next_dir}) %}
+                <th>
+                  <a href="{{ url_for('notasCredito', **final_params) }}" class="text-decoration-none" style="color: inherit;">{{ label }}{% if sort_field == key %}<span class="ms-1">{{ '↑' if sort_dir == 'asc' else '↓' }}</span>{% endif %}</a>
+                </th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for nota in datos %}
+            <tr style="cursor:pointer;" data-bs-toggle="modal" data-bs-target="#detalleNotaModal" data-id="{{ nota.id_nota_credito }}" data-folio="{{ nota.folio }}" data-cliente="{{ nota.cliente }}" data-factura="{{ nota.factura_referencia_folio or nota.factura_referencia }}" data-fecha="{{ nota.fecha }}" data-monto="{{ nota.monto_total }}" data-motivo="{{ nota.motivo }}" data-estado="{{ nota.estado }}">
+              <td>{{ nota.folio }}</td>
+              <td>{{ nota.fecha }}</td>
+              <td>{{ nota.cliente or 'Sin cliente' }}</td>
+              <td>{{ nota.factura_referencia_folio or nota.factura_referencia }}</td>
+              <td>${{ '%.2f'|format(nota.monto_total|float) }}</td>
+              <td>{{ nota.motivo }}</td>
+              <td>{{ nota.estado }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if request.args.get('folio') or request.args.get('cliente') or request.args.get('factura_referencia') or request.args.get('fecha_desde') or request.args.get('fecha_hasta') %}
+        {% if not datos or datos|length == 0 %}
+          <div class="empty-state">Excepción 2: No se encontraron resultados para los filtros aplicados.</div>
+        {% endif %}
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal fade" id="detalleNotaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Detalle de nota de crédito</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-4">Folio</dt><dd class="col-sm-8" id="detalle-folio"></dd>
+          <dt class="col-sm-4">Cliente</dt><dd class="col-sm-8" id="detalle-cliente"></dd>
+          <dt class="col-sm-4">Factura referencia</dt><dd class="col-sm-8" id="detalle-factura"></dd>
+          <dt class="col-sm-4">Fecha</dt><dd class="col-sm-8" id="detalle-fecha"></dd>
+          <dt class="col-sm-4">Monto total</dt><dd class="col-sm-8" id="detalle-monto"></dd>
+          <dt class="col-sm-4">Motivo</dt><dd class="col-sm-8" id="detalle-motivo"></dd>
+          <dt class="col-sm-4">Estado</dt><dd class="col-sm-8" id="detalle-estado"></dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const modal = document.getElementById('detalleNotaModal');
+    if (!modal) return;
+    modal.addEventListener('show.bs.modal', function (event) {
+      const row = event.relatedTarget;
+      if (!row) return;
+      document.getElementById('detalle-folio').textContent = row.dataset.folio || '';
+      document.getElementById('detalle-cliente').textContent = row.dataset.cliente || '';
+      document.getElementById('detalle-factura').textContent = row.dataset.factura || '';
+      document.getElementById('detalle-fecha').textContent = row.dataset.fecha || '';
+      document.getElementById('detalle-monto').textContent = row.dataset.monto ? '$' + Number(row.dataset.monto).toFixed(2) : '';
+      document.getElementById('detalle-motivo').textContent = row.dataset.motivo || '';
+      document.getElementById('detalle-estado').textContent = row.dataset.estado || '';
+    });
+  });
+</script>
+</body>
+</html>

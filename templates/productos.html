@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Productos - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<script>
+
+
+    function createTableFromJSON() {
+        var test = document.querySelector('#my_variable').value 
+        const data = JSON.parse(test)
+        if (!data || !data.length) return;
+
+        const table = document.createElement('table');
+        table.className = "table table-striped";
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+        const headerRow = document.createElement('tr');
+
+        // Extract headers from the first object's keys
+        const headers = Object.keys(data[0]);
+        console.log(headers)
+        headers.forEach(key => {
+            const th = document.createElement('th');
+            th.textContent = key;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // Create rows for each data object
+        data.forEach((rowData) => {
+            const tr = document.createElement('tr');
+            headers.forEach(key => {
+            const td = document.createElement('td');
+            // Handle null/undefined or nested objects
+            const value = rowData[key];
+            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
+            tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        document.getElementById('tablaProductos').appendChild(table);
+        } 
+</script>
+
+<body onload="createTableFromJSON()">
+{% include '_flash_toast.html' %}
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a class="active" href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
+
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Datos maestros / Catálogo</div><h1>Productos</h1><p>Administra el catálogo, sus variantes y precios.</p></div>
+    <div class="heading-actions">
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo producto</span></button>
+    </div>
+  </div>
+  <div class="data-card">
+    <div class="data-card-header">
+      <div>
+        <h2>Productos registrados</h2>
+        <span>Consulta en tiempo real</span>
+      </div>
+      <div class="heading-actions">
+        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarIDModal">
+          <i class="bi bi-search" aria-hidden="true"></i><span>ID</span></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarDescripcionModal">
+          <i class="bi bi-person-lines-fill" aria-hidden="true"></i><span>Descripción</span></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarAbreviacionModal">
+          <i class="bi bi-tag" aria-hidden="true"></i><span>Abreviación</span></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="createTableFromJSON()">
+          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Actualizar listado</span></button>
+      </div>
+    </div>
+    <div class="data-table-wrap" id="tablaProductos" onload="createTableFromJSON()"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+</div>
+
+<div class="modal" id="crearModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Crear Producto</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="post" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+          <div class="form-section-title">Información del producto</div>
+            <div class="mb-3">
+                <label for="descripcionForm" class="form-label">Descripción:</label>
+                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="abreviacionForm" class="form-label">Abreviación:</label>
+                <input type="text" class="form-control" id="abreviacionForm" placeholder="Inserte abreviación" name="abreviacionCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoProductoForm" class="form-label">Código del artículo:</label>
+                <input type="text" class="form-control" id="codigoProductoForm" placeholder="Ej: 414" name="codigoCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoEanProductoForm" class="form-label">Código EAN del producto (solo números):</label>
+                <input type="text" class="form-control" id="codigoEanProductoForm" placeholder="Ej: 414" name="codigoEanCrear" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="idColorForm" class="form-label">ID del Color:</label>
+              <select class="form-select" id="idColorForm" name="idColorCrear" required>
+                <option value="" selected disabled>Seleccione un color</option>
+                {% for color in colores %}
+                <option value="{{ color.id_color }}">{{ color.descripcion }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-section-title">Precio</div>
+            <div class="mb-3 mt-3">
+                <label for="precioForm" class="form-label">Precio:</label>
+                <input type="number" class="form-control" id="precioForm" placeholder="Inserte precio" name="precioCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="idTallaForm" class="form-label">ID de Talla:</label>
+              <select class="form-select" id="idTallaForm" name="idTallaCrear" required>
+                <option value="" selected disabled>Seleccione una talla</option>
+                {% for talla in tallas %}
+                    <option value="{{ talla.id_talla }}">{{ talla.talla }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Crear</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="actualizarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Actualizar Producto</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="put" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+          <div class="form-section-title">Información del producto</div>
+            <div class="mb-3 mt-3">
+                <label for="IDidProductoActualizar" class="form-label">Id del producto a actualizar:</label>
+                <input type="text" class="form-control" id="IDidProductoActualizar" placeholder="Inserte id del producto" name="IdProductoActualizar">
+            </div>
+            <div class="mb-3">
+                <label for="descripcionFormActualizar" class="form-label">Descripción:</label>
+                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="abreviacionFormActualizar" class="form-label">Abreviación:</label>
+                <input type="text" class="form-control" id="abreviacionForm" placeholder="Inserte abreviación" name="abreviacionActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoProductoFormActualizar" class="form-label">Código del artículo:</label>
+                <input type="text" class="form-control" id="codigoProductoFormActualizar" placeholder="Ej: 414" name="codigoActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoEanProductoFormActualizar" class="form-label">Código EAN del producto (solo números):</label>
+                <input type="text" class="form-control" id="codigoEanProductoFormActualizar" placeholder="Ej: 414" name="codigoEanActualizar" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="idColorFormActualizar" class="form-label">ID de Color:</label>
+              <select class="form-select" id="idColorFormActualizar" name="idColorActualizar" required>
+                <option value="" selected disabled>Seleccione un color</option>
+                {% for color in colores %}
+                <option value="{{ color.id_color }}">{{ color.descripcion }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-section-title">Precio</div>
+            <div class="mb-3 mt-3">
+                <label for="precioFormActualizar" class="form-label">Precio:</label>
+                <input type="number" class="form-control" id="precioForm" placeholder="Inserte precio" name="precioActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="idtallaFormActualizar" class="form-label">ID de Talla:</label>
+              <select class="form-select" id="idtallaFormActualizar" name="idTallaActualizar" required>
+                <option value="" selected disabled>Seleccione una talla</option>
+                {% for talla in tallas %}
+                    <option value="{{ talla.id_talla }}">{{ talla.talla }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Actualizar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="borrarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Borrar Producto</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="delete" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="idProductoFormBorrar" class="form-label">Id del Producto:</label>
+                <input type="text" class="form-control" id="idProductoFormBorrar" placeholder="Inserte id del producto" name="idProductoBorrar">
+            </div>
+            <button type="submit" class="btn btn-primary">Borrar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarIDModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar Productos</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarID" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="idForm" class="form-label">Por ID:</label>
+                <input type="text" class="form-control" id="idBuscar" placeholder="Inserte ID a buscar" name="idBuscar">
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarDescripcionModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar Productos</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarDescripcion" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="descripcionForm" class="form-label">Por descripción:</label>
+                <input type="text" class="form-control" id="descripcionBuscar" placeholder="Inserte descripción a buscar" name="descripcionBuscar">
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarAbreviacionModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar Productos</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarAbreviacion" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="abreviacionForm" class="form-label">Por abreviación:</label>
+                <input type="text" class="form-control" id="abreviacionBuscar" placeholder="Inserte abreviacion a buscar" name="abreviacionBuscar">
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+
+</html>

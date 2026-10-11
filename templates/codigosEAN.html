@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Códigos EAN - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <style>
+    .codigo-ean { font-family: ui-monospace, Consolas, monospace; letter-spacing: .04em; }
+  </style>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Datos maestros / Integraciones</div><h1>Códigos EAN</h1><p>Código de barras de cada producto por color y talla. Se arma con los códigos EAN de producto, color y talla.</p></div>
+    <div class="heading-actions">
+      <a href="{{ url_for('emisionEAN') }}" class="btn btn-success icon-button"><i class="bi bi-printer" aria-hidden="true"></i><span>Emitir etiquetas</span></a>
+    </div>
+  </div>
+  <div class="data-card">
+    <div class="data-card-header">
+      <div><h2>Códigos EAN registrados</h2><span>{{ datos | length }} variantes</span></div>
+      <form method="GET" class="d-flex gap-2" role="search">
+        <input type="search" class="form-control form-control-sm" name="q" value="{{ busqueda }}" placeholder="Buscar por descripción" aria-label="Buscar por descripción del artículo">
+        <button type="submit" class="btn btn-sm btn-outline-secondary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
+      </form>
+    </div>
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped data-table">
+        <thead>
+          <tr><th>Artículo</th><th>Descripción</th><th>Color</th><th>Talla</th><th>Código EAN</th><th>Tipo</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for fila in datos %}
+          <tr>
+            <td>{{ fila.codigo_articulo }}</td>
+            <td>{{ fila.descripcion }}</td>
+            <td>{{ fila.color or '—' }}</td>
+            <td>{{ fila.talla or '—' }}</td>
+            <td class="codigo-ean">{% if fila.codigo_ean %}{{ fila.codigo_ean }}{% else %}<span class="text-danger">Falta código de producto, color o talla</span>{% endif %}</td>
+            <td>{% if fila.ean_manual %}<span class="badge text-bg-warning">Manual</span>{% else %}<span class="badge text-bg-light">Automático</span>{% endif %}</td>
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#manualModal"
+                      data-id="{{ fila.id_variante }}" data-nombre="{{ fila.codigo_articulo }} {{ fila.descripcion }} — {{ fila.color }} {{ fila.talla }}" data-codigo="{{ fila.codigo_ean or '' }}">Código manual</button>
+              {% if fila.ean_manual %}
+              <form method="POST" class="d-inline">
+                <input type="hidden" name="_method" value="automatico">
+                <input type="hidden" name="idVariante" value="{{ fila.id_variante }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Usar automático</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">{% if busqueda %}No hay artículos que coincidan con «{{ busqueda }}»{% else %}Aún no hay variantes. Se crean al emitir etiquetas o al registrar pedidos.{% endif %}</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal" id="manualModal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">Código EAN manual</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p id="manualNombre" class="text-muted"></p>
+        <p class="small">Úselo solo para artículos que siguen otra lógica de código. El código manual no cambia aunque se modifiquen los códigos del producto, color o talla.</p>
+        <form method="POST">
+          <input type="hidden" name="_method" value="manual">
+          <input type="hidden" name="idVariante" id="manualId">
+          <div class="mb-3">
+            <label for="manualCodigo" class="form-label">Código EAN (13 dígitos):</label>
+            <input type="text" class="form-control codigo-ean" id="manualCodigo" name="codigoManual" inputmode="numeric" pattern="[0-9]{13}" maxlength="13" required>
+          </div>
+          <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('manualModal').addEventListener('show.bs.modal', function (event) {
+    const boton = event.relatedTarget;
+    document.getElementById('manualId').value = boton.dataset.id;
+    document.getElementById('manualNombre').textContent = boton.dataset.nombre;
+    document.getElementById('manualCodigo').value = boton.dataset.codigo;
+  });
+</script>
+</body>
+</html>

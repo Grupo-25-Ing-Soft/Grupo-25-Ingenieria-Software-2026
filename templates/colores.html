@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Colores - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta id="foo" data-name="{{datos.data}}">
+  
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<script>
+
+
+    function createTableFromJSON() {
+        var test = document.querySelector('#my_variable').value 
+        const data = JSON.parse(test)
+        if (!data || !data.length) return;
+
+        const table = document.createElement('table');
+        table.className = "table table-striped";
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+        const headerRow = document.createElement('tr');
+
+        // Extract headers from the first object's keys
+        const headers = Object.keys(data[0]);
+        console.log(headers)
+        headers.forEach(key => {
+            const th = document.createElement('th');
+            th.textContent = key;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // Create rows for each data object
+        data.forEach((rowData) => {
+            const tr = document.createElement('tr');
+            headers.forEach(key => {
+            const td = document.createElement('td');
+            // Handle null/undefined or nested objects
+            const value = rowData[key];
+            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
+            tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        document.getElementById('tablaColores').appendChild(table);
+        } 
+</script>
+
+<body onload="createTableFromJSON()">
+{% include '_flash_toast.html' %}
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
+
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Datos maestros / Catálogo</div><h1>Colores</h1><p>Administra los colores disponibles para los productos.</p></div>
+    <div class="heading-actions">
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo color</span></button>
+    </div>
+  </div>
+  <div class="data-card">
+    <div class="data-card-header">
+      <div>
+        <h2>Colores registrados</h2>
+        <span>Consulta en tiempo real</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarIDModal">
+        <i class="bi bi-search" aria-hidden="true"></i><span>ID</span></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarDescripcionModal">
+        <i class="bi bi-person-lines-fill" aria-hidden="true"></i><span>Descripción</span></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarCodigoModal">
+        <i class="bi bi-tag" aria-hidden="true"></i><span>Código de color</span></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="createTableFromJSON()">
+        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Actualizar listado</span></button>
+    </div>
+    <div class="data-table-wrap" id="tablaColores" onload="createTableFromJSON()"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+</div>
+
+<div class="modal" id="crearModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Crear Color</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="post" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="descripcionForm" class="form-label">Descripción:</label>
+                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoForm" class="form-label">Código:</label>
+                <input type="text" class="form-control" id="codigoForm" placeholder="Inserte código de color" name="codigoCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoEanForm" class="form-label">Código EAN del color (solo números):</label>
+                <input type="text" class="form-control" id="codigoEanForm" placeholder="Ej: 0001" name="codigoEanCrear" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="actualizarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Actualizar Color</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="put" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="IDidColorActualizar" class="form-label">Id del Color a actualizar:</label>
+                <input type="text" class="form-control" id="IDidColorActualizar" placeholder="Inserte id del color" name="idColorActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="descripcionFormActualizar" class="form-label">Descripción:</label>
+                <input type="text" class="form-control" id="descripcionFormActualizar" placeholder="Inserte descripción" name="descripcionActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoFormActualizar" class="form-label">Código:</label>
+                <input type="text" class="form-control" id="codigoFormActualizar" placeholder="Inserte código de color" name="codigoActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoEanFormActualizar" class="form-label">Código EAN del color (solo números):</label>
+                <input type="text" class="form-control" id="codigoEanFormActualizar" placeholder="Ej: 0001" name="codigoEanActualizar" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Actualizar</span></button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="borrarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Borrar Color</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="delete" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="idColorFormBorrar" class="form-label">Id del Color:</label>
+                <input type="text" class="form-control" id="idColorFormBorrar" placeholder="Inserte id del color" name="idColorBorrar">
+            </div>
+            <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-trash3" aria-hidden="true"></i><span>Borrar</span></button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarIDModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar Colores</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarID" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="idForm" class="form-label">Por ID:</label>
+                <input type="text" class="form-control" id="idBuscar" placeholder="Inserte ID a buscar" name="idBuscar">
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarDescripcionModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar Colores</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarDescripcion" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="descripcionForm" class="form-label">Por descripción:</label>
+                <input type="text" class="form-control" id="descripcionBuscar" placeholder="Inserte descripción a buscar" name="descripcionBuscar">
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarCodigoModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar Colores</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarCodigo" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="codigoForm" class="form-label">Por código de color:</label>
+                <input type="text" class="form-control" id="codigoBuscar" placeholder="Inserte código de color a buscar" name="codigoBuscar">
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</body>
+
+</html>

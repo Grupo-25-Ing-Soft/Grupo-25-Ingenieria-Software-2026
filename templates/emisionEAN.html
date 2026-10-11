@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Emisión de etiquetas EAN - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <style>
+    .tallas-grid { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 8px; }
+    .tallas-grid label { display: block; font-weight: 700; margin-bottom: 4px; }
+    .tallas-grid input { width: 5.5rem; }
+    .tallas-total { padding: 6px 0 7px 4px; }
+    .sin-codigo { opacity: .55; }
+  </style>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Datos maestros / Códigos EAN</div><h1>Emisión de etiquetas</h1><p>Elija el producto y el color, e indique cuántas etiquetas imprimir por talla.</p></div>
+    <div class="heading-actions">
+      <a href="{{ url_for('codigosEAN') }}" class="btn btn-outline-secondary icon-button"><i class="bi bi-upc-scan" aria-hidden="true"></i><span>Ver códigos</span></a>
+    </div>
+  </div>
+
+  <form method="POST" target="_blank" class="data-card p-3">
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label for="idProducto" class="form-label">Producto:</label>
+        <select class="form-select" id="idProducto" name="idProducto" required>
+          <option value="" selected disabled>Seleccione un producto</option>
+          {% for producto in productos %}
+          <option value="{{ producto.id_producto }}">{{ producto.codigo or producto.id_producto }} — {{ producto.descripcion }}{% if not producto.codigo_ean %} (sin código EAN){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label for="idColor" class="form-label">Color:</label>
+        <select class="form-select" id="idColor" name="idColor" required>
+          <option value="" selected disabled>Seleccione un color</option>
+          {% for color in colores %}
+          <option value="{{ color.id_color }}">{{ color.descripcion }}{% if color.codigo_ean %} ({{ color.codigo_ean }}){% else %} (sin código EAN){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="form-section-title">Cantidad de etiquetas por talla</div>
+    {% if tallas %}
+    <div class="tallas-grid">
+      {% for talla in tallas %}
+      <div class="{% if not talla.codigo_ean %}sin-codigo{% endif %}">
+        <label for="cantidad_{{ talla.id_talla }}">{{ talla.nombre or talla.talla }}</label>
+        <input type="number" class="form-control form-control-sm cantidad" id="cantidad_{{ talla.id_talla }}" name="cantidad_{{ talla.id_talla }}"
+               min="0" step="1" placeholder="0" {% if not talla.codigo_ean %}title="Esta talla no tiene código EAN"{% endif %}>
+      </div>
+      {% endfor %}
+      <div class="tallas-total">Total: <strong id="total">0</strong></div>
+    </div>
+    <p class="small text-muted">Las tallas en gris aún no tienen código EAN; complételo en Tallas antes de emitirlas.</p>
+    {% else %}
+    <div class="empty-state">No hay tallas registradas.</div>
+    {% endif %}
+
+    <button type="submit" class="btn btn-success icon-button"><i class="bi bi-printer" aria-hidden="true"></i><span>Generar etiquetas</span></button>
+  </form>
+</div>
+
+<script>
+  function actualizarTotal() {
+    let total = 0;
+    document.querySelectorAll('.cantidad').forEach(function (input) {
+      total += Math.max(0, parseInt(input.value, 10) || 0);
+    });
+    document.getElementById('total').textContent = total;
+  }
+  document.querySelectorAll('.cantidad').forEach(function (input) {
+    input.addEventListener('input', actualizarTotal);
+  });
+</script>
+</body>
+</html>

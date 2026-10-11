@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Pagos - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+<aside class="shared-sidebar">
+  <div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div>
+  <div class="shared-caption">Operación</div>
+  <a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a>
+  <div class="shared-caption">Ventas</div>
+  <a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a class="active" href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a>
+  <a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a>
+  <div class="shared-caption">Datos maestros</div>
+  <a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a>
+  <a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a>
+  <a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a>
+  <a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a>
+  <a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a>
+</aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Ventas / Pagos</div>
+      <h1>Pagos de clientes</h1>
+      <p>Registro, consulta y anulación de pagos aplicados a facturas pendientes.</p>
+    </div>
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#crearPagoModal">Nuevo pago</button>
+    </div>
+  </div>
+
+  <div class="data-card mb-4">
+    <div class="data-card-header">
+      <div><h2>Filtros</h2><span>Cliente, fechas y referencia</span></div>
+    </div>
+    <div class="modal-body">
+      <form method="GET" action="{{ url_for('pagos') }}" class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label" for="cliente">Cliente</label>
+          <input type="text" class="form-control" id="cliente" name="cliente" value="{{ cliente_filter }}" placeholder="Nombre cliente">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="fecha_desde">Desde</label>
+          <input type="date" class="form-control" id="fecha_desde" name="fecha_desde" value="{{ fecha_desde }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="fecha_hasta">Hasta</label>
+          <input type="date" class="form-control" id="fecha_hasta" name="fecha_hasta" value="{{ fecha_hasta }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="referencia">Referencia</label>
+          <input type="text" class="form-control" id="referencia" name="referencia" value="{{ referencia_filter }}" placeholder="Cheque, transferencia...">
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2">
+          <a href="{{ url_for('pagos') }}" class="btn btn-outline-secondary">Limpiar</a>
+          <button type="submit" class="btn btn-primary">Filtrar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <div><h2>Resultados</h2><span>Listado de pagos registrados</span></div>
+    </div>
+
+    {% if not datos %}
+      <div class="empty-state">Excepción 1: no hay pagos registrados para el criterio seleccionado.</div>
+    {% else %}
+      <div class="data-table-wrap data-table-wrap--scroll">
+        <table class="table table-striped align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Folio</th>
+              <th>Cliente</th>
+              <th>Fecha</th>
+              <th>Monto</th>
+              <th>Medio</th>
+              <th>Referencia</th>
+              <th>Estado</th>
+              <th>Facturas</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for pago in datos %}
+            <tr>
+              <td>{{ pago.folio }}</td>
+              <td>{{ pago.cliente }}</td>
+              <td>{{ pago.fecha_pago }}</td>
+              <td>${{ '%.2f'|format(pago.monto|float) }}</td>
+              <td>{{ pago.medio_pago }}</td>
+              <td>{{ pago.referencia or '-' }}</td>
+              <td>{{ pago.estado }}</td>
+              <td>
+                {% if pago.detalle_facturas %}
+                  {% for detalle in pago.detalle_facturas %}
+                    <div>F-{{ detalle.folio }}: ${{ '%.2f'|format(detalle.monto_aplicado|float) }}</div>
+                  {% endfor %}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td>
+                <div class="d-flex gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editarPagoModal" data-id="{{ pago.id_pago }}" data-cliente="{{ pago.cliente_id }}" data-monto="{{ pago.monto }}" data-fecha="{{ pago.fecha_pago }}" data-medio="{{ pago.medio_pago }}" data-referencia="{{ pago.referencia or '' }}">Editar</button>
+                  <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#anularPagoModal" data-id="{{ pago.id_pago }}">Anular</button>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal fade" id="crearPagoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Registrar pago</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form method="POST" action="{{ url_for('pagos') }}">
+        <input type="hidden" name="_method" value="post">
+        <div class="modal-body row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="cliente_pago">Cliente</label>
+            <select class="form-select" id="cliente_pago" name="cliente" required>
+              <option value="">Seleccione cliente</option>
+              {% for cliente in clientes %}
+              <option value="{{ cliente.id_cliente }}">{{ cliente.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="monto_pago">Monto</label>
+            <input type="number" step="0.01" min="0.01" class="form-control" id="monto_pago" name="monto" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="fecha_pago">Fecha</label>
+            <input type="date" class="form-control" id="fecha_pago" name="fecha_pago" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="medio_pago">Medio de pago</label>
+            <select class="form-select" id="medio_pago" name="medio_pago" required>
+              <option value="">Seleccione</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="efectivo">Efectivo</option>
+              <option value="cheque">Cheque</option>
+              <option value="deposito">Depósito</option>
+              <option value="tarjeta">Tarjeta</option>
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" for="referencia_pago">Referencia</label>
+            <input type="text" class="form-control" id="referencia_pago" name="referencia" placeholder="N° transferencia, cheque o depósito">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Facturas pendientes</label>
+            <div class="border rounded p-3">
+              {% if clientes %}
+                <div class="small text-muted mb-2">Selecciona las facturas a las que aplicar el pago.</div>
+                <div id="facturasPendientesWrapper">
+                  {% for factura in facturas %}
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="facturas" value="{{ factura.id_factura }}" id="factura_{{ factura.id_factura }}">
+                    <label class="form-check-label d-flex justify-content-between w-100" for="factura_{{ factura.id_factura }}">
+                      <span>Factura {{ factura.folio }}</span>
+                      <span>${{ '%.2f'|format(factura.saldo_pendiente|float) }}</span>
+                    </label>
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted small">Primero selecciona un cliente para ver las facturas pendientes.</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar pago</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="editarPagoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Editar pago</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form method="POST" action="{{ url_for('pagos') }}">
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" id="id_pago_actualizar" name="id_pago_actualizar">
+        <div class="modal-body row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="cliente_actualizar">Cliente</label>
+            <select class="form-select" id="cliente_actualizar" name="cliente_actualizar" required>
+              {% for cliente in clientes %}
+              <option value="{{ cliente.id_cliente }}">{{ cliente.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="monto_actualizar">Monto</label>
+            <input type="number" step="0.01" min="0.01" class="form-control" id="monto_actualizar" name="monto_actualizar" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="fecha_pago_actualizar">Fecha</label>
+            <input type="date" class="form-control" id="fecha_pago_actualizar" name="fecha_pago_actualizar" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="medio_pago_actualizar">Medio de pago</label>
+            <select class="form-select" id="medio_pago_actualizar" name="medio_pago_actualizar" required>
+              <option value="transferencia">Transferencia</option>
+              <option value="efectivo">Efectivo</option>
+              <option value="cheque">Cheque</option>
+              <option value="deposito">Depósito</option>
+              <option value="tarjeta">Tarjeta</option>
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" for="referencia_actualizar">Referencia</label>
+            <input type="text" class="form-control" id="referencia_actualizar" name="referencia_actualizar">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Facturas pendientes</label>
+            <div class="border rounded p-3">
+              {% for factura in facturas %}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="facturas_actualizar" value="{{ factura.id_factura }}" id="factura_actualizar_{{ factura.id_factura }}">
+                <label class="form-check-label d-flex justify-content-between w-100" for="factura_actualizar_{{ factura.id_factura }}">
+                  <span>Factura {{ factura.folio }}</span>
+                  <span>${{ '%.2f'|format(factura.saldo_pendiente|float) }}</span>
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Actualizar pago</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="anularPagoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Anular pago</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form method="POST" action="{{ url_for('pagos') }}">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" id="id_pago_anular" name="id_pago_anular">
+        <div class="modal-body">
+          <p>Esta acción revierte el saldo aplicado a las facturas y marca el pago como anulada.</p>
+          <label class="form-label" for="motivo_anulacion">Motivo de anulación</label>
+          <textarea class="form-control" id="motivo_anulacion" name="motivo_anulacion" rows="3" required></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-danger">Confirmar anulación</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  const crearPagoModal = document.getElementById('crearPagoModal');
+  const editarPagoModal = document.getElementById('editarPagoModal');
+  const anularPagoModal = document.getElementById('anularPagoModal');
+
+  if (crearPagoModal) {
+    crearPagoModal.addEventListener('show.bs.modal', function () {
+      const clientSelect = document.getElementById('cliente_pago');
+      const wrapper = document.getElementById('facturasPendientesWrapper');
+      if (!clientSelect || !wrapper) return;
+      const clienteId = clientSelect.value;
+      if (!clienteId) {
+        wrapper.innerHTML = '<div class="text-muted small">Primero selecciona un cliente para ver las facturas pendientes.</div>';
+        return;
+      }
+      fetch('{{ url_for("pagos") }}?cliente=' + encodeURIComponent(clienteId), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (response) { return response.text(); })
+        .then(function () {
+          window.location.reload();
+        });
+    });
+  }
+
+  if (editarPagoModal) {
+    editarPagoModal.addEventListener('show.bs.modal', function (event) {
+      const trigger = event.relatedTarget;
+      if (!trigger) return;
+      document.getElementById('id_pago_actualizar').value = trigger.dataset.id || '';
+      document.getElementById('cliente_actualizar').value = trigger.dataset.cliente || '';
+      document.getElementById('monto_actualizar').value = trigger.dataset.monto || '';
+      document.getElementById('fecha_pago_actualizar').value = trigger.dataset.fecha || '';
+      document.getElementById('medio_pago_actualizar').value = trigger.dataset.medio || '';
+      document.getElementById('referencia_actualizar').value = trigger.dataset.referencia || '';
+    });
+  }
+
+  if (anularPagoModal) {
+    anularPagoModal.addEventListener('show.bs.modal', function (event) {
+      const trigger = event.relatedTarget;
+      if (!trigger) return;
+      document.getElementById('id_pago_anular').value = trigger.dataset.id || '';
+    });
+  }
+</script>
+</body>
+</html>
