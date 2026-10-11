@@ -831,7 +831,7 @@ def informeProductosDespachados():
                         productos=productos_response.data or [],
                     )
 
-        if metodo == 'buscarFactura':
+        if metodo in ('buscarFactura', 'buscarFacturas'):  # el formulario envía 'buscarFacturas'
             factura_abuscar = (request.form.get('FacturaBuscarn') or '').strip()
             if factura_abuscar:
                 query = query.eq('id_factura', factura_abuscar)
@@ -849,7 +849,7 @@ def informeProductosDespachados():
 
         producto_abuscar = (request.form.get('ProductoBuscarn') or '').strip()
         producto_abuscar_int = None
-        if metodo == 'buscarProducto' and producto_abuscar:
+        if metodo in ('buscarProducto', 'buscarProductos') and producto_abuscar:  # el formulario envía 'buscarProductos'
             try:
                 producto_abuscar_int = int(producto_abuscar)
             except ValueError:
@@ -857,7 +857,7 @@ def informeProductosDespachados():
             if producto_abuscar_int is not None:
                 detalle_query = detalle_query.eq('id_variante', producto_abuscar_int)
 
-        if pedido_ids or (metodo == 'buscarProducto' and producto_abuscar_int is not None):
+        if pedido_ids or (metodo in ('buscarProducto', 'buscarProductos') and producto_abuscar_int is not None):
             response_detalle = detalle_query.execute()
             detalle_rows = response_detalle.data if hasattr(response_detalle, 'data') else response_detalle.get('data', [])
         else:
@@ -926,7 +926,7 @@ def informeProductosPendientesDespacho():
                             supabase.table('pedidos')
                             .select("id_pedido, detalle_pedidos!inner(id_variante)")
                             .eq('estado', 'pendiente')
-                            .eq('id_pedido  ', pedidoABuscar)
+                            .eq('id_pedido', pedidoABuscar)
                             .execute()
                         )
         if metodo == 'buscarClientes':

@@ -1,0 +1,10 @@
+# Dependencias de la aplicación Flask (realFlask.py) del Grupo 25.
+# Versiones mínimas con las que se verificó la rama integracion-final (oct 2026).
+# Instalar con:  pip install -r requirements.txt
+flask>=3.1
+supabase>=2.32
+python-dotenv>=1.2
+reportlab>=5.0
+
+# Solo para ejecutar las pruebas:  python -m pytest tests
+pytest>=9.0
