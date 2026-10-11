@@ -139,8 +139,8 @@
 </script>
 
 <body onload="cargarTablas()">
-    <input type="hidden"  id="Pedidos" value='{{ pedidos | tojson }}'>
-    <input type="hidden"  id="Despachos" value='{{ despachos | tojson }}'>
+    {% if pedidos %}<input type="hidden"  id="Pedidos" value='{{ pedidos | tojson }}'>{% endif %}
+    {% if despachos %}<input type="hidden"  id="Despachos" value='{{ despachos | tojson }}'>{% endif %}
 <div>
     <P>Análisis de pedidos y despachos por tiempo - Test</P>
     <form method="POST" role="form" action="#">
