@@ -796,38 +796,81 @@ def obtener_informe_cobranza(request_args):
 
 @app.route('/informeProductosDespachados.html', methods=['GET', 'POST'])
 def informeProductosDespachados():
+    productos_response = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
     if request.method == 'POST':
-        #Buscar los productos despachados entre tal y tal fecha
-        #Para ello necesitamos sacar los productos en los detalles de los pedidos asociados
-        #TODO: Como los despachos no necesariamente son de un pedido completo, una vez lo arreglemos
-        #en la base de datos, tenemos que cambiarlo aquí igual
-        fechaDesde = request.form['desdeFecha']
-        fechaHasta = request.form['hastaFecha']
-        responseDespachos = (
-            supabase.table('despachos')
-            .select('id_despacho, pedidos!inner(id_pedido)')
-            .eq('estado', 'emitido')
-            .gte('fecha', fechaDesde)
-            .lte('fecha', fechaHasta)
-            .execute()
+        metodo = (request.form.get('_method') or 'get').strip()
+        fechaDesde = (request.form.get('desdeFecha') or '').strip()
+        fechaHasta = (request.form.get('hastaFecha') or '').strip()
+
+        query = supabase.table('despachos').select(
+            'id_despacho, numero_guia, fecha, id_pedido, id_factura, id_bodega, estado, observacion, '
+            'pedidos!inner(id_pedido, cliente_asociado, vendedor_asociado), '
+            'facturas!left(id_factura, numero_factura, razon_social)'
+        ).eq('estado', 'emitido')  # Solo despachos vigentes: los anulados no cuentan como despachados (nueva-interfaz)
+
+        if fechaDesde:
+            query = query.gte('fecha', fechaDesde)
+        if fechaHasta:
+            query = query.lte('fecha', fechaHasta)
+
+        if metodo == 'buscarClientes':
+            cliente_abuscar = (request.form.get('ClienteBuscarn') or '').strip()
+            if cliente_abuscar:
+                pedido_ids = [
+                    row.get('id_pedido') for row in (
+                        supabase.table('pedidos').select('id_pedido').eq('cliente_asociado', cliente_abuscar).execute().data or []
+                    ) if row.get('id_pedido') is not None
+                ]
+                if pedido_ids:
+                    query = query.in_('id_pedido', pedido_ids)
+                else:
+                    return render_template(
+                        'informeProductosDespachados.html',
+                        datos=[],
+                        detallePedidos=[],
+                        productos=productos_response.data or [],
+                    )
+
+        if metodo == 'buscarFactura':
+            factura_abuscar = (request.form.get('FacturaBuscarn') or '').strip()
+            if factura_abuscar:
+                query = query.eq('id_factura', factura_abuscar)
+
+        response_despachos = query.execute()
+        despachos = response_despachos.data or []
+        pedido_ids = [despacho.get('id_pedido') for despacho in despachos if despacho.get('id_pedido') is not None]
+
+        detalle_query = supabase.table('detalle_pedidos').select(
+            'id_detalle_pedido, id_pedido, id_variante, cantidad, precio_unitario, subtotal, '
+            'producto_variantes!inner(id_variante, descripcion)'
         )
-        despachos = responseDespachos.data
-        pedidosRelevantes = []
-        for x in range(len(despachos)):
-            pedidosRelevantes.append(despachos[x]['pedidos']['id_pedido'])
-        print(pedidosRelevantes)
-        
-        responseDetallePedidos = (
-            supabase.table('detalle_pedidos')
-            .select('id_detalle_pedido, id_pedido, cantidad, producto_variantes!inner(id_variante)')
-            .in_('id_pedido', pedidosRelevantes)
-            .execute()
+        if pedido_ids:
+            detalle_query = detalle_query.in_('id_pedido', pedido_ids)
+
+        producto_abuscar = (request.form.get('ProductoBuscarn') or '').strip()
+        producto_abuscar_int = None
+        if metodo == 'buscarProducto' and producto_abuscar:
+            try:
+                producto_abuscar_int = int(producto_abuscar)
+            except ValueError:
+                producto_abuscar_int = None
+            if producto_abuscar_int is not None:
+                detalle_query = detalle_query.eq('id_variante', producto_abuscar_int)
+
+        if pedido_ids or (metodo == 'buscarProducto' and producto_abuscar_int is not None):
+            response_detalle = detalle_query.execute()
+            detalle_rows = response_detalle.data if hasattr(response_detalle, 'data') else response_detalle.get('data', [])
+        else:
+            detalle_rows = []
+
+        return render_template(
+            'informeProductosDespachados.html',
+            datos=response_despachos.data or [],
+            detallePedidos=detalle_rows,
+            productos=productos_response.data or [],
         )
 
-        return render_template('informeProductosDespachados.html', datos = responseDespachos.data,
-                                detallePedidos = responseDetallePedidos.data)
-    else:
-        return render_template('informeProductosDespachados.html')
+    return render_template('informeProductosDespachados.html', productos=productos_response.data or [])
 
 @app.route('/informeProductosEnProceso.html', methods=['GET', 'POST'])
 def informeProductosEnProceso():
@@ -868,8 +911,8 @@ def informeProductosPendientesDespacho():
                     .select("id_vendedor, nombre")
                     .execute()
     )
-    if request.method == 'POST' or 'GET':
-        metodo = request.form['method_']
+    if request.method == 'POST':
+        metodo = request.form['_method']
         if metodo == 'get':
             responsePedidos = (
                 supabase.table('pedidos')
@@ -887,7 +930,7 @@ def informeProductosPendientesDespacho():
                             .execute()
                         )
         if metodo == 'buscarClientes':
-            clienteABuscar = request.form['clienteBuscar']
+            clienteABuscar = request.form['ClienteBuscarn']
             responsePedidos = (
                             supabase.table('pedidos')
                             .select("id_pedido, detalle_pedidos!inner(id_variante)")
@@ -896,7 +939,7 @@ def informeProductosPendientesDespacho():
                             .execute()
                         )
         if metodo == 'buscarVendedores':
-            vendedorABuscar = request.form['vendedorBuscar']
+            vendedorABuscar = request.form['VendedorBuscarn']
             responsePedidos = (
                             supabase.table('pedidos')
                             .select("id_pedido, detalle_pedidos!inner(id_variante)")
@@ -927,7 +970,8 @@ def informeProductosPendientesDespacho():
                                 datosInventario = responseInventario.data, datosProductos = responseProductos.data,
                                 clientes = responseClientes.data, vendedores = responseVendedores.data, pedidos = responseIDPedidos.data)   
     else:
-        return render_template('informeProductosPendientesDespacho.html')
+        return render_template('informeProductosPendientesDespacho.html',
+                                clientes = responseClientes.data, vendedores = responseVendedores.data, pedidos = responseIDPedidos.data)  
 
 @app.route('/informeProductosTerminados.html', methods=['GET', 'POST'])
 def informeProductosTerminados():
@@ -957,64 +1001,105 @@ def informeProductosTerminados():
 def analisisDespachoClienteProducto():
     responseProductos = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
     responseClientes = supabase.table('clientes').select('id_cliente, nombre').execute()
+    responseVendedores = supabase.table('vendedores').select('id_vendedor, nombre').execute()
     if request.method == 'POST':
         #Despachos a cliente por producto.
         #TODO: Clarificar con el usuario si cada producto cuenta como su propio despacho,
         #o si varios caben en uno.
         cliente = request.form['IDCliente']
         producto = request.form['IDProducto']
-        #if producto
         response = (
-            supabase.table('despachos').select('*, pedidos!inner(id_pedido)')
+            supabase.table('despachos').select('*, pedidos!inner(id_pedido), facturas!left(id_factura, numero_factura)')
             .eq('pedidos.cliente_asociado', cliente)
             .execute()
         )
         responsePedidos = (
-            supabase.table("pedidos").select("*, detalle_pedidos!inner(id_variante)")
+            supabase.table("pedidos").select("*, detalle_pedidos!inner(id_variante, cantidad, producto_variantes!inner(id_variante, descripcion))")
             .eq("detalle_pedidos.id_variante", producto)
             .execute()
         )
-        return render_template('analisisDespachoClienteProducto.html',clientes = responseClientes.data, productos = responseProductos.data, datos = response.data, datosPedidos = responsePedidos.data)
+        return render_template('analisisDespachoClienteProducto.html', clientes=responseClientes.data, vendedores=responseVendedores.data, productos=responseProductos.data, datos=response.data, datosPedidos=responsePedidos.data)
     else:
-        return render_template('analisisDespachoClienteProducto.html',clientes = responseClientes.data, productos = responseProductos.data)
+        return render_template('analisisDespachoClienteProducto.html', clientes=responseClientes.data, vendedores=responseVendedores.data, productos=responseProductos.data)
 
 @app.route('/analisisDespachoSegunFacturaCliente.html', methods=['GET', 'POST'])
 def analisisDespachoSegunFacturaCliente():
+    responseClientes = supabase.table('clientes').select('id_cliente, nombre').execute()
+    responseFacturas = supabase.table('facturas').select('id_factura, numero_factura, razon_social, id_cliente').execute()
+    responseVendedores = supabase.table('vendedores').select('id_vendedor, nombre').execute()
     if request.method == 'POST':
-        #TODO:Despachos según factura y cliente. Clarificar con el usuario
-        response = (
-            supabase.table('').select('')
+        fechaDesde = (request.form.get('desdeFecha') or '').strip()
+        fechaHasta = (request.form.get('hastaFecha') or '').strip()
+        cliente = request.form.get('IDCliente')
+        factura = request.form.get('IDFactura')
 
-            .execute()
+        query = supabase.table('despachos').select(
+            'id_despacho, numero_guia, fecha, id_pedido, id_factura, id_bodega, estado, observacion, '
+            'pedidos!inner(id_pedido, cliente_asociado, vendedor_asociado), '
+            'facturas!left(id_factura, numero_factura, razon_social)'
+        )
+        if fechaDesde:
+            query = query.gte('fecha', fechaDesde)
+        if fechaHasta:
+            query = query.lte('fecha', fechaHasta)
+        if cliente:
+            pedido_ids = [
+                row.get('id_pedido') for row in (
+                    supabase.table('pedidos').select('id_pedido').eq('cliente_asociado', cliente).execute().data or []
+                ) if row.get('id_pedido') is not None
+            ]
+            if pedido_ids:
+                query = query.in_('id_pedido', pedido_ids)
+            else:
+                return render_template(
+                    'analisisDespachosSegunFacturaCliente.html',
+                    clientes=responseClientes.data or [],
+                    facturas=responseFacturas.data or [],
+                    vendedores=responseVendedores.data or [],
+                    datos=[],
+                )
+        if factura:
+            query = query.eq('id_factura', factura)
+
+        response = query.execute()
+        return render_template(
+            'analisisDespachosSegunFacturaCliente.html',
+            clientes=responseClientes.data or [],
+            facturas=responseFacturas.data or [],
+            vendedores=responseVendedores.data or [],
+            datos=response.data or [],
         )
 
-        return render_template('analisisDespachoSegunFacturaCliente.html', datos = response.data)
-    else:
-        return render_template('analisisDespachoSegunFacturaCliente.html')
+    return render_template(
+        'analisisDespachosSegunFacturaCliente.html',
+        clientes=responseClientes.data or [],
+        facturas=responseFacturas.data or [],
+        vendedores=responseVendedores.data or [],
+    )
 
 @app.route('/analisisDespachoVendedorProducto.html', methods=['GET', 'POST'])
 def analisisDespachoVendedorProducto():
     responseProductos = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
     responseVendedores = supabase.table('vendedores').select('id_vendedor, nombre').execute()
+    responseClientes = supabase.table('clientes').select('id_cliente, nombre').execute()
     if request.method == 'POST':
         #Despachos por vendedor y producto; cuantos productos y de qué tipo se enviaron
-        #a qué vendedor. Probablemente debería tener fechas límite igual
+        #a qué vendedor.
         vendedor = request.form['IDVendedor']
         producto = request.form['IDProducto']
-        #if producto
         response = (
-            supabase.table('despachos').select('*, pedidos!inner(id_pedido)')
+            supabase.table('despachos').select('*, pedidos!inner(id_pedido), facturas!left(id_factura, numero_factura)')
             .eq('pedidos.vendedor_asociado', vendedor)
             .execute()
         )
         responsePedidos = (
-            supabase.table("pedidos").select("*, detalle_pedidos!inner(id_variante)")
+            supabase.table("pedidos").select("*, detalle_pedidos!inner(id_variante, cantidad, producto_variantes!inner(id_variante, descripcion))")
             .eq("detalle_pedidos.id_variante", producto)
             .execute())
 
-        return render_template('analisisDespachoVendedorProducto.html',vendedores = responseVendedores.data, productos = responseProductos.data, datos = response.data, datosPedidos = responsePedidos.data)
+        return render_template('analisisDespachoVendedorProducto.html', vendedores=responseVendedores.data, clientes=responseClientes.data, productos=responseProductos.data, datos=response.data, datosPedidos=responsePedidos.data)
     else:
-        return render_template('analisisDespachoVendedorProducto.html', vendedores = responseVendedores.data, productos = responseProductos.data)
+        return render_template('analisisDespachoVendedorProducto.html', vendedores=responseVendedores.data, clientes=responseClientes.data, productos=responseProductos.data)
 
 @app.route('/analisisPedidosDespachosMensuales.html', methods=['GET', 'POST'])
 def analisisPedidosDespachosMensuales():
@@ -1043,17 +1128,18 @@ def analisisPedidosDespachosMensuales():
 @app.route('/analisisVentasDescuentos.html', methods=['GET', 'POST'])
 def analisisVentasDescuentos():
     if request.method == 'POST':
-        #Factores relevantes serían los descuentos y porcentajes de comisión.
-        #Hay que sacar el valor de los pedidos en bruto, y ver cuanto se pierde por descuentos
-        fechaDesde = request.form['desdeFecha']
-        fechaHasta = request.form['hastaFecha']
-        responsePedidos = (
-            supabase.table('pedidos')
-            .select('id_pedido, fecha_pedido, fecha_entrega, estado, cliente_asociado, vendedor_asociado')
-            .gte('fecha_pedido', fechaDesde)
-            .lte('fecha_pedido', fechaHasta)
-            .execute()
+        fechaDesde = (request.form.get('desdeFecha') or '').strip()
+        fechaHasta = (request.form.get('hastaFecha') or '').strip()
+
+        query = supabase.table('pedidos').select(
+            'id_pedido, fecha_pedido, fecha_entrega, estado, cliente_asociado, vendedor_asociado'
         )
+        if fechaDesde:
+            query = query.gte('fecha_pedido', fechaDesde)
+        if fechaHasta:
+            query = query.lte('fecha_pedido', fechaHasta)
+
+        responsePedidos = query.execute()
         responseClientes = (
             supabase.table('clientes')
             .select('id_cliente, descuento_1, descuento_2, descuento_3, nombre')
@@ -1065,41 +1151,86 @@ def analisisVentasDescuentos():
             .execute()
         )
 
-        return render_template('analisisVentasDescuentos.html', datosPedidos = responsePedidos.data,
-                               datosClientes = responseClientes.data, datosVendedores = responseVendedores.data)
-    else:
-        return render_template('analisisVentasDescuentos.html')
+        return render_template(
+            'analisisVentasDescuentos.html',
+            datosPedidos=responsePedidos.data or [],
+            datosClientes=responseClientes.data or [],
+            datosVendedores=responseVendedores.data or [],
+        )
+    return render_template('analisisVentasDescuentos.html')
 
 @app.route('/resumenProduccion.html', methods=['GET', 'POST'])
 def resumenProduccion():
     if request.method == 'POST':
-        #TODO: Clarificar con el usuario en qué consiste este resumen.
-        #Presumiblemente productos en cortes, quizá producidos recientemente también
-        response = (
-            supabase.table('').select('')
-
-            .execute()
+        fechaDesde = (request.form.get('desdeFecha') or '').strip()
+        fechaHasta = (request.form.get('hastaFecha') or '').strip()
+        query = supabase.table('cortes').select(
+            'id_corte, fecha_corte, fecha_ingreso, cantidad, producto_asociado, estado, '
+            'productos!inner(id_producto, descripcion)'
         )
+        if fechaDesde:
+            query = query.gte('fecha_ingreso', fechaDesde)
+        if fechaHasta:
+            query = query.lte('fecha_ingreso', fechaHasta)
 
-        return render_template('resumenProduccion.html', datos = response.data)
-    else:
-        return render_template('resumenProduccion.html')
+        rows = query.execute().data or []
+        resumen = {}
+        for row in rows:
+            producto_id = row.get('producto_asociado')
+            producto_desc = None
+            producto_rel = row.get('productos')
+            if isinstance(producto_rel, dict):
+                producto_desc = producto_rel.get('descripcion')
+            key = (producto_id, producto_desc)
+            if key not in resumen:
+                resumen[key] = {
+                    'producto_id': producto_id,
+                    'descripcion': producto_desc or 'Sin descripción',
+                    'cantidad_total': 0,
+                    'cortes': 0,
+                }
+            resumen[key]['cantidad_total'] += int(row.get('cantidad') or 0)
+            resumen[key]['cortes'] += 1
+
+        return render_template('resumenProduccion.html', datos=list(resumen.values()))
+    return render_template('resumenProduccion.html')
 
 @app.route('/inventario.html', methods=['GET', 'POST'])
 def inventario():
     if request.method == 'POST':
-        #Aquí hay que mostrar el inventario, que serían los productos
-        #por bodega,  talla, y color, con su respectiva cantidad.
-        #TODO: Mirar si lo que hicieron en bodega es redundante con esto
-        response = (
-            supabase.table('').select('')
-
-            .execute()
+        query = supabase.table('inventario').select(
+            'id_inventario, id_bodega, id_variante, id_talla, id_color, cantidad, cantidad_defectuosa, '
+            'usuario_actualizacion, '
+            'bodegas!inner(id_bodega, descripcion), '
+            'producto_variantes!inner(id_variante, descripcion), '
+            'tallas!inner(id_talla, nombre), '
+            'colores!inner(id_color, descripcion)'
         )
+        if request.form.get('desdeFecha'):
+            query = query.gte('fecha_actualizacion', request.form['desdeFecha'])
+        if request.form.get('hastaFecha'):
+            query = query.lte('fecha_actualizacion', request.form['hastaFecha'])
 
-        return render_template('inventario.html', datos = response.data)
-    else:
-        return render_template('inventario.html')
+        rows = query.execute().data or []
+        datos = []
+        for row in rows:
+            bodega = row.get('bodegas') if isinstance(row.get('bodegas'), dict) else {}
+            variante = row.get('producto_variantes') if isinstance(row.get('producto_variantes'), dict) else {}
+            talla = row.get('tallas') if isinstance(row.get('tallas'), dict) else {}
+            color = row.get('colores') if isinstance(row.get('colores'), dict) else {}
+            datos.append({
+                'id_inventario': row.get('id_inventario'),
+                'bodega': bodega.get('descripcion') if isinstance(bodega, dict) else row.get('id_bodega'),
+                'producto': variante.get('descripcion') if isinstance(variante, dict) else row.get('id_variante'),
+                'talla': talla.get('nombre') if isinstance(talla, dict) else row.get('id_talla'),
+                'color': color.get('descripcion') if isinstance(color, dict) else row.get('id_color'),
+                'cantidad': row.get('cantidad') or 0,
+                'cantidad_defectuosa': row.get('cantidad_defectuosa') or 0,
+                'usuario_actualizacion': row.get('usuario_actualizacion'),
+            })
+
+        return render_template('inventario.html', datos=datos)
+    return render_template('inventario.html')
 
 @app.route('/informeCobranza.html', methods=['GET'])
 def informeCobranza():
@@ -2171,6 +2302,15 @@ def ingresoBodega():
 @app.route('/produccion.html', methods=['GET'])      
 def produccion():
         return render_template('produccion.html')
+
+@app.route('/reportes.html', methods=['GET'])
+def reportes():
+        return render_template('reportes.html')
+
+@app.route('/analisisProductosPedidosDespachados.html', methods=['GET'])
+def analisisProductosPedidosDespachados():
+        # TODO
+        return render_template('analisisProductosPedidosDespachados.html')
 
 @app.route('/', methods=['GET'])
 def index():

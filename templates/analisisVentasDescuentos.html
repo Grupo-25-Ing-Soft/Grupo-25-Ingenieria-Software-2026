@@ -1,58 +1,49 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <title>Análisis de ventas y descuentos - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  {% if datos %}<meta id="foo" data-name="{{datos.data}}">{% endif %}
-  
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-</head>
-<script>
-    
-    function TablaTerminados() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
 
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
+ <script>
+function renderTabla(inputId, containerId) {
+  const input = document.getElementById(inputId);
+  const container = document.getElementById(containerId);
+  if (!input || !container || !input.value) return;
+  const rows = JSON.parse(input.value);
+  if (!Array.isArray(rows) || rows.length === 0) return;
+  const table = document.createElement('table');
+  table.className = 'table table-striped';
+  const thead = document.createElement('thead');
+  const tbody = document.createElement('tbody');
+  const headerRow = document.createElement('tr');
+  const headers = Object.keys(rows[0]);
+  headers.forEach(key => {
+    const th = document.createElement('th');
+    th.textContent = key;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+    headers.forEach(key => {
+      const td = document.createElement('td');
+      const value = row[key];
+      td.textContent = value !== null && typeof value === 'object' ? JSON.stringify(value) : (value ?? '');
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
 
-        // Extract headers from the first object's keys
-        const headers = Object.keys(data[0]);
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaVentasDescuentos').appendChild(table);
-        } 
-
-    function createTableFromJSON() {
+      function createTableFromJSON() {
         var clientes = document.querySelector('#clientes').value 
         const dataClientes = JSON.parse(clientes)
         var vendedores = document.querySelector('#vendedores').value 
@@ -137,69 +128,33 @@
         document.getElementById('tablaVentasDescuentos').appendChild(table);
         } 
 
-    function tableTest(data) {
-        if (!data || !data.length) return;
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = Object.keys(data[0]);
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaVentasDescuentos').appendChild(table);
-        } 
-</script>
-
-
+document.addEventListener('DOMContentLoaded', () => {
+  renderTabla('my_variable', 'tablaVentasDescuentos');
+});
+</script></head>
 <body {% if datosPedidos %}onload="createTableFromJSON()"{% endif %}></body>
-
+{% include '_flash_toast.html' %}
 {% if datosPedidos %}<input type="hidden"  id="pedidos" value='{{ datosPedidos | tojson}}'>{% endif %}
 {% if datosClientes %}<input type="hidden"  id="clientes" value='{{ datosClientes | tojson}}'>{% endif %}
 {% if datosVendedores %}<input type="hidden"  id="vendedores" value='{{ datosVendedores | tojson}}'>{% endif %}
-<div>
-    <P>Análisis de ventas y descuentos - Test</P>
-    <form method="POST" role="form" action="#">
-        <div class="mb-3 mt-3">
-            <!--<label for="DesdeForm" class="form-label">Desde:</label>-->
-            <label for="desdeFechaID" class="form-label">Desde:</label>
-            <input type="date" class="form-control" id="desdeFechaID" placeholder="Productos terminados desde..." name="desdeFecha">
-        </div>
-        <div class="mb-3 mt-3">
-            <!--<label for="HastaForm" class="form-label">Hasta:</label>-->
-            <label for="hastaFechaID" class="form-label">Hasta:</label>
-            <input type="date" class="form-control" id="hastaFechaID" placeholder="Productos terminados hasta..." name="hastaFecha">
-        </div>
-        <button type="submit" class="btn btn-primary">Buscar</button>
-    </form>
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><a href="{{ url_for('reportes') }}" class="active"><span class="shared-nav-icon"><i class="bi bi-bar-chart-line" aria-hidden="true"></i></span><span>Reportes</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Reportes / Análisis de ventas y descuentos</div><h1>Análisis de ventas y descuentos</h1><p>Consulta las ventas y descuentos aplicados durante un periodo.</p></div></div>
+  <div class="data-card"><div class="data-card-header"><div><h2>Filtros</h2><span>Selecciona el rango a consultar</span></div></div>
+    <div class="p-3 p-md-4">
+      <form method="POST" role="form" action="#">
+        <div class="row g-3">
+          <div class="col-md-6"><label for="desdeFechaID" class="form-label">Desde</label><input type="date" class="form-control" id="desdeFechaID" placeholder="Ventas y descuentos desde..." name="desdeFecha"></div>
+          <div class="col-md-6"><label for="hastaFechaID" class="form-label">Hasta</label><input type="date" class="form-control" id="hastaFechaID" placeholder="Productos terminados hasta..." name="hastaFecha"></div>
+          <div class="col-12"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Generar Informe</span></button></div>
+        </div>    
+      </form>
+    </div>
+  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Resultados</h2><span>Ventas y descuentos del periodo seleccionado</span></div></div>
+    <div class="data-table-wrap" id="tablaVentasDescuentos"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
 </div>
-<div class="data-table-wrap" id="tablaVentasDescuentos"></div>
 </body>
-
-
-
 </html>

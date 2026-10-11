@@ -1,172 +1,65 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <title>Análisis de Despachos por Vendedor y Producto - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  {% if datos %}<meta id="foo" data-name="{{datos.data}}">{% endif %}
-  
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-</head>
-<script>
-    
-    function tablaProductosTerminados() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
 
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
+ <script src="{{ url_for('static', filename='report_helpers.js') }}"></script>
+ <script>
+function buildVendedorProductoTables() {
+  const clientes = {{ clientes|tojson if clientes else '[]' }};
+  const vendedores = {{ vendedores|tojson if vendedores else '[]' }};
+  const productos = {{ productos|tojson if productos else '[]' }};
+  const despachoRows = document.getElementById('my_variable') ? JSON.parse(document.getElementById('my_variable').value || '[]') : [];
+  const pedidoRows = document.getElementById('pedidos_json') ? JSON.parse(document.getElementById('pedidos_json').value || '[]') : [];
 
-        // Extract headers from the first object's keys
-        const headers = Object.keys(data[0]);
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
+  const formattedDespachos = flattenDespachoRows(despachoRows, { clientes, vendedores, productos });
+  const formattedPedidos = flattenPedidoDetails(pedidoRows, { clientes, vendedores, productos });
 
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
+  renderStructuredTable(formattedDespachos, 'tablaDespachosVendedorProducto');
+  renderStructuredTable(formattedPedidos, 'tablaPedidosProducto');
+}
 
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaProductosTerminados').appendChild(table);
-        } 
-
-    function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = Object.keys(data[0]);
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('despachosTabla').appendChild(table);
-        } 
-
-    function tableTest(data) {
-        if (!data || !data.length) return;
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = Object.keys(data[0]);
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaProductosTerminados').appendChild(table);
-        } 
-</script>
-
-
-<body {% if datos %}onload="createTableFromJSON()"{% endif %}></body>
-
-{% if datos %}<input type="hidden"  id="my_variable" value='{{ datos | tojson}}'>{% endif %}
-<div>
-    <P>Análisis de Despachos por Vendedor y Producto - Test</P>
-    <form method="POST" role="form" action="#">
-        <div class="mb-3 mt-3">
-            <!--<label for="DesdeForm" class="form-label">Desde:</label>-->
-            <label for="desdeFechaID" class="form-label">Desde:</label>
-            <input type="date" class="form-control" id="desdeFechaID" placeholder="Despachos desde..." name="desdeFecha">
+document.addEventListener('DOMContentLoaded', () => {
+  buildVendedorProductoTables();
+});
+</script></head>
+<body>
+{% include '_flash_toast.html' %}
+{% if datos %}<input type="hidden" id="my_variable" value='{{ datos | tojson}}'>{% endif %}
+{% if datosPedidos %}<input type="hidden" id="pedidos_json" value='{{ datosPedidos | tojson }}'>{% endif %}
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><a href="{{ url_for('reportes') }}" class="active"><span class="shared-nav-icon"><i class="bi bi-bar-chart-line" aria-hidden="true"></i></span><span>Reportes</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Reportes / Despachos por vendedor y producto</div><h1>Despachos por vendedor y producto</h1><p>Consulta despachos según el vendedor y el producto seleccionado.</p></div></div>
+  <div class="data-card">
+    <div class="data-card-header"><div><h2>Filtros</h2><span>Selecciona los criterios a consultar</span></div></div>
+    <div class="p-3 p-md-4">
+      <form method="POST" role="form" action="#">
+        <div class="row g-3">
+          <div class="col-md-6"><label for="IDVendedorForm" class="form-label">Vendedor asociado</label><select class="form-select" id="IDVendedorForm" name="IDVendedor" required><option value="" selected disabled>Selecciona...</option>{% for vendedor in vendedores %}<option value="{{ vendedor.id_vendedor }}">{{ vendedor.nombre }}</option>{% endfor %}</select></div>
+          <div class="col-md-6"><label for="IDProductoForm" class="form-label">Producto</label><select class="form-select" id="IDProductoForm" name="IDProducto" required><option value="" selected disabled>Selecciona...</option>{% for producto in productos %}<option value="{{ producto.id_variante }}">{{ producto.descripcion }}</option>{% endfor %}</select></div>
+          <div class="col-12"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button></div>
         </div>
-        <div class="mb-3 mt-3">
-            <!--<label for="HastaForm" class="form-label">Hasta:</label>-->
-            <label for="hastaFechaID" class="form-label">Hasta:</label>
-            <input type="date" class="form-control" id="hastaFechaID" placeholder="Despachos hasta..." name="hastaFecha">
-        </div>
-        <label for="IDVendedorForm" class="form-label">Vendedor asociado:</label>
-            <select class="form-select" id="IDVendedorForm" name="IDVendedor" required>
-                <option value="" selected disabled>Seleccione un vendedor</option>
-                {% for vendedor in vendedores %}
-                    <option value="{{ vendedor.id_vendedor }}">{{ vendedor.nombre }}</option>
-                {% endfor %}
-            </select>
-        <label for="IDProductoForm" class="form-label">Producto:</label>
-            <select class="form-select" id="IDProductoForm" name="IDProducto" required>
-                <option value="" selected disabled>Seleccione un producto</option>
-                {% for producto in productos %}
-                    <option value="{{ producto.id_variante }}">{{ producto.descripcion }}</option>
-                {% endfor %}
-            </select>
-        <button type="submit" class="btn btn-primary">Buscar</button>
-    </form>
+      </form>
+    </div>
+  </div>
+  <div class="data-card mt-4">
+    <div class="data-card-header"><div><h2>Resultados</h2><span>Despachos asociados a la selección</span></div></div>
+    <div class="data-table-wrap" id="tablaDespachosVendedorProducto"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+  <div class="data-card mt-4">
+    <div class="data-card-header"><div><h2>Pedidos que incluyen el producto</h2><span>Pedidos asociados al producto seleccionado</span></div></div>
+    <div class="data-table-wrap" id="tablaPedidosProducto"></div>
+    {% if not datosPedidos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
 </div>
-<P>Despachos</P>
-<div class="data-table-wrap" id="despachosTabla"></div>
 </body>
-
-
-
 </html>
