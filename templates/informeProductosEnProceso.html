@@ -1,19 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
-  <title>Informe de Prodcutos en Proceso - Comercial D Nix</title>
+  <title>Informe de Productos en Proceso - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta id="foo" data-name="{{datos.data}}">
-  
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-</head>
-<script>
 
-
+ <script>
     function TablaEnProceso() {
         var test = document.querySelector('#cortes').value 
         const data = JSON.parse(test)
@@ -41,37 +37,45 @@
         data.forEach((rowData) => {
             const tr = document.createElement('tr');
             headers.forEach(key => {
-                const td = document.createElement('td');
-                // Handle null/undefined or nested objects
-                const value = rowData[key];
-                console.log(key);
-                if (key == 'producto_asociado'){
-                    var prueba = dataProductos.find(e=>e['id_producto'] === value);
-                    td.textContent = prueba['descripcion'];
-                } else{
-                    td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-                }
-                
-                tr.appendChild(td);
+            const td = document.createElement('td');
+            // Handle null/undefined or nested objects
+            const value = rowData[key];
+            console.log(key);
+            if (key == 'producto_asociado'){
+                var prueba = dataProductos.find(e=>e['id_producto'] === value);
+                td.textContent = prueba['descripcion'];
+            } else{
+                td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
+            }
+            
+            tr.appendChild(td);
             });
             tbody.appendChild(tr);
         });
 
         table.appendChild(thead);
         table.appendChild(tbody);
-        document.getElementById('tablaProceso').appendChild(table);
+        document.getElementById('tablaProductosEnProceso').appendChild(table);
         } 
-</script>
-
+document.addEventListener('DOMContentLoaded', () => {
+  renderTabla('my_variable', 'tablaProductosEnProceso');
+});
+</script></head>
 <body onload="TablaEnProceso()">
-<input type="hidden"  id="cortes" value='{{ datos | tojson }}'>
+{% include '_flash_toast.html' %}
+{% if datos %}<input type="hidden" id="cortes" value='{{ datos | tojson }}'>{% endif %}
 <input type="hidden"  id="productos" value='{{ productos | tojson }}'>
-<div>
-    <P>Productos en proceso</P>
-    <div class="data-table-wrap" id="tablaProceso" onload="createTableFromJSON()"></div>
-    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><a href="{{ url_for('reportes') }}" class="active"><span class="shared-nav-icon"><i class="bi bi-bar-chart-line" aria-hidden="true"></i></span><span>Reportes</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Reportes / Productos en proceso</div><h1>Productos en proceso</h1><p>Consulta los productos que permanecen en proceso de producción.</p></div></div>
+  <div class="data-card"><div class="data-card-header"><div><h2>Filtros</h2><span>Genera el informe de productos en proceso</span></div></div>
+    <div class="p-3 p-md-4"><form method="POST" action="#"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-play-fill" aria-hidden="true"></i><span>Generar informe</span></button></form></div>
+  </div>
+  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Resultados</h2><span>Productos en proceso de producción</span></div></div>
+    <div class="data-table-wrap" id="tablaProductosEnProceso"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
 </div>
-    
 </body>
-
 </html>

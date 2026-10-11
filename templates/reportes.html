@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Reportes - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><a href="{{ url_for('reportes') }}" class="active"><span class="shared-nav-icon"><i class="bi bi-bar-chart-line" aria-hidden="true"></i></span><span>Reportes</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Comercial D Nix / Reportes</div><h1>Reportes</h1><p>Consulta el estado de despachos, pedidos, inventario y producción.</p></div>
+  </div>
+  <div class="dashboard-grid">
+    <a href="{{ url_for('analisisDespachoClienteProducto') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-person-lines-fill" aria-hidden="true"></i></span><span><strong>Despachos por cliente y producto</strong><small>Analiza los despachos asociados a clientes y productos</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('analisisDespachoVendedorProducto') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-person-badge" aria-hidden="true"></i></span><span><strong>Despachos por vendedor y producto</strong><small>Consulta los despachos agrupados por vendedor y producto</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('analisisDespachoSegunFacturaCliente') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span><strong>Despachos según factura y cliente</strong><small>En desarrollo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('analisisPedidosDespachosMensuales') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-calendar3" aria-hidden="true"></i></span><span><strong>Pedidos y despachos mensuales</strong><small>Compara pedidos y despachos por periodo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('analisisVentasDescuentos') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-percent" aria-hidden="true"></i></span><span><strong>Análisis de ventas y descuentos</strong><small>En desarrollo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('informeProductosDespachados') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-truck" aria-hidden="true"></i></span><span><strong>Productos despachados</strong><small>En desarrollo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('informeProductosEnProceso') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-gear-wide-connected" aria-hidden="true"></i></span><span><strong>Productos en proceso</strong><small>Consulta productos que continúan en producción</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('informeProductosPendientesDespacho') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-box-seam" aria-hidden="true"></i></span><span><strong>Productos pendientes de despacho</strong><small>Consulta pedidos e inventario pendiente de despacho</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('informeProductosTerminados') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-check2-square" aria-hidden="true"></i></span><span><strong>Productos terminados</strong><small>Consulta la producción terminada por periodo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('inventario') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-boxes" aria-hidden="true"></i></span><span><strong>Inventario</strong><small>En desarrollo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('resumenProduccion') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-clipboard-data" aria-hidden="true"></i></span><span><strong>Resumen de producción</strong><small>En desarrollo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+    <a href="{{ url_for('analisisProductosPedidosDespachados') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-boxes" aria-hidden="true"></i></span><span><strong>Productos pedidos versus despachados</strong><small>En desarrollo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+  </div>
+</div>
+</body>
+</html>
