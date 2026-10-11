@@ -96,7 +96,7 @@
             suma += porcentajes[i];
         }
         const porcentajeMostrar = document.createElement('p');
-        porcentajeMostrar.textContent = "Porcentaje del pedido posible de cumplir según stock: " + (suma / porcentajes.length);
+        porcentajeMostrar.textContent = "Porcentaje del pedido posible de cumplir según stock: " + (suma / porcentajes.length) + "%";
         document.getElementById('mostrarIDPedido').appendChild(porcentajeMostrar);
   }
     }
