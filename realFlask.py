@@ -796,7 +796,12 @@ def obtener_informe_cobranza(request_args):
 
 @app.route('/informeProductosDespachados.html', methods=['GET', 'POST'])
 def informeProductosDespachados():
-    productos_response = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
+    # Listas para los selectores de los modales de búsqueda
+    catalogos = {
+        'datosProductos': supabase.table('producto_variantes').select('id_variante, descripcion').execute().data or [],
+        'datosClientes': supabase.table('clientes').select('id_cliente, nombre').execute().data or [],
+        'datosFacturas': supabase.table('facturas').select('id_factura, numero_factura').execute().data or [],
+    }
     if request.method == 'POST':
         metodo = (request.form.get('_method') or 'get').strip()
         fechaDesde = (request.form.get('desdeFecha') or '').strip()
@@ -828,7 +833,7 @@ def informeProductosDespachados():
                         'informeProductosDespachados.html',
                         datos=[],
                         detallePedidos=[],
-                        productos=productos_response.data or [],
+                        **catalogos,
                     )
 
         if metodo in ('buscarFactura', 'buscarFacturas'):  # el formulario envía 'buscarFacturas'
@@ -867,10 +872,10 @@ def informeProductosDespachados():
             'informeProductosDespachados.html',
             datos=response_despachos.data or [],
             detallePedidos=detalle_rows,
-            productos=productos_response.data or [],
+            **catalogos,
         )
 
-    return render_template('informeProductosDespachados.html', productos=productos_response.data or [])
+    return render_template('informeProductosDespachados.html', **catalogos)
 
 @app.route('/informeProductosEnProceso.html', methods=['GET', 'POST'])
 def informeProductosEnProceso():

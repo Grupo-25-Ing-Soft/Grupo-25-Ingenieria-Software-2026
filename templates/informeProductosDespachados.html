@@ -12,7 +12,8 @@
  <script src="{{ url_for('static', filename='report_helpers.js') }}"></script>
  <script>
 document.addEventListener('DOMContentLoaded', () => {
-  renderReportTable('my_variable', 'tablaProductosDespachados');
+  renderReportTable('my_variable', 'tablaProductosDespachados', (key, row) =>
+    key === 'pedidos' ? readTextValue(row.pedidos?.id_pedido) : readTextValue(row[key]));
   renderReportTable('detalle_variable', 'tablaDetallePedidos');
 });
 </script></head>
@@ -27,17 +28,18 @@ document.addEventListener('DOMContentLoaded', () => {
   <div class="page-heading"><div><div class="eyebrow">Reportes / Productos despachados</div><h1>Productos despachados</h1><p>Consulta los productos despachados dentro de un periodo.</p></div></div>
   <div class="data-card"><div class="data-card-header"><div><h2>Filtros</h2><span>Selecciona el rango a consultar</span></div></div>
     <div class="p-3 p-md-4">
+          <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarProductosModal">
+            <i class="bi bi-search" aria-hidden="true"></i><span>Productos</span></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarClientesModal">
+            <i class="bi bi-person-lines-fill" aria-hidden="true"></i><span>Clientes</span></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarFacturasModal">
+            <i class="bi bi-tag" aria-hidden="true"></i><span>Facturas</span></button>
       <form method="POST" role="form" action="#">
+        <input type="hidden" name="_method" value="get" />
         <div class="row g-3">
           <div class="col-md-6"><label for="desdeFechaID" class="form-label">Desde</label><input type="date" class="form-control" id="desdeFechaID" name="desdeFecha" required></div>
           <div class="col-md-6"><label for="hastaFechaID" class="form-label">Hasta</label><input type="date" class="form-control" id="hastaFechaID" name="hastaFecha" required></div>
-          <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarPedidosModal">
-            <i class="bi bi-search" aria-hidden="true"></i><span>Pedidos</span></button>
-          <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarClientesModal">
-            <i class="bi bi-person-lines-fill" aria-hidden="true"></i><span>Clientes</span></button>
-          <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarVendedoresModal">
-            <i class="bi bi-tag" aria-hidden="true"></i><span>Vendedores</span></button>
-          <div class="col-12"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button></div>
+          <div class="col-12"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar solo por fecha</span></button></div>
         </div>
       </form>
     </div>
@@ -70,13 +72,17 @@ document.addEventListener('DOMContentLoaded', () => {
             <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
             <div class="mb-3 mt-3">
               <div class="mb-3 mt-3">
-                <label for="fechaDesdeForm" class="form-label">Desde:</label>
-                <input type="date" class="form-control" id="fechaDesdeBuscar" placeholder="Fecha desde la que buscar" name="fechaDesdeBuscar">
+                <label for="desdeProductos" class="form-label">Desde:</label>
+                <input type="date" class="form-control" id="desdeProductos" name="desdeFecha">
+              </div>
+              <div class="mb-3 mt-3">
+                <label for="hastaProductos" class="form-label">Hasta:</label>
+                <input type="date" class="form-control" id="hastaProductos" name="hastaFecha">
               </div>
                 <label for="productosForm" class="form-label">Por producto:</label>
                 <select class="form-select" id="productoBuscar" name="ProductoBuscarn" required>
                   <option value="" selected disabled>Seleccione un producto</option>
-                  {% for producto in productos %}
+                  {% for producto in datosProductos %}
                   <option value="{{ producto.id_variante }}">{{ producto.descripcion }}</option>
                   {% endfor %}
                 </select>
@@ -112,10 +118,18 @@ document.addEventListener('DOMContentLoaded', () => {
             <input type="hidden" name="_method" value="buscarClientes" />
             <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
             <div class="mb-3 mt-3">
+              <div class="mb-3 mt-3">
+                <label for="desdeClientes" class="form-label">Desde:</label>
+                <input type="date" class="form-control" id="desdeClientes" name="desdeFecha">
+              </div>
+              <div class="mb-3 mt-3">
+                <label for="hastaClientes" class="form-label">Hasta:</label>
+                <input type="date" class="form-control" id="hastaClientes" name="hastaFecha">
+              </div>
                 <label for="clientesBuscar" class="form-label">Por cliente:</label>
                 <select class="form-select" id="clienteBuscar" name="ClienteBuscarn" required>
                   <option value="" selected disabled>Seleccione un cliente</option>
-                  {% for cliente in clientes %}
+                  {% for cliente in datosClientes %}
                   <option value="{{ cliente.id_cliente }}">{{ cliente.nombre }}</option>
                   {% endfor %}
               </select>
@@ -151,11 +165,19 @@ document.addEventListener('DOMContentLoaded', () => {
             <input type="hidden" name="_method" value="buscarFacturas" />
             <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
             <div class="mb-3 mt-3">
+              <div class="mb-3 mt-3">
+                <label for="desdeFacturas" class="form-label">Desde:</label>
+                <input type="date" class="form-control" id="desdeFacturas" name="desdeFecha">
+              </div>
+              <div class="mb-3 mt-3">
+                <label for="hastaFacturas" class="form-label">Hasta:</label>
+                <input type="date" class="form-control" id="hastaFacturas" name="hastaFecha">
+              </div>
                 <label for="facturaBuscar" class="form-label">Por factura:</label>
                 <select class="form-select" id="facturaBuscar" name="FacturaBuscarn" required>
                   <option value="" selected disabled>Seleccione una factura</option>
-                  {% for factura in facturas %}
-                  <option value="{{ factura.id_factura }}">{{ vendedor.numero_factura }}</option>
+                  {% for factura in datosFacturas %}
+                  <option value="{{ factura.id_factura }}">{{ factura.numero_factura }}</option>
                   {% endfor %}
                 </select>
             </div>
