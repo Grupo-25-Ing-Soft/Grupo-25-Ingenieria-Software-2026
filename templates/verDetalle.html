@@ -1,126 +1,73 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <title>Detalle de pedido - Comercial D Nix</title>
+  <title>Porcentaje cumplible del pedido - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='2') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-
-    function inicializarDetalle() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
-        const idPedido = Object.values(data[0]);
-        const idMostrar = document.createElement('p');
-        idMostrar.textContent = "Viendo el pedido de ID: " + idPedido[2];
-        document.getElementById('mostrarIDPedido').appendChild(idMostrar);
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = Object.keys(data[0]);
-        //console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-                const td = document.createElement('td');
-                // Handle null/undefined or nested objects
-                const value = rowData[key];
-                td.textContent = (typeof value === 'object') ? JSON.stringify(value) : value;
-                tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaDetallePedido').appendChild(table);
-        let subtotales = 0;
-        let cantidades = [];
-        let stock = [];
-        let porcentajes = [];
-        for (let i = 1; i < table.rows.length; i++) {
-            const row = table.rows[i];
-            if (row.cells.length > 0) {
-                let celda = row.cells[0];
-                celdaV = celda.innerHTML;
-                celdaJ = JSON.parse(celdaV);
-                const valor = Object.values(celdaJ)
-                celdaF = valor[0];
-                cantidades.push(celdaF);
-            }
-            if (row.cells.length > 7) {
-                let celda = row.cells[7];
-                celdaV = celda.innerHTML;
-                celdaJ = JSON.parse(celdaV);
-                const valor = Object.values(celdaJ)
-                celdaF = valor[0];
-                stock.push(celdaF);
-            }
-            if (row.cells.length > 8) {
-                const cell = row.cells[8];
-                if(cell){
-                    subtotales += parseInt(cell.textContent.trim());
-                }
-            }
-        const subtotalMostrar = document.createElement('p');
-        subtotalMostrar.textContent = "Subtotal: " + subtotales;
-        document.getElementById('mostrarIDPedido').appendChild(subtotalMostrar);
-        for (let i = 0; i < table.rows.length; i++){
-            if (stock[0] != 0) {
-                porcentajes.push(100*cantidades[i] / stock[i]);
-            }
-            else {
-                porcentajes.push(0);
-            }
-        }
-        let suma = 0;
-        for (let i = 0; i < porcentajes.length; i++){
-            suma += porcentajes[i];
-        }
-        const porcentajeMostrar = document.createElement('p');
-        porcentajeMostrar.textContent = "Porcentaje del pedido posible de cumplir según stock: " + (suma / porcentajes.length) + "%";
-        document.getElementById('mostrarIDPedido').appendChild(porcentajeMostrar);
-  }
-    }
-
-    function calcularSubtotal() {
-        var tabla = document.getElementById('tablaDetallePedido')
-    }
-</script>
- </head>
-<body onload="inicializarDetalle()">
+</head>
+<body>
 {% include '_flash_toast.html' %}
-<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
-<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><a href="{{ url_for('reportes') }}" class=""><span class="shared-nav-icon"><i class="bi bi-bar-chart-line" aria-hidden="true"></i></span><span>Reportes</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
-  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a></aside>
+<aside class="shared-sidebar"><div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div><div class="shared-caption">Operación</div><a href="{{ url_for('index') }}"><span class="shared-nav-icon"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i></span><span>Panel de control</span></a><a href="{{ url_for('reportes') }}"><span class="shared-nav-icon"><i class="bi bi-bar-chart-line" aria-hidden="true"></i></span><span>Reportes</span></a><div class="shared-caption">Ventas</div><a href="{{ url_for('notasCredito') }}"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Notas de crédito</span></a>
+  <a href="{{ url_for('pagos') }}"><span class="shared-nav-icon"><i class="bi bi-cash-coin" aria-hidden="true"></i></span><span>Pagos</span></a><a href="{{ url_for('informeCobranza') }}"><span class="shared-nav-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span>Informe de cobranza</span></a><div class="shared-caption">Datos maestros</div><a href="{{ url_for('clientes') }}"><span class="shared-nav-icon"><i class="bi bi-person-vcard-fill" aria-hidden="true"></i></span><span>Clientes</span></a><a href="{{ url_for('productos') }}"><span class="shared-nav-icon"><i class="bi bi-box-seam-fill" aria-hidden="true"></i></span><span>Productos</span></a><a href="{{ url_for('vendedores') }}"><span class="shared-nav-icon"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></span><span>Vendedores</span></a><a href="{{ url_for('bodegas') }}"><span class="shared-nav-icon"><i class="bi bi-building-fill" aria-hidden="true"></i></span><span>Bodegas</span></a><a href="{{ url_for('pedidos') }}" class="active"><span class="shared-nav-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span>Pedidos</span></a>{% include '_sesion_usuario.html' %}</aside>
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
 <div class="container-fluid">
-  <div class="page-heading"><div><div class="eyebrow">Ventas / Detalle de pedido</div><h1>Detalle de pedido</h1><p>Consulta el detalle, subtotal y disponibilidad del pedido.</p></div>
-    <div class="heading-actions"><button type="button" class="btn btn-outline-secondary icon-button" href="pedidos.html"><i class="bi bi-arrow-left" aria-hidden="true"></i><span>Volver</span></button></div>
+  <div class="page-heading">
+    <div><div class="eyebrow">Ventas / Pedido {{ id_pedido }}</div><h1>Detalle de cumplimiento</h1><p>Disponibilidad del inventario para las unidades pendientes del pedido.</p></div>
+    <div class="heading-actions"><a class="btn btn-outline-secondary icon-button" href="{{ url_for('pedidos') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i><span>Volver a pedidos</span></a></div>
   </div>
-  <div class="data-card"><div class="data-card-header"><div><h2>Resultados</h2><span>Productos incluidos en el pedido</span></div></div>
-    <div class="p-3" id="mostrarIDPedido"></div>
-    <div class="data-table-wrap" id="tablaDetallePedido"></div>
-    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
-  </div>
+
+  <section class="data-card mb-4" aria-labelledby="resumen-cumplimiento">
+    <div class="data-card-header"><div><h2 id="resumen-cumplimiento">Resumen del pedido</h2><span>Pedido {{ id_pedido }}</span></div></div>
+    <div class="p-3 p-md-4">
+      {% if pedido_completo %}
+      <p class="h4 mb-3">100 % – pedido completo</p>
+      {% else %}
+      <p class="h4 mb-3">{{ unidades_cumplibles }} de {{ unidades_pendientes }} unidades pendientes se pueden cumplir ({{ '%.1f'|format(porcentaje_cumplible) }} %)</p>
+      {% endif %}
+      <div class="progress" role="progressbar" aria-label="Porcentaje cumplible del pedido" aria-valuenow="{{ porcentaje_cumplible }}" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-bar bg-success" style="width: {{ porcentaje_cumplible }}%">{{ '%.1f'|format(porcentaje_cumplible) }} %</div>
+      </div>
+      <p class="text-muted small mt-3 mb-0">El stock se comparte entre pedidos pendientes; el porcentaje considera el inventario total, no reservas.</p>
+    </div>
+  </section>
+
+  <section class="data-card" aria-labelledby="lineas-pedido">
+    <div class="data-card-header"><div><h2 id="lineas-pedido">Detalle por línea</h2><span>Unidades solicitadas y disponibilidad estimada</span></div></div>
+    <div class="data-table-wrap">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr>
+          <th scope="col">Producto</th><th scope="col">Color</th><th scope="col">Talla</th>
+          <th scope="col">Pedida</th><th scope="col">Despachada</th><th scope="col">Pendiente</th>
+          <th scope="col">Stock disponible</th><th scope="col">Cumplible</th><th scope="col">Faltante</th><th scope="col">% cumplible</th>
+        </tr></thead>
+        <tbody>
+        {% for linea in detalle %}
+          <tr>
+            <td>{{ linea.producto or '—' }}</td>
+            <td>{{ linea.color or '—' }}</td>
+            <td>{{ linea.talla or '—' }}</td>
+            <td>{{ linea.cantidad_pedida or 0 }}</td>
+            <td>{{ linea.cantidad_despachada or 0 }}</td>
+            <td>{{ linea.cantidad_pendiente }}</td>
+            <td>{% if linea.stock_disponible is none %}—{% else %}{{ linea.stock_disponible }}{% endif %}</td>
+            <td>{{ linea.cantidad_cumplible }}</td>
+            <td>{{ linea.cantidad_faltante }}</td>
+            <td>{{ '%.1f'|format(linea.porcentaje_cumplible) }} %</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot><tr>
+          <th colspan="5" scope="row">Total pendiente</th>
+          <td>{{ unidades_pendientes }}</td><td>—</td><td>{{ unidades_cumplibles }}</td><td>{{ unidades_faltantes }}</td>
+          <td>{{ '%.1f'|format(porcentaje_cumplible) }} %</td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </section>
 </div>
 </body>
-
 </html>

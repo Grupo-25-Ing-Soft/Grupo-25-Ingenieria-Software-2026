@@ -10,11 +10,14 @@ from flask import render_template
 from flask import redirect
 from flask import url_for
 from flask import send_file
+from flask import session
+from flask import g
 from markupsafe import Markup
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from postgrest.exceptions import APIError
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
@@ -100,6 +103,362 @@ def obtener_url_logotipo():
     """Builds the static URL for the configured logo, with the current logo as fallback."""
     parametros = obtener_parametros_sistema()
     return url_for("static", filename=parametros.get("logotipo", "img/logo.png"))
+
+
+# ---------------------------------------------------------------------
+# Usuarios, roles y permisos (RF-057/058). Las tablas están en supabase/roles.sql.
+# No hay roles predefinidos: se crean en roles.html eligiendo, por módulo, si el
+# rol puede "ver" (abrir la pantalla, buscar y filtrar) y/o "editar" (crear,
+# modificar o borrar). El primer usuario se crea como superusuario (acceso total).
+
+# (código guardado en rol_permisos.modulo, nombre visible, endpoints que cubre)
+MODULOS_SISTEMA = [
+    ('pedidos', 'Pedidos', ['pedidos', 'verDetalle', 'crudDetallePedido']),
+    ('facturas', 'Facturas', ['facturas']),
+    ('notas_credito', 'Notas de crédito', ['notasCredito']),
+    ('pagos', 'Pagos', ['pagos']),
+    ('cobranza', 'Informe de cobranza', ['informeCobranza', 'informeCobranzaPDF']),
+    ('reportes', 'Reportes, informes y análisis', [
+        'reportes', 'informeProductosDespachados', 'informeProductosEnProceso',
+        'informeProductosPendientesDespacho', 'informeProductosTerminados',
+        'analisisDespachoClienteProducto', 'analisisDespachoSegunFacturaCliente',
+        'analisisDespachoVendedorProducto', 'analisisPedidosDespachosMensuales',
+        'analisisVentasDescuentos', 'analisisProductosPedidosDespachados',
+    ]),
+    ('produccion', 'Producción y cortes', ['produccion', 'cortes', 'resumenProduccion']),
+    ('inventario', 'Inventario e ingreso a bodega', ['inventario', 'ingresoBodega']),
+    ('clientes', 'Clientes', ['clientes']),
+    ('productos', 'Productos', ['productos']),
+    ('vendedores', 'Vendedores', ['vendedores']),
+    ('bodegas', 'Bodegas', ['bodegas']),
+    ('colores', 'Colores', ['colores']),
+    ('tallas', 'Tallas', ['tallas']),
+    ('zonas_venta', 'Zonas de venta', ['zonasVenta']),
+    ('codigos_ean', 'Códigos EAN y etiquetas', ['codigosEAN', 'emisionEAN']),
+    ('configuracion', 'Configuración', ['configuracion']),
+    ('roles_usuarios', 'Roles y usuarios', ['roles', 'usuarios']),
+]
+CODIGOS_MODULO = [codigo for codigo, _, _ in MODULOS_SISTEMA]
+MODULO_POR_ENDPOINT = {
+    endpoint: codigo for codigo, _, endpoints in MODULOS_SISTEMA for endpoint in endpoints
+}
+
+# Se abren sin sesión / basta con tener sesión. Cualquier otro endpoint que no esté
+# en MODULOS_SISTEMA queda solo para superusuarios hasta que se le asigne un módulo.
+ENDPOINTS_PUBLICOS = {'static', 'login', 'primerUsuario'}
+ENDPOINTS_SOLO_SESION = {'index', 'archivosMaestros', 'logout'}
+
+# En estas pantallas el POST solo filtra o arma una vista, no modifica datos.
+ENDPOINTS_POST_LECTURA = set(dict((c, e) for c, _, e in MODULOS_SISTEMA)['reportes']) | {
+    'resumenProduccion', 'inventario', 'emisionEAN',
+}
+
+
+def _es_tabla_faltante(error):
+    # PGRST205: la tabla no existe. 42703: existe pero le falta una columna
+    # (supabase/roles.sql todavía no se ejecutó sobre la tabla "usuarios" que ya había).
+    return 'PGRST205' in str(error) or '42703' in str(error)
+
+
+def _peticion_es_lectura():
+    if request.method in ('GET', 'HEAD', 'OPTIONS') or request.endpoint in ENDPOINTS_POST_LECTURA:
+        return True
+    # Los CRUD hacen sus búsquedas por POST con _method=buscar..., verDetalle o get.
+    metodo = request.form.get('_method', '')
+    return metodo.startswith('buscar') or metodo in ('verDetalle', 'get')
+
+
+def cargar_usuario_sesion():
+    """Deja en g.usuario el usuario con sesión (o None) y en g.permisos sus permisos por módulo."""
+    g.usuario, g.permisos = None, {}
+    id_usuario = session.get('id_usuario')
+    if not id_usuario:
+        return
+    filas = supabase.table('usuarios').select(
+        'id_usuario, nombre_usuario, nombre, id_rol, es_superusuario, activo'
+    ).eq('id_usuario', id_usuario).execute().data
+    if not filas or not filas[0].get('activo'):
+        session.pop('id_usuario', None)
+        return
+    usuario = filas[0]
+    usuario['rol'] = None
+    if usuario.get('es_superusuario'):
+        g.permisos = {codigo: {'ver': True, 'editar': True} for codigo in CODIGOS_MODULO}
+    elif usuario.get('id_rol'):
+        rol = supabase.table('roles').select('nombre').eq('id_rol', usuario['id_rol']).execute().data
+        usuario['rol'] = rol[0]['nombre'] if rol else None
+        permisos = supabase.table('rol_permisos').select(
+            'modulo, puede_ver, puede_editar'
+        ).eq('id_rol', usuario['id_rol']).execute().data
+        for fila in permisos:
+            # Editar implica ver.
+            g.permisos[fila['modulo']] = {
+                'ver': bool(fila.get('puede_ver') or fila.get('puede_editar')),
+                'editar': bool(fila.get('puede_editar')),
+            }
+    g.usuario = usuario
+
+
+def usuario_puede(modulo, accion='ver'):
+    return bool(g.get('permisos', {}).get(modulo, {}).get(accion))
+
+
+def _existen_usuarios():
+    # Pide las columnas y tablas que agrega supabase/roles.sql, para avisar si falta ejecutarlo.
+    supabase.table('roles').select('id_rol').limit(1).execute()
+    supabase.table('rol_permisos').select('id_rol').limit(1).execute()
+    return bool(supabase.table('usuarios').select(
+        'id_usuario, nombre_usuario, password_hash, id_rol, es_superusuario'
+    ).limit(1).execute().data)
+
+
+def _pantalla_sin_tablas():
+    return render_template('login.html', modo='sin_tablas'), 503
+
+
+def _destino_seguro(destino):
+    # Solo rutas internas, para que ?next= no pueda redirigir a otro sitio.
+    if destino and destino.startswith('/') and not destino.startswith('//') and '\\' not in destino:
+        return destino
+    return url_for('index')
+
+
+@app.before_request
+def verificar_acceso():
+    if request.endpoint is None or request.endpoint in ENDPOINTS_PUBLICOS:
+        return None
+    try:
+        cargar_usuario_sesion()
+        if g.usuario is None:
+            if not _existen_usuarios():
+                return redirect(url_for('primerUsuario'))
+            destino = request.full_path if request.query_string else request.path
+            return redirect(url_for('login', next=destino))
+    except APIError as error:
+        if _es_tabla_faltante(error):
+            return _pantalla_sin_tablas()
+        raise
+
+    modulo = MODULO_POR_ENDPOINT.get(request.endpoint)
+    if modulo is None:
+        if request.endpoint in ENDPOINTS_SOLO_SESION or g.usuario.get('es_superusuario'):
+            return None
+        flash('Esta sección todavía no tiene permisos configurables; solo un superusuario puede abrirla.', 'error')
+        return redirect(url_for('index'))
+    if _peticion_es_lectura():
+        if not usuario_puede(modulo, 'ver'):
+            flash('Tu rol no tiene permiso para ver esa sección.', 'error')
+            return redirect(url_for('index'))
+    elif not usuario_puede(modulo, 'editar'):
+        if usuario_puede(modulo, 'ver'):
+            flash('Tu rol solo permite consultar esta sección, no modificarla.', 'error')
+            return redirect(request.path)
+        flash('Tu rol no tiene permiso para modificar esa sección.', 'error')
+        return redirect(url_for('index'))
+    return None
+
+
+@app.context_processor
+def datos_sesion_plantillas():
+    usuario = g.get('usuario')
+    # Rutas de las secciones que el rol no puede ver, para ocultar sus enlaces.
+    rutas_bloqueadas = []
+    if usuario and not usuario.get('es_superusuario'):
+        for codigo, _, endpoints in MODULOS_SISTEMA:
+            if not usuario_puede(codigo, 'ver'):
+                rutas_bloqueadas += [url_for(e) for e in endpoints if e in app.view_functions]
+    return {'usuario_actual': usuario, 'puede': usuario_puede, 'rutas_bloqueadas': rutas_bloqueadas}
+
+
+def _leer_usuario_formulario(nuevo):
+    """Valida el formulario de usuario. Devuelve (datos, mensaje_de_error)."""
+    nombre_usuario = request.form.get('nombre_usuario', '').strip().lower()
+    nombre = request.form.get('nombre', '').strip()
+    password = request.form.get('password', '')
+    datos = {'nombre': nombre, 'correo': _texto_o_nulo(request.form.get('correo'))}
+    if nuevo:
+        if not re.fullmatch(r'[a-z0-9._-]{3,40}', nombre_usuario):
+            return None, 'El nombre de usuario debe tener entre 3 y 40 caracteres: letras, números, punto, guion o guion bajo.'
+        datos['nombre_usuario'] = nombre_usuario
+    if not nombre:
+        return None, 'Ingresa el nombre de la persona.'
+    # Al editar, la contraseña solo cambia si se escribe una nueva.
+    if nuevo or password:
+        if len(password) < 8:
+            return None, 'La contraseña debe tener al menos 8 caracteres.'
+        if password != request.form.get('password_confirmacion', ''):
+            return None, 'Las contraseñas no coinciden.'
+        datos['password_hash'] = generate_password_hash(password)
+    return datos, None
+
+
+@app.route('/login.html', methods=['GET', 'POST'])
+def login():
+    try:
+        if not _existen_usuarios():
+            return redirect(url_for('primerUsuario'))
+    except APIError as error:
+        if _es_tabla_faltante(error):
+            return _pantalla_sin_tablas()
+        raise
+    if request.method == 'POST':
+        nombre_usuario = request.form.get('nombre_usuario', '').strip().lower()
+        filas = supabase.table('usuarios').select(
+            'id_usuario, password_hash, activo'
+        ).eq('nombre_usuario', nombre_usuario).execute().data
+        if filas and filas[0].get('activo') and check_password_hash(filas[0]['password_hash'], request.form.get('password', '')):
+            session.clear()
+            session['id_usuario'] = filas[0]['id_usuario']
+            return redirect(_destino_seguro(request.form.get('next')))
+        flash('Usuario o contraseña incorrectos, o la cuenta está desactivada.', 'error')
+    return render_template('login.html', modo='login', siguiente=request.values.get('next', ''))
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    flash('Sesión cerrada.')
+    return redirect(url_for('login'))
+
+
+@app.route('/primerUsuario.html', methods=['GET', 'POST'])
+def primerUsuario():
+    # Solo existe mientras no haya ningún usuario: crea el superusuario inicial.
+    try:
+        if _existen_usuarios():
+            return redirect(url_for('login'))
+    except APIError as error:
+        if _es_tabla_faltante(error):
+            return _pantalla_sin_tablas()
+        raise
+    if request.method == 'POST':
+        datos, error = _leer_usuario_formulario(nuevo=True)
+        if error:
+            flash(error, 'error')
+        else:
+            datos.update(es_superusuario=True, activo=True)
+            fila = supabase.table('usuarios').insert(datos).execute().data
+            session.clear()
+            session['id_usuario'] = fila[0]['id_usuario']
+            flash('Cuenta de superusuario creada. Ahora crea los roles y usuarios del sistema.')
+            return redirect(url_for('roles'))
+    return render_template('login.html', modo='primer_usuario')
+
+
+def _leer_permisos_formulario():
+    permisos = []
+    for codigo in CODIGOS_MODULO:
+        editar = request.form.get(f'editar_{codigo}') == 'on'
+        ver = editar or request.form.get(f'ver_{codigo}') == 'on'
+        if ver:
+            permisos.append({'modulo': codigo, 'puede_ver': True, 'puede_editar': editar})
+    return permisos
+
+
+@app.route('/roles.html', methods=['GET', 'POST'])
+def roles():
+    if request.method == 'POST':
+        metodo = request.form.get('_method')
+        id_rol = request.form.get('id_rol')
+        if metodo in ('post', 'put'):
+            nombre = request.form.get('nombre', '').strip()
+            datos_rol = {'nombre': nombre, 'descripcion': _texto_o_nulo(request.form.get('descripcion'))}
+            repetidos = supabase.table('roles').select('id_rol').eq('nombre', nombre).execute().data
+            if not nombre:
+                flash('El rol necesita un nombre.', 'error')
+            elif any(str(fila['id_rol']) != str(id_rol) for fila in repetidos):
+                flash(f'Ya existe un rol llamado "{nombre}".', 'error')
+            else:
+                if metodo == 'post':
+                    id_rol = supabase.table('roles').insert(datos_rol).execute().data[0]['id_rol']
+                    flash(f'Rol "{nombre}" creado.')
+                else:
+                    supabase.table('roles').update(datos_rol).eq('id_rol', id_rol).execute()
+                    supabase.table('rol_permisos').delete().eq('id_rol', id_rol).execute()
+                    flash(f'Rol "{nombre}" actualizado.')
+                permisos = _leer_permisos_formulario()
+                if permisos:
+                    supabase.table('rol_permisos').insert(
+                        [{**permiso, 'id_rol': id_rol} for permiso in permisos]
+                    ).execute()
+        elif metodo == 'delete':
+            if supabase.table('usuarios').select('id_usuario').eq('id_rol', id_rol).execute().data:
+                flash('No se puede eliminar un rol con usuarios asignados; asígnales otro rol primero.', 'error')
+            else:
+                supabase.table('roles').delete().eq('id_rol', id_rol).execute()
+                flash('Rol eliminado.')
+        return redirect(url_for('roles'))
+
+    lista_roles = supabase.table('roles').select('*').order('nombre').execute().data
+    permisos = supabase.table('rol_permisos').select('*').execute().data
+    usuarios_con_rol = supabase.table('usuarios').select('id_usuario, id_rol').execute().data
+    for rol in lista_roles:
+        rol['permisos'] = {
+            p['modulo']: {'ver': bool(p['puede_ver'] or p['puede_editar']), 'editar': bool(p['puede_editar'])}
+            for p in permisos if p['id_rol'] == rol['id_rol']
+        }
+        rol['cantidad_usuarios'] = sum(1 for u in usuarios_con_rol if u['id_rol'] == rol['id_rol'])
+    return render_template('roles.html', roles=lista_roles, modulos=MODULOS_SISTEMA)
+
+
+@app.route('/usuarios.html', methods=['GET', 'POST'])
+def usuarios():
+    if request.method == 'POST':
+        metodo = request.form.get('_method')
+        id_rol = request.form.get('id_rol') or None
+        if metodo == 'post':
+            datos, error = _leer_usuario_formulario(nuevo=True)
+            if not error and not id_rol:
+                error = 'Asigna un rol al usuario.'
+            if not error and supabase.table('usuarios').select('id_usuario').eq('nombre_usuario', datos['nombre_usuario']).execute().data:
+                error = 'Ese nombre de usuario ya está en uso.'
+            if error:
+                flash(error, 'error')
+            else:
+                supabase.table('usuarios').insert({**datos, 'id_rol': id_rol, 'activo': True}).execute()
+                flash(f'Usuario "{datos["nombre_usuario"]}" creado.')
+        elif metodo in ('put', 'delete'):
+            id_usuario = request.form.get('id_usuario')
+            filas = supabase.table('usuarios').select(
+                'id_usuario, nombre_usuario, es_superusuario'
+            ).eq('id_usuario', id_usuario).execute().data
+            es_propio = str(id_usuario) == str(g.usuario['id_usuario'])
+            if not filas:
+                flash('El usuario ya no existe.', 'error')
+            elif filas[0]['es_superusuario'] and not g.usuario.get('es_superusuario'):
+                flash('Solo un superusuario puede modificar a otro superusuario.', 'error')
+            elif metodo == 'delete':
+                if es_propio:
+                    flash('No puedes eliminar tu propia cuenta.', 'error')
+                else:
+                    supabase.table('usuarios').delete().eq('id_usuario', id_usuario).execute()
+                    flash(f'Usuario "{filas[0]["nombre_usuario"]}" eliminado.')
+            else:
+                datos, error = _leer_usuario_formulario(nuevo=False)
+                if not error:
+                    datos['activo'] = request.form.get('activo') == 'on'
+                    if es_propio and not datos['activo']:
+                        error = 'No puedes desactivar tu propia cuenta.'
+                    elif not filas[0]['es_superusuario']:
+                        # El superusuario no usa rol; el resto siempre necesita uno.
+                        if not id_rol:
+                            error = 'Asigna un rol al usuario.'
+                        datos['id_rol'] = id_rol
+                if error:
+                    flash(error, 'error')
+                else:
+                    supabase.table('usuarios').update(datos).eq('id_usuario', id_usuario).execute()
+                    flash(f'Usuario "{filas[0]["nombre_usuario"]}" actualizado.')
+        return redirect(url_for('usuarios'))
+
+    lista_roles = supabase.table('roles').select('id_rol, nombre').order('nombre').execute().data
+    nombres_rol = {rol['id_rol']: rol['nombre'] for rol in lista_roles}
+    lista_usuarios = supabase.table('usuarios').select(
+        'id_usuario, nombre_usuario, nombre, correo, id_rol, es_superusuario, activo'
+    ).order('nombre').execute().data
+    for usuario in lista_usuarios:
+        usuario['rol'] = nombres_rol.get(usuario['id_rol'])
+    return render_template('usuarios.html', usuarios=lista_usuarios, roles=lista_roles)
 
 # NOTA: las páginas html tienen que estar dentro de templates
 
@@ -242,6 +601,154 @@ def pedidos():
             clientes=clientes_response.data,
             vendedores=vendedores_response.data
         )
+
+
+@app.route('/verDetalle.html', methods=['GET'])
+def verDetalle():
+    id_pedido = request.args.get('id_pedido', '').strip()
+    try:
+        id_pedido = int(id_pedido)
+        if id_pedido <= 0:
+            raise ValueError
+    except ValueError:
+        flash("El identificador del pedido no es válido", "error")
+        return redirect(url_for('pedidos'))
+
+    response = (
+        supabase.table('v_pendientes_despacho')
+        .select('*')
+        .eq('id_pedido', id_pedido)
+        .execute()
+    )
+    filas = response.data or []
+
+    # La vista de pendientes no incluye líneas completamente despachadas.
+    if not filas:
+        detalle_response = (
+            supabase.table('v_detalle_pedido_pendiente')
+            .select('*')
+            .eq('id_pedido', id_pedido)
+            .execute()
+        )
+        filas = detalle_response.data or []
+        if not filas:
+            pedido_response = (
+                supabase.table('pedidos')
+                .select('id_pedido, estado')
+                .eq('id_pedido', id_pedido)
+                .execute()
+            )
+            pedido = next(iter(pedido_response.data or []), None)
+            if pedido and pedido.get('estado') == 'anulado':
+                flash("El pedido está anulado y no tiene detalle disponible", "error")
+            else:
+                flash("No se encontró el pedido o no tiene líneas disponibles", "error")
+            return redirect(url_for('pedidos'))
+
+    detalle = []
+    unidades_pendientes = 0
+    unidades_cumplibles = 0
+    for fila in filas:
+        pendiente = int(fila.get('cantidad_pendiente') or 0)
+        cumplible = int(fila.get('cantidad_lista_para_despacho') or 0)
+        faltante = max(pendiente - cumplible, 0)
+        porcentaje_linea = round(cumplible / pendiente * 100, 1) if pendiente else 100.0
+        detalle.append({
+            **fila,
+            'cantidad_pendiente': pendiente,
+            'stock_disponible': fila.get('stock_disponible'),
+            'cantidad_cumplible': cumplible,
+            'cantidad_faltante': faltante,
+            'porcentaje_cumplible': porcentaje_linea,
+        })
+        unidades_pendientes += pendiente
+        unidades_cumplibles += cumplible
+
+    unidades_faltantes = max(unidades_pendientes - unidades_cumplibles, 0)
+    pedido_completo = unidades_pendientes == 0
+    porcentaje_cumplible = (
+        100.0 if pedido_completo
+        else round(unidades_cumplibles / unidades_pendientes * 100, 1)
+    )
+
+    return render_template(
+        'verDetalle.html',
+        id_pedido=id_pedido,
+        detalle=detalle,
+        unidades_pendientes=unidades_pendientes,
+        unidades_cumplibles=unidades_cumplibles,
+        unidades_faltantes=unidades_faltantes,
+        porcentaje_cumplible=porcentaje_cumplible,
+        pedido_completo=pedido_completo,
+    )
+
+
+def _datos_factura_formulario(sufijo):
+    # Lee los campos del modal de facturas ("Crear" o "Actualizar"); los opcionales vacíos quedan en NULL.
+    return {
+        "numero_factura": request.form['numeroFactura' + sufijo],
+        "fecha": request.form['fechaFactura' + sufijo],
+        "razon_social": request.form['razonSocial' + sufijo],
+        "rut": request.form['rut' + sufijo],
+        "direccion": _texto_o_nulo(request.form.get('direccion' + sufijo)),
+        "giro": _texto_o_nulo(request.form.get('giro' + sufijo)),
+        "detalle": _texto_o_nulo(request.form.get('detalle' + sufijo)),
+        "forma_pago": _texto_o_nulo(request.form.get('formaPago' + sufijo)),
+        "neto": request.form['neto' + sufijo],
+        "iva": request.form['iva' + sufijo],
+        "total": request.form['total' + sufijo],
+        "id_pedido": _texto_o_nulo(request.form.get('idPedido' + sufijo)),
+        "id_cliente": _texto_o_nulo(request.form.get('idCliente' + sufijo)),
+    }
+
+
+@app.route('/facturas.html', methods=['GET', 'POST'])
+def facturas():
+    if request.method == 'POST':
+        metodo = request.form['_method']
+        if (metodo == "post"):
+            datos = _datos_factura_formulario('Crear')
+            # Una factura nueva parte con todo su total pendiente de pago.
+            datos["saldo"] = datos["total"]
+            response = supabase.table("facturas").insert(datos).execute()
+            if response.data:
+                return "Factura creada exitosamente"
+            else:
+                return "Error creando factura", 500
+        if (metodo == "put"):
+            idFactura = request.form['idFacturaActualizar']
+            response = (
+                supabase.table("facturas").update(_datos_factura_formulario('Actualizar'))
+                .eq("id_factura", idFactura).select("id_factura").execute()
+            )
+            if response.data:
+                return "Factura actualizada exitosamente"
+            else:
+                return "Error actualizando factura", 500
+        if (metodo == "delete"):
+            idABorrar = request.form['idFacturaBorrar']
+            response = (
+                supabase.table("facturas").delete()
+                .eq("id_factura", idABorrar)
+                .execute()
+            )
+            if response.data:
+                return "Factura borrada exitosamente"
+            else:
+                return "Error borrando factura", 500
+        return redirect(url_for('facturas'))
+    response = supabase.table("facturas").select("*").order("id_factura").execute()
+    return render_template('facturas.html', datos=response.data)
+
+
+@app.route('/crudDetallePedido.html', methods=['GET', 'POST'])
+def crudDetallePedido():
+    if request.method == 'POST':
+        # Los formularios de esta plantilla todavía son una copia de los de bodegas.
+        flash('La edición de detalles de pedido aún no está disponible desde esta pantalla.', 'error')
+        return redirect(url_for('crudDetallePedido'))
+    response = supabase.table("detalle_pedidos").select("*").order("id_detalle_pedido").execute()
+    return render_template('crudDetallePedido.html', datos=response.data)
 
 
 @app.route('/notasCredito.html', methods=['GET'])
@@ -796,12 +1303,7 @@ def obtener_informe_cobranza(request_args):
 
 @app.route('/informeProductosDespachados.html', methods=['GET', 'POST'])
 def informeProductosDespachados():
-    # Listas para los selectores de los modales de búsqueda
-    catalogos = {
-        'datosProductos': supabase.table('producto_variantes').select('id_variante, descripcion').execute().data or [],
-        'datosClientes': supabase.table('clientes').select('id_cliente, nombre').execute().data or [],
-        'datosFacturas': supabase.table('facturas').select('id_factura, numero_factura').execute().data or [],
-    }
+    productos_response = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
     if request.method == 'POST':
         metodo = (request.form.get('_method') or 'get').strip()
         fechaDesde = (request.form.get('desdeFecha') or '').strip()
@@ -833,7 +1335,7 @@ def informeProductosDespachados():
                         'informeProductosDespachados.html',
                         datos=[],
                         detallePedidos=[],
-                        **catalogos,
+                        productos=productos_response.data or [],
                     )
 
         if metodo in ('buscarFactura', 'buscarFacturas'):  # el formulario envía 'buscarFacturas'
@@ -872,10 +1374,10 @@ def informeProductosDespachados():
             'informeProductosDespachados.html',
             datos=response_despachos.data or [],
             detallePedidos=detalle_rows,
-            **catalogos,
+            productos=productos_response.data or [],
         )
 
-    return render_template('informeProductosDespachados.html', **catalogos)
+    return render_template('informeProductosDespachados.html', productos=productos_response.data or [])
 
 @app.route('/informeProductosEnProceso.html', methods=['GET', 'POST'])
 def informeProductosEnProceso():

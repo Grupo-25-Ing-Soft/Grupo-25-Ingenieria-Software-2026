@@ -1,0 +1,30 @@
+{# Va al final de cada .shared-sidebar: enlace a roles, usuario con sesión y cierre de sesión. #}
+{% if usuario_actual %}
+  {% if puede('roles_usuarios') %}
+    <div class="shared-caption">Sistema</div>
+    <a href="{{ url_for('roles') }}"{% if request.endpoint in ('roles', 'usuarios') %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i></span><span>Roles y usuarios</span></a>
+  {% endif %}
+  <div class="shared-session">
+    <span class="shared-session-avatar" aria-hidden="true">{{ usuario_actual.nombre[:1] | upper }}</span>
+    <span class="shared-session-text">
+      <strong>{{ usuario_actual.nombre }}</strong>
+      <small>{{ 'Superusuario' if usuario_actual.es_superusuario else (usuario_actual.rol or 'Sin rol') }}</small>
+    </span>
+    <form method="POST" action="{{ url_for('logout') }}">
+      <button type="submit" class="shared-session-salir" title="Cerrar sesión" aria-label="Cerrar sesión"><i class="bi bi-box-arrow-right" aria-hidden="true"></i></button>
+    </form>
+  </div>
+  {% if rutas_bloqueadas %}
+  <script>
+    // Oculta los enlaces a secciones que el rol del usuario no puede ver.
+    document.addEventListener('DOMContentLoaded', function () {
+      const bloqueadas = new Set({{ rutas_bloqueadas | tojson }});
+      document.querySelectorAll('a[href]').forEach(function (enlace) {
+        if (bloqueadas.has(new URL(enlace.href, window.location.href).pathname)) {
+          enlace.style.display = 'none';
+        }
+      });
+    });
+  </script>
+  {% endif %}
+{% endif %}

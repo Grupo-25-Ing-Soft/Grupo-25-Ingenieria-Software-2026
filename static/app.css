@@ -466,3 +466,69 @@ body .btn-danger { color: #a84949; background: #fff1f1; border-color: #f0d2d2; }
     padding: 22px 16px;
   }
 }
+
+/* Usuario con sesión al pie de la barra lateral (reemplaza el "Admin" fijo). */
+.shared-sidebar:has(.shared-session) { padding-bottom: 90px; }
+.shared-sidebar:has(.shared-session)::before,
+.shared-sidebar:has(.shared-session)::after { display: none; }
+
+.shared-session {
+  position: fixed;
+  z-index: 2;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 252px;
+  height: 71px;
+  padding: 0 14px 0 21px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.shared-session-avatar {
+  display: grid;
+  flex: 0 0 34px;
+  height: 34px;
+  place-items: center;
+  color: #597022;
+  background: var(--accent-soft);
+  border-radius: 50%;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.shared-session-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.shared-session-text strong { overflow: hidden; color: var(--ink); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.shared-session-text small { overflow: hidden; color: var(--muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.shared-session-salir {
+  padding: 6px 8px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+}
+.shared-session-salir:hover { color: var(--accent-dark); background: var(--accent-soft); }
+
+@media (max-width: 600px) {
+  .shared-session { width: 70px; justify-content: center; padding: 0; }
+  .shared-session-avatar, .shared-session-text { display: none; }
+}
+
+/* Inicio de sesión y creación del primer usuario. */
+body.login-page {
+  display: grid;
+  min-height: 100vh;
+  padding: 24px 16px !important;
+  place-items: center;
+}
+
+.login-card { width: 100%; max-width: 420px; padding: 32px; }
+.login-card h1 { margin-bottom: 6px; font-size: 1.35rem; font-weight: 700; }
+.login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+
+.permisos-resumen .badge { margin: 0 4px 4px 0; font-weight: 600; }
+.permisos-tabla td:not(:first-child), .permisos-tabla th:not(:first-child) { width: 110px; }
