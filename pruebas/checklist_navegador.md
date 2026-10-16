@@ -18,15 +18,15 @@ Al ejecutar el script, anota el prefijo `ZZTEST_<run_id>` y la fecha que imprime
 | `/informeProductosTerminados.html` | Desde/hasta: fecha de `fecha_ingreso` del corte | Producto de prueba con `ZZTEST_<run_id>` y su cantidad |
 | `/informeProductosEnProceso.html` | Pulsar **Generar informe** | Corte con `estado = pendiente` y observaciones `ZZTEST_<run_id>` |
 | `/informeProductosPendientesDespacho.html` | Pulsar **Generar informe** | Pedido pendiente y detalles de prueba en “Pedidos pendientes”; la ruta devuelve `datosInventario` vacío por la consulta actual con `productosPendientes=[]` |
-| `/informeProductosDespachados.html` | Ingresar ambas fechas y buscar | Mensaje flash “Este informe aún está en desarrollo”; no se espera fila |
+| `/informeProductosDespachados.html` | Ingresar ambas fechas y buscar | Fila de despacho con los datos del pedido o factura filtrada por fecha; no se espera flash de desarrollo |
 | `/analisisDespachoClienteProducto.html` | Seleccionar cliente y variante de prueba; buscar | Despacho asociado al cliente y pedido que incluye la variante; buscar el prefijo en ambas tarjetas |
 | `/analisisDespachoVendedorProducto.html` | Seleccionar vendedor y variante de prueba; buscar | Despacho asociado al vendedor y pedido que incluye la variante |
 | `/analisisPedidosDespachosMensuales.html` | Desde/hasta cubriendo pedido y despacho | Una fila `ZZTEST_<run_id>` en cada período, pedidos y despachos |
-| `/analisisDespachoSegunFacturaCliente.html` | Pulsar **Generar informe** | Mensaje flash de desarrollo; no se espera fila |
-| `/analisisVentasDescuentos.html` | Pulsar **Generar informe** | Mensaje flash de desarrollo; no se espera fila |
+| `/analisisDespachoSegunFacturaCliente.html` | Seleccionar cliente/factura y rango de fechas; buscar | Filas de despachos relacionadas con la factura o el cliente dentro del rango |
+| `/analisisVentasDescuentos.html` | Ingresar rango de fechas y buscar | Tabla con pedidos, clientes y vendedores; sin flash de desarrollo |
 | `/analisisProductosPedidosDespachados.html` | Abrir la página | Estado “Este análisis está en desarrollo” |
-| `/resumenProduccion.html` | Pulsar **Generar informe** | Mensaje flash de desarrollo; no se espera fila |
-| `/inventario.html` | Pulsar **Generar informe** | Mensaje flash de desarrollo; no se espera fila |
+| `/resumenProduccion.html` | Ingresar rango de fechas y buscar | Resumen agrupado por producto con cantidad total y número de cortes |
+| `/inventario.html` | Ingresar rango de fechas y buscar | Tabla con bodega, producto, talla, color, cantidad y defectuosos |
 | `/facturas.html` | Abrir si se incorpora una ruta Flask | Actualmente omitida: no existe esa ruta |
 | `/crudDetallePedido.html` | Abrir si se incorpora una ruta Flask | Actualmente omitida: no existe esa ruta |
 | `/verDetalle.html?id_pedido=<id>` | Abrir con el pedido de prueba si se incorpora una ruta Flask | Actualmente omitida: no existe esa ruta |
