@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Informe de Productos Terminados - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+
+ <script src="{{ url_for('static', filename='report_helpers.js') }}"></script>
+ <script>
+document.addEventListener('DOMContentLoaded', () => {
+  renderReportTable('my_variable', 'tablaProductosTerminados');
+});
+</script></head>
+<body>
+{% include '_flash_toast.html' %}
+{% if datos %}<input type="hidden" id="my_variable" value='{{ datos | tojson}}'>{% endif %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Reportes / Productos terminados</div><h1>Productos terminados</h1><p>Consulta los productos terminados dentro de un periodo.</p></div></div>
+  <div class="data-card"><div class="data-card-header"><div><h2>Filtros</h2><span>Selecciona el rango a consultar</span></div></div>
+    <div class="p-3 p-md-4"><form method="POST" role="form" action="#"><div class="row g-3">
+      <div class="col-md-6"><label for="desdeFechaID" class="form-label">Desde</label><input type="date" class="form-control" id="desdeFechaID" placeholder="Productos terminados desde..." name="desdeFecha"></div>
+      <div class="col-md-6"><label for="hastaFechaID" class="form-label">Hasta</label><input type="date" class="form-control" id="hastaFechaID" placeholder="Productos terminados hasta..." name="hastaFecha"></div>
+      <div class="col-12"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button></div>
+    </div></form></div>
+  </div>
+  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Resultados</h2><span>Productos terminados para el periodo</span></div></div>
+    <div class="data-table-wrap" id="tablaProductosTerminados"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Configuración - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar">
+  <input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema">
+</header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Sistema / Administración</div>
+      <h1>Configuración</h1>
+      <p>Define los parámetros generales de Comercial D Nix.</p>
+    </div>
+  </div>
+
+  <form method="POST" enctype="multipart/form-data" id="configuracionForm">
+    <div class="data-card mb-4">
+      <div class="data-card-header">
+        <div><h2>Empresa</h2><span>Información institucional visible en el sistema</span></div>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label for="razon_social" class="form-label">Razón social</label>
+            <input type="text" class="form-control" id="razon_social" name="razon_social" value="{{ parametros.razon_social }}" required maxlength="160">
+          </div>
+          <div class="col-md-6">
+            <label for="rut" class="form-label">RUT</label>
+            <input type="text" class="form-control" id="rut" name="rut" value="{{ parametros.rut }}" placeholder="12345678-9" required maxlength="20">
+          </div>
+          <div class="col-md-6">
+            <label for="giro" class="form-label">Giro</label>
+            <input type="text" class="form-control" id="giro" name="giro" value="{{ parametros.giro }}" maxlength="160">
+          </div>
+          <div class="col-md-6">
+            <label for="direccion" class="form-label">Dirección</label>
+            <input type="text" class="form-control" id="direccion" name="direccion" value="{{ parametros.direccion }}" maxlength="200">
+          </div>
+          <div class="col-md-6">
+            <label for="telefono" class="form-label">Teléfono</label>
+            <input type="tel" class="form-control" id="telefono" name="telefono" value="{{ parametros.telefono }}" maxlength="40">
+          </div>
+          <div class="col-md-6">
+            <label for="correo" class="form-label">Correo electrónico</label>
+            <input type="email" class="form-control" id="correo" name="correo" value="{{ parametros.correo }}" required maxlength="160">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-4">
+      <div class="col-lg-7">
+        <div class="data-card h-100">
+          <div class="data-card-header">
+            <div><h2>Moneda e impuestos</h2><span>Parámetros utilizados para montos y ventas futuras</span></div>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label for="moneda" class="form-label">Moneda del sistema</label>
+              <select class="form-select" id="moneda" name="moneda" required>
+                {% for moneda in ['CLP', 'USD', 'EUR'] %}
+                <option value="{{ moneda }}" {% if parametros.moneda == moneda %}selected{% endif %}>{{ moneda }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label for="formato_moneda" class="form-label">Formato de presentación</label>
+              <input type="text" class="form-control" id="formato_moneda" name="formato_moneda" value="{{ parametros.formato_moneda }}" placeholder="$#,##0.00" required maxlength="40">
+              <div class="form-text">Ejemplos: $#,##0 o US$ #,##0.00</div>
+            </div>
+            <div class="mb-0">
+              <label for="porcentaje_impuesto" class="form-label">Impuesto aplicado a las ventas (%)</label>
+              <input type="number" class="form-control" id="porcentaje_impuesto" name="porcentaje_impuesto" value="{{ parametros.porcentaje_impuesto }}" min="0" max="100" step="0.01" required>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-5">
+        <div class="data-card h-100">
+          <div class="data-card-header">
+            <div><h2>Logotipo institucional</h2><span>Imagen usada como referencia de la empresa</span></div>
+          </div>
+          <div class="modal-body">
+            <div class="text-center mb-3">
+              <img id="logoPreview" class="img-fluid" src="{{ url_for('static', filename=parametros.logotipo) }}" alt="Logotipo actual" style="max-height: 120px; object-fit: contain;">
+            </div>
+            <label for="logotipo" class="form-label">Cambiar logotipo</label>
+            <input type="file" class="form-control" id="logotipo" name="logotipo" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+            <div class="form-text">PNG, JPG o WEBP. Tamaño máximo: 2 MB.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
+      <button type="reset" class="btn btn-outline-secondary icon-button"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i><span>Restablecer</span></button>
+      <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-save" aria-hidden="true"></i><span>Guardar configuración</span></button>
+    </div>
+  </form>
+</div>
+
+<script>
+  document.getElementById('logotipo').addEventListener('change', function (event) {
+    const archivo = event.target.files[0];
+    if (archivo) {
+      document.getElementById('logoPreview').src = URL.createObjectURL(archivo);
+    }
+  });
+</script>
+</body>
+</html>

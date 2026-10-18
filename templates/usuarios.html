@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Usuarios - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar">
+  <input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema">
+</header>
+
+{% set puede_editar = puede('roles_usuarios', 'editar') %}
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Sistema / Roles y usuarios</div>
+      <h1>Usuarios</h1>
+      <p>Crea las cuentas de acceso y asigna a cada una el rol que define sus permisos.</p>
+    </div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" onclick="abrirUsuario(null)" {% if not roles %}disabled title="Primero crea un rol"{% endif %}><i class="bi bi-person-plus" aria-hidden="true"></i><span>Nuevo usuario</span></button>
+    </div>
+    {% endif %}
+  </div>
+
+  <ul class="nav nav-pills mb-3">
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('roles') }}">Roles</a></li>
+    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{{ url_for('usuarios') }}">Usuarios</a></li>
+  </ul>
+
+  {% if not roles and puede_editar %}
+    <div class="alert alert-info"><i class="bi bi-info-circle" aria-hidden="true"></i> Para crear usuarios primero necesitas al menos un rol. <a href="{{ url_for('roles') }}">Crear un rol</a>.</div>
+  {% endif %}
+
+  <div class="data-card">
+    <div class="data-card-header"><div><h2>Usuarios registrados</h2><span>{{ usuarios | length }} usuario{{ '' if usuarios | length == 1 else 's' }}</span></div></div>
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th>{% if puede_editar %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for usuario in usuarios %}
+          {% set es_propio = usuario.id_usuario == usuario_actual.id_usuario %}
+          {% set protegido = usuario.es_superusuario and not usuario_actual.es_superusuario %}
+          <tr>
+            <td><strong>{{ usuario.nombre }}</strong>{% if es_propio %} <span class="text-muted">(tú)</span>{% endif %}</td>
+            <td>{{ usuario.nombre_usuario }}{% if usuario.correo %}<br><small class="text-muted">{{ usuario.correo }}</small>{% endif %}</td>
+            <td>{% if usuario.es_superusuario %}<span class="badge text-bg-dark">Superusuario</span>{% else %}{{ usuario.rol or 'Sin rol' }}{% endif %}</td>
+            <td>{% if usuario.activo %}<span class="badge text-bg-success">Activo</span>{% else %}<span class="badge text-bg-secondary">Desactivado</span>{% endif %}</td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              {% if not protegido %}
+              <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick='abrirUsuario({{ usuario.id_usuario | tojson }})'><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Editar</span></button>
+              {% if not es_propio %}
+              <form method="POST" class="d-inline" data-confirmacion="¿Eliminar al usuario «{{ usuario.nombre_usuario }}»? Si solo quieres quitarle el acceso, puedes desactivarlo." onsubmit="return confirm(this.dataset.confirmacion);">
+                <input type="hidden" name="_method" value="delete">
+                <input type="hidden" name="id_usuario" value="{{ usuario.id_usuario }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger icon-button"><i class="bi bi-trash" aria-hidden="true"></i><span>Eliminar</span></button>
+              </form>
+              {% endif %}
+              {% endif %}
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if puede_editar %}
+<div class="modal fade" id="usuarioModal" tabindex="-1" aria-labelledby="usuarioModalTitulo" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="POST" class="modal-content" autocomplete="off">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="usuarioModalTitulo">Nuevo usuario</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="_method" id="usuarioMetodo" value="post">
+        <input type="hidden" name="id_usuario" id="usuarioId">
+        <div class="mb-3">
+          <label for="usuarioNombre" class="form-label">Nombre</label>
+          <input type="text" class="form-control" id="usuarioNombre" name="nombre" required maxlength="120">
+        </div>
+        <div class="mb-3">
+          <label for="usuarioNombreUsuario" class="form-label">Nombre de usuario</label>
+          <input type="text" class="form-control" id="usuarioNombreUsuario" name="nombre_usuario" required minlength="3" maxlength="40" pattern="[A-Za-z0-9._\-]+">
+          <div class="form-text" id="usuarioNombreUsuarioAyuda">Letras, números, punto, guion o guion bajo. No se puede cambiar después.</div>
+        </div>
+        <div class="mb-3">
+          <label for="usuarioCorreo" class="form-label">Correo <span class="text-muted">(opcional)</span></label>
+          <input type="email" class="form-control" id="usuarioCorreo" name="correo" maxlength="160">
+        </div>
+        <div class="mb-3" id="usuarioRolGrupo">
+          <label for="usuarioRol" class="form-label">Rol</label>
+          <select class="form-select" id="usuarioRol" name="id_rol">
+            <option value="">Selecciona un rol</option>
+            {% for rol in roles %}<option value="{{ rol.id_rol }}">{{ rol.nombre }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-sm-6">
+            <label for="usuarioPassword" class="form-label">Contraseña</label>
+            <input type="password" class="form-control" id="usuarioPassword" name="password" minlength="8" autocomplete="new-password">
+          </div>
+          <div class="col-sm-6">
+            <label for="usuarioPasswordConfirmacion" class="form-label">Repite la contraseña</label>
+            <input type="password" class="form-control" id="usuarioPasswordConfirmacion" name="password_confirmacion" minlength="8" autocomplete="new-password">
+          </div>
+          <div class="col-12 form-text mt-1" id="usuarioPasswordAyuda">Mínimo 8 caracteres.</div>
+        </div>
+        <div class="form-check form-switch" id="usuarioActivoGrupo">
+          <input class="form-check-input" type="checkbox" role="switch" id="usuarioActivo" name="activo">
+          <label class="form-check-label" for="usuarioActivo">Cuenta activa (puede iniciar sesión)</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-save" aria-hidden="true"></i><span>Guardar usuario</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const USUARIOS = {{ usuarios | tojson }};
+
+  function abrirUsuario(idUsuario) {
+    const usuario = USUARIOS.find(function (u) { return u.id_usuario === idUsuario; });
+    const nuevo = !usuario;
+    document.getElementById('usuarioModalTitulo').textContent = nuevo ? 'Nuevo usuario' : 'Editar usuario';
+    document.getElementById('usuarioMetodo').value = nuevo ? 'post' : 'put';
+    document.getElementById('usuarioId').value = nuevo ? '' : usuario.id_usuario;
+    document.getElementById('usuarioNombre').value = nuevo ? '' : usuario.nombre;
+    document.getElementById('usuarioCorreo').value = nuevo ? '' : (usuario.correo || '');
+
+    const nombreUsuario = document.getElementById('usuarioNombreUsuario');
+    nombreUsuario.value = nuevo ? '' : usuario.nombre_usuario;
+    nombreUsuario.disabled = !nuevo;
+    document.getElementById('usuarioNombreUsuarioAyuda').hidden = !nuevo;
+
+    // El superusuario no tiene rol.
+    const esSuper = !nuevo && usuario.es_superusuario;
+    const rol = document.getElementById('usuarioRol');
+    rol.value = nuevo || !usuario.id_rol ? '' : String(usuario.id_rol);
+    rol.required = !esSuper;
+    document.getElementById('usuarioRolGrupo').hidden = esSuper;
+
+    ['usuarioPassword', 'usuarioPasswordConfirmacion'].forEach(function (id) {
+      const campo = document.getElementById(id);
+      campo.value = '';
+      campo.required = nuevo;
+    });
+    document.getElementById('usuarioPasswordAyuda').textContent = nuevo
+      ? 'Mínimo 8 caracteres.'
+      : 'Déjala en blanco para mantener la contraseña actual.';
+
+    document.getElementById('usuarioActivo').checked = nuevo || usuario.activo;
+    document.getElementById('usuarioActivoGrupo').hidden = nuevo;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('usuarioModal')).show();
+  }
+</script>
+{% endif %}
+</body>
+</html>

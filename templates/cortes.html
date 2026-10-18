@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Cortes - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta id="foo" data-name="{{datos.data}}">
+  
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
+</head>
+<script>
+
+
+    function createTableFromJSON() {
+        var test = document.querySelector('#my_variable').value 
+        const data = JSON.parse(test)
+        if (!data || !data.length) return;
+
+        const table = document.createElement('table');
+        table.className = "table table-striped";
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+        const headerRow = document.createElement('tr');
+
+        // Extract headers from the first object's keys
+        const headers = ordenarColumnasTabla(Object.keys(data[0]));
+        console.log(headers)
+        headers.forEach(key => {
+            const th = document.createElement('th');
+            th.textContent = key;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // Create rows for each data object
+        data.forEach((rowData) => {
+            const tr = document.createElement('tr');
+            headers.forEach(key => {
+            const td = document.createElement('td');
+            // Handle null/undefined or nested objects
+            const value = rowData[key];
+            td.textContent = formatearCeldaTabla(key, (typeof value === 'object') ? JSON.stringify(value) : value);
+            tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        document.getElementById('tablaCortes').appendChild(table);
+        } 
+</script>
+
+<body onload="createTableFromJSON()">
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
+
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Operación / Producción</div><h1>Cortes</h1><p>Administra cortes de material y sus observaciones.</p></div>
+    <div class="heading-actions">
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo corte</span></button>
+    </div>
+  </div>
+  <div class="data-card">
+    <div class="data-card-header">
+      <div>
+        <h2>Cortes registrados</h2>
+        <span>Consulta en tiempo real</span>
+      </div>
+      <div class="heading-actions">
+        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarIDModal">
+          <i class="bi bi-search" aria-hidden="true"></i><span>ID</span></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="createTableFromJSON()">
+          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Actualizar listado</span></button>
+      </div>
+    </div>
+    <div class="data-table-wrap" id="tablaCortes" onload="createTableFromJSON()"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+</div>
+
+<div class="modal" id="crearModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Crear Cortes</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="post" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="fechaCorteForm" class="form-label">Fecha corte:</label>
+                <input type="date" class="form-control" id="fechaCorteForm" placeholder="Inserte fecha del corte" name="fechaCorteCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="cortadorForm" class="form-label">Cortador:</label>
+                <input type="text" class="form-control" id="cortadorForm" placeholder="Inserte cortador" name="cortadorCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="cantidadForm" class="form-label">Cantidad:</label>
+                <input type="number" class="form-control" id="cantidadForm" placeholder="Inserte cantidad" name="cantidadCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="observacionesForm" class="form-label">Observaciones:</label>
+                <input type="text" class="form-control" id="observacionesForm" placeholder="Inserte observaciones" name="observacionesCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="materialForm" class="form-label">Material usado:</label>
+                <input type="text" class="form-control" id="materialForm" placeholder="Inserte material a usar" name="materialCrear">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="idProductoForm" class="form-label">Id producto asociado:</label>
+                <input type="text" class="form-control" id="idProductoForm" placeholder="Inserte id del producto" name="IdProductoCrear">
+            </div>
+            <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="actualizarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Actualizar Cortes</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="put" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="IdAActualizarForm" class="form-label">Id del corte a actualizar:</label>
+                <input type="text" class="form-control" id="IdAActualizarForm" placeholder="Inserte id del corte" name="IdCorteActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="fechaCorteForm" class="form-label">Fecha corte:</label>
+                <input type="date" class="form-control" id="fechaCorteForm" placeholder="Inserte fecha del corte" name="fechaCorteActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="cortadorForm" class="form-label">Cortador:</label>
+                <input type="text" class="form-control" id="cortadorForm" placeholder="Inserte cortador" name="cortadorActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="cantidadForm" class="form-label">Cantidad:</label>
+                <input type="number" class="form-control" id="cantidadForm" placeholder="Inserte cantidad" name="cantidadActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="observacionesForm" class="form-label">Observaciones:</label>
+                <input type="text" class="form-control" id="observacionesForm" placeholder="Inserte observaciones" name="observacionesActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="materialForm" class="form-label">Material usado:</label>
+                <input type="text" class="form-control" id="materialForm" placeholder="Inserte material a usar" name="materialActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="idProductoForm" class="form-label">Id producto asociado:</label>
+                <input type="text" class="form-control" id="idProductoForm" placeholder="Inserte id del producto" name="IdProductoActualizar">
+            </div>
+            <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Actualizar</span></button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="borrarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Borrar Corte</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="delete" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="idCorteFormBorrar" class="form-label">Id del Cliente:</label>
+                <input type="text" class="form-control" id="idCorteFormBorrar" placeholder="Inserte id del corte" name="idCorteBorrar">
+            </div>
+            <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-trash3" aria-hidden="true"></i><span>Borrar</span></button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarIDModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar Cortes</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarID" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="idForm" class="form-label">Por ID:</label>
+                <input type="text" class="form-control" id="idBuscar" placeholder="Inserte ID a buscar" name="idBuscar">
+            </div>
+            <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger icon-button" data-bs-dismiss="modal"><i class="bi bi-x-lg" aria-hidden="true"></i><span>Cancelar</span></button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</body>
+
+</html>

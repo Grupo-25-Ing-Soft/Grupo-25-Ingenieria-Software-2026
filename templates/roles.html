@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Roles - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar">
+  <input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema">
+</header>
+
+{% set puede_editar = puede('roles_usuarios', 'editar') %}
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Sistema / Roles y usuarios</div>
+      <h1>Roles</h1>
+      <p>Crea los roles que necesites y elige qué secciones puede ver o editar cada uno.</p>
+    </div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" onclick="abrirRol(null)"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo rol</span></button>
+    </div>
+    {% endif %}
+  </div>
+
+  <ul class="nav nav-pills mb-3">
+    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{{ url_for('roles') }}">Roles</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('usuarios') }}">Usuarios</a></li>
+  </ul>
+
+  <div class="data-card">
+    <div class="data-card-header"><div><h2>Roles creados</h2><span>{{ roles | length }} rol{{ '' if roles | length == 1 else 'es' }}</span></div></div>
+    {% if not roles %}
+      <div class="empty-state">Todavía no hay roles. {% if puede_editar %}Crea el primero con «Nuevo rol».{% endif %}</div>
+    {% else %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Nombre</th><th>Descripción</th><th>Permisos</th><th>Usuarios</th>{% if puede_editar %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for rol in roles %}
+          <tr>
+            <td><strong>{{ rol.nombre }}</strong></td>
+            <td>{{ rol.descripcion or '—' }}</td>
+            <td class="permisos-resumen">
+              {% for codigo, nombre, _ in modulos if rol.permisos.get(codigo) %}
+                <span class="badge {{ 'text-bg-success' if rol.permisos[codigo].editar else 'text-bg-light' }}" title="{{ 'Ver y editar' if rol.permisos[codigo].editar else 'Solo ver' }}">{{ nombre }}</span>
+              {% else %}
+                <span class="text-muted">Sin acceso a ninguna sección</span>
+              {% endfor %}
+            </td>
+            <td>{{ rol.cantidad_usuarios }}</td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="abrirRol({{ rol.id_rol }})"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Editar</span></button>
+              <form method="POST" class="d-inline" data-confirmacion="¿Eliminar el rol «{{ rol.nombre }}»?" onsubmit="return confirm(this.dataset.confirmacion);">
+                <input type="hidden" name="_method" value="delete">
+                <input type="hidden" name="id_rol" value="{{ rol.id_rol }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger icon-button" {% if rol.cantidad_usuarios %}disabled title="Tiene usuarios asignados"{% endif %}><i class="bi bi-trash" aria-hidden="true"></i><span>Eliminar</span></button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  <p class="form-text mt-2"><span class="badge text-bg-success">Verde</span> puede ver y editar · <span class="badge text-bg-light">Gris</span> solo puede ver.</p>
+</div>
+
+{% if puede_editar %}
+<div class="modal fade" id="rolModal" tabindex="-1" aria-labelledby="rolModalTitulo" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <form method="POST" class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="rolModalTitulo">Nuevo rol</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="_method" id="rolMetodo" value="post">
+        <input type="hidden" name="id_rol" id="rolId">
+        <div class="row g-3 mb-3">
+          <div class="col-md-5">
+            <label for="rolNombre" class="form-label">Nombre del rol</label>
+            <input type="text" class="form-control" id="rolNombre" name="nombre" required maxlength="60" placeholder="Ej.: Ventas, Bodega, Gerencia">
+          </div>
+          <div class="col-md-7">
+            <label for="rolDescripcion" class="form-label">Descripción <span class="text-muted">(opcional)</span></label>
+            <input type="text" class="form-control" id="rolDescripcion" name="descripcion" maxlength="200">
+          </div>
+        </div>
+        <table class="table table-sm align-middle mb-0 permisos-tabla">
+          <thead>
+            <tr>
+              <th>Sección</th>
+              <th class="text-center">Ver <button type="button" class="btn btn-link btn-sm p-0" onclick="marcarColumna('ver')">todo</button></th>
+              <th class="text-center">Editar <button type="button" class="btn btn-link btn-sm p-0" onclick="marcarColumna('editar')">todo</button></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for codigo, nombre, _ in modulos %}
+            <tr>
+              <td>{{ nombre }}</td>
+              <td class="text-center"><input class="form-check-input" type="checkbox" name="ver_{{ codigo }}" id="ver_{{ codigo }}" data-modulo="{{ codigo }}" data-accion="ver" aria-label="Ver {{ nombre }}"></td>
+              <td class="text-center"><input class="form-check-input" type="checkbox" name="editar_{{ codigo }}" id="editar_{{ codigo }}" data-modulo="{{ codigo }}" data-accion="editar" aria-label="Editar {{ nombre }}"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="form-text">«Ver» permite abrir la sección, buscar y filtrar. «Editar» permite crear, modificar y borrar, e incluye «Ver».</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-save" aria-hidden="true"></i><span>Guardar rol</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const ROLES = {{ roles | tojson }};
+  const casillas = document.querySelectorAll('.permisos-tabla input[type=checkbox]');
+
+  // Editar incluye ver: marcar "editar" marca "ver", y desmarcar "ver" desmarca "editar".
+  casillas.forEach(function (casilla) {
+    casilla.addEventListener('change', function () {
+      const modulo = casilla.dataset.modulo;
+      if (casilla.dataset.accion === 'editar' && casilla.checked) document.getElementById('ver_' + modulo).checked = true;
+      if (casilla.dataset.accion === 'ver' && !casilla.checked) document.getElementById('editar_' + modulo).checked = false;
+    });
+  });
+
+  function marcarColumna(accion) {
+    const columna = document.querySelectorAll('.permisos-tabla input[data-accion=' + accion + ']');
+    const marcar = Array.from(columna).some(function (c) { return !c.checked; });
+    columna.forEach(function (c) { c.checked = marcar; c.dispatchEvent(new Event('change')); });
+  }
+
+  function abrirRol(idRol) {
+    const rol = ROLES.find(function (r) { return r.id_rol === idRol; });
+    document.getElementById('rolModalTitulo').textContent = rol ? 'Editar rol' : 'Nuevo rol';
+    document.getElementById('rolMetodo').value = rol ? 'put' : 'post';
+    document.getElementById('rolId').value = rol ? rol.id_rol : '';
+    document.getElementById('rolNombre').value = rol ? rol.nombre : '';
+    document.getElementById('rolDescripcion').value = rol ? (rol.descripcion || '') : '';
+    casillas.forEach(function (c) {
+      const permiso = rol && rol.permisos[c.dataset.modulo];
+      c.checked = Boolean(permiso && permiso[c.dataset.accion]);
+    });
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('rolModal')).show();
+  }
+</script>
+{% endif %}
+</body>
+</html>

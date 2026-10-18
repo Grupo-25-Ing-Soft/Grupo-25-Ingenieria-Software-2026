@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Inventario - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+
+ <script src="{{ url_for('static', filename='report_helpers.js') }}"></script>
+ <script>
+document.addEventListener('DOMContentLoaded', () => {
+  renderReportTable('my_variable', 'tablaInventario');
+});
+</script></head>
+<body>
+{% include '_flash_toast.html' %}
+{% if datos %}<input type="hidden" id="my_variable" value='{{ datos | tojson}}'>{% endif %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Reportes / Inventario</div><h1>Inventario</h1><p>Consulta las existencias actuales por bodega, talla y color.</p></div></div>
+  <div class="data-card"><div class="data-card-header"><div><h2>Filtros</h2><span>Selecciona el rango a consultar</span></div></div>
+    <div class="p-3 p-md-4"><form method="POST" action="#"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-play-fill" aria-hidden="true"></i><span>Generar informe</span></button></form></div>
+  </div>
+  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Resultados</h2><span>Existencias del inventario</span></div></div>
+    <div class="data-table-wrap" id="tablaInventario"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+</div>
+</body>
+</html>

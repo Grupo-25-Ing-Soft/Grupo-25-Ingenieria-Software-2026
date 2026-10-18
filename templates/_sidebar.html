@@ -1,0 +1,32 @@
+{# Barra lateral común a todas las páginas. El enlace activo se elige según request.endpoint. #}
+{% macro enlace(endpoint, icono, texto, activo=False) %}
+<a href="{{ url_for(endpoint) }}"{% if activo or request.endpoint == endpoint %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi {{ icono }}" aria-hidden="true"></i></span><span>{{ texto }}</span></a>
+{% endmacro %}
+{% set ep = request.endpoint or '' %}
+<aside class="shared-sidebar">
+  <div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div>
+
+  <div class="shared-caption">Operación</div>
+  {{ enlace('index', 'bi-grid-1x2-fill', 'Panel de control') }}
+  {# Los informes y análisis se abren desde Reportes. #}
+  {{ enlace('reportes', 'bi-bar-chart-line', 'Reportes',
+            ep.startswith('analisis') or ep.startswith('informeProductos') or ep in ('inventario', 'resumenProduccion')) }}
+
+  <div class="shared-caption">Ventas</div>
+  {{ enlace('pedidos', 'bi-receipt-cutoff', 'Pedidos', ep == 'verDetalle') }}
+  {{ enlace('despachos', 'bi-truck', 'Despachos') }}
+  {{ enlace('notasCredito', 'bi-receipt-cutoff', 'Notas de crédito') }}
+  {{ enlace('pagos', 'bi-cash-coin', 'Pagos') }}
+  {{ enlace('informeCobranza', 'bi-cash-stack', 'Informe de cobranza') }}
+
+  <div class="shared-caption">Archivos maestros</div>
+  {{ enlace('clientes', 'bi-person-vcard-fill', 'Clientes') }}
+  {{ enlace('productos', 'bi-box-seam-fill', 'Productos') }}
+  {{ enlace('colores', 'bi-palette-fill', 'Colores') }}
+  {{ enlace('tallas', 'bi-rulers', 'Tallas') }}
+  {{ enlace('codigosEAN', 'bi-upc-scan', 'Códigos EAN', ep == 'emisionEAN') }}
+  {{ enlace('vendedores', 'bi-person-badge-fill', 'Vendedores') }}
+  {{ enlace('zonasVenta', 'bi-geo-alt-fill', 'Zonas de venta') }}
+  {{ enlace('bodegas', 'bi-building-fill', 'Bodegas') }}
+  {% include '_sesion_usuario.html' %}
+</aside>

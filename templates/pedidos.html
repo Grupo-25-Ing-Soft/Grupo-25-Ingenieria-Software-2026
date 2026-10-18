@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Pedidos - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Ventas / Datos maestros</div><h1>Pedidos</h1><p>Consulta los pedidos y su disponibilidad para despacho.</p></div></div>
+  <section class="data-card">
+    <div class="data-card-header"><div><h2>Listado de pedidos</h2><span>Abre el detalle para consultar el porcentaje cumplible con el inventario actual</span></div></div>
+    {% if datos %}
+    <div class="data-table-wrap">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th scope="col">Pedido</th><th scope="col">Fecha</th><th scope="col">Fecha de entrega</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead>
+        <tbody>{% for pedido in datos %}
+          <tr>
+            <td>{{ pedido.numero_pedido or pedido.id_pedido }}</td>
+            <td>{{ pedido.fecha_pedido or '—' }}</td>
+            <td>{{ pedido.fecha_entrega or '—' }}</td>
+            <td>{{ pedido.estado or '—' }}</td>
+            <td><a class="btn btn-sm btn-outline-success icon-button" href="{{ url_for('verDetalle', id_pedido=pedido.id_pedido) }}"><i class="bi bi-eye" aria-hidden="true"></i><span>Ver detalle</span></a></td>
+          </tr>
+        {% endfor %}</tbody>
+      </table>
+    </div>
+    {% else %}<div class="empty-state">No hay pedidos disponibles.</div>{% endif %}
+  </section>
+</div>
+</body>
+</html>

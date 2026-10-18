@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Informe de Productos Pendientes de Despacho - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='report_helpers.js') }}"></script>
+<script>
+  function getCatalogMap(inputId, idKey, labelKey) {
+    const raw = document.getElementById(inputId)?.value;
+    if (!raw) return new Map();
+    try {
+      const rows = JSON.parse(raw);
+      return new Map((rows || []).map((row) => [Number(row[idKey]), row[labelKey] || 'Sin descripción']));
+    } catch (error) {
+      return new Map();
+    }
+  }
+
+  function formatPendingValue(key, value, productosMap, clientesMap, vendedoresMap, bodegasMap) {
+    if (value === null || typeof value === 'undefined') return '—';
+    if (Array.isArray(value)) {
+      return value.map((entry) => {
+        if (typeof entry === 'object' && entry !== null) {
+          const variantId = Number(entry.id_variante ?? entry.id_variante_id ?? entry.id);
+          if (!Number.isNaN(variantId) && productosMap.has(variantId)) {
+            return productosMap.get(variantId);
+          }
+          return readTextValue(entry);
+        }
+        return resolveIdEntry(entry, productosMap);
+      }).filter(Boolean).join('; ');
+    }
+    if (typeof value === 'object') {
+      if (value.id_variante !== undefined) {
+        return productosMap.get(Number(value.id_variante)) || readTextValue(value.descripcion || value);
+      }
+      if (value.id_cliente !== undefined) {
+        return clientesMap.get(Number(value.id_cliente)) || readTextValue(value);
+      }
+      if (value.id_vendedor !== undefined) {
+        return vendedoresMap.get(Number(value.id_vendedor)) || readTextValue(value);
+      }
+      if (value.id_bodega !== undefined) {
+        return bodegasMap.get(Number(value.id_bodega)) || readTextValue(value);
+      }
+      return readTextValue(value);
+    }
+
+    switch (key) {
+      case 'id_variante':
+      case 'producto_asociado':
+        return resolveIdEntry(value, productosMap);
+      case 'id_cliente':
+      case 'cliente_asociado':
+        return resolveIdEntry(value, clientesMap);
+      case 'id_vendedor':
+      case 'vendedor_asociado':
+        return resolveIdEntry(value, vendedoresMap);
+      case 'id_bodega':
+        return resolveIdEntry(value, bodegasMap);
+      default:
+        return readTextValue(value);
+    }
+  }
+
+  function resolveIdEntry(value, map) {
+    if (value === null || typeof value === 'undefined') return '—';
+    const numeric = Number(value);
+    if (!Number.isNaN(numeric) && map.has(numeric)) {
+      return map.get(numeric);
+    }
+    return readTextValue(value);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const productosMap = getCatalogMap('productos', 'id_variante', 'descripcion');
+    const clientesMap = getCatalogMap('clientes', 'id_cliente', 'nombre');
+    const vendedoresMap = getCatalogMap('vendedores', 'id_vendedor', 'nombre');
+    const bodegasMap = getCatalogMap('bodegas', 'id_bodega', 'descripcion');
+
+    renderReportTable('my_variable', 'tablaPedidosPendientesDespacho', (key, row) => {
+      return formatPendingValue(key, row[key], productosMap, clientesMap, vendedoresMap, bodegasMap);
+    });
+
+    renderReportTable('inventario_variable', 'tablaInventarioDisponible', (key, row) => {
+      return formatPendingValue(key, row[key], productosMap, clientesMap, vendedoresMap, bodegasMap);
+    });
+  });
+</script></head>
+<body>
+{% include '_flash_toast.html' %}
+{% if datosPedidos %}<input type="hidden" id="my_variable" value='{{ datosPedidos | tojson }}'>{% endif %}
+{% if datosInventario %}<input type="hidden" id="inventario_variable" value='{{ datosInventario | tojson }}'>{% endif %}
+{% if datosProductos %}<input type="hidden"  id="productos" value='{{ datosProductos | tojson}}'>{% endif %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Reportes / Productos pendientes de despacho</div><h1>Productos pendientes de despacho</h1><p>Consulta pedidos pendientes e inventario relacionado con los despachos.</p></div>
+  </div>
+  <div class="data-card">
+    <div class="data-card-header">
+      <div>
+        <h2>Filtros</h2>
+        <span>Genera el informe de pedidos e inventario disponible</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarPedidosModal">
+        <i class="bi bi-search" aria-hidden="true"></i><span>Pedidos</span></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarClientesModal">
+        <i class="bi bi-person-lines-fill" aria-hidden="true"></i><span>Clientes</span></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarVendedoresModal">
+        <i class="bi bi-tag" aria-hidden="true"></i><span>Vendedores</span></button>
+    </div>
+    <div class="p-3 p-md-4">
+      <form method="POST" role="form" action="#">
+        <input type="hidden" name="_method" value="get" />
+        <button type="submit" class="btn btn-success icon-button"><i class="bi bi-play-fill" aria-hidden="true"></i><span>Generar informe sin filtros</span></button>
+      </form>
+    </div>
+  </div>
+  <div class="data-card"><div class="data-card-header"><div><h2>Pedidos pendientes</h2><span>Pedidos que aún no han sido despachados</span></div></div>
+    <div class="data-table-wrap" id="tablaPedidosPendientesDespacho"></div>{% if not datosPedidos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Inventario disponible</h2><span>Existencias relacionadas con los pedidos</span></div></div>
+    <div class="data-table-wrap" id="tablaInventarioDisponible"></div>{% if not datosInventario %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+</div>
+</body>
+
+<div class="modal" id="buscarPedidosModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar productos pendientes de despacho</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarPedidos" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="productosForm" class="form-label">Por pedido:</label>
+                <select class="form-select" id="pedidoBuscar" name="PedidoBuscarn" required>
+                  <option value="" selected disabled>Seleccione un pedido</option>
+                  {% for pedido in pedidos %}
+                  <option value="{{ pedido.id_pedido }}">{{ pedido.id_pedido }}</option>
+                  {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarClientesModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar productos pendientes de despacho</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarClientes" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="clientesBuscar" class="form-label">Por cliente:</label>
+                <select class="form-select" id="clienteBuscar" name="ClienteBuscarn" required>
+                  <option value="" selected disabled>Seleccione un cliente</option>
+                  {% for cliente in clientes %}
+                  <option value="{{ cliente.id_cliente }}">{{ cliente.nombre }}</option>
+                  {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="buscarVendedoresModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Buscar productos pendientes de despacho</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="buscarVendedores" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="vendedoresBuscar" class="form-label">Por vendedor:</label>
+                <select class="form-select" id="vendedorBuscar" name="VendedorBuscarn" required>
+                  <option value="" selected disabled>Seleccione un vendedor</option>
+                  {% for vendedor in vendedores %}
+                  <option value="{{ vendedor.id_vendedor }}">{{ vendedor.nombre }}</option>
+                  {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</html>

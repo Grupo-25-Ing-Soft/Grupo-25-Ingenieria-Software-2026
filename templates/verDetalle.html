@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Porcentaje cumplible del pedido - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Ventas / Pedido {{ id_pedido }}</div><h1>Detalle de cumplimiento</h1><p>Disponibilidad del inventario para las unidades pendientes del pedido.</p></div>
+    <div class="heading-actions"><a class="btn btn-outline-secondary icon-button" href="{{ url_for('pedidos') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i><span>Volver a pedidos</span></a></div>
+  </div>
+
+  <section class="data-card mb-4" aria-labelledby="resumen-cumplimiento">
+    <div class="data-card-header"><div><h2 id="resumen-cumplimiento">Resumen del pedido</h2><span>Pedido {{ id_pedido }}</span></div></div>
+    <div class="p-3 p-md-4">
+      {% if pedido_completo %}
+      <p class="h4 mb-3">100 % – pedido completo</p>
+      {% else %}
+      <p class="h4 mb-3">{{ unidades_cumplibles }} de {{ unidades_pendientes }} unidades pendientes se pueden cumplir ({{ '%.1f'|format(porcentaje_cumplible) }} %)</p>
+      {% endif %}
+      <div class="progress" role="progressbar" aria-label="Porcentaje cumplible del pedido" aria-valuenow="{{ porcentaje_cumplible }}" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-bar bg-success" style="width: {{ porcentaje_cumplible }}%">{{ '%.1f'|format(porcentaje_cumplible) }} %</div>
+      </div>
+      <p class="text-muted small mt-3 mb-0">El stock se comparte entre pedidos pendientes; el porcentaje considera el inventario total, no reservas.</p>
+    </div>
+  </section>
+
+  <section class="data-card" aria-labelledby="lineas-pedido">
+    <div class="data-card-header"><div><h2 id="lineas-pedido">Detalle por línea</h2><span>Unidades solicitadas y disponibilidad estimada</span></div></div>
+    <div class="data-table-wrap">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr>
+          <th scope="col">Producto</th><th scope="col">Color</th><th scope="col">Talla</th>
+          <th scope="col">Pedida</th><th scope="col">Despachada</th><th scope="col">Pendiente</th>
+          <th scope="col">Stock disponible</th><th scope="col">Cumplible</th><th scope="col">Faltante</th><th scope="col">% cumplible</th>
+        </tr></thead>
+        <tbody>
+        {% for linea in detalle %}
+          <tr>
+            <td>{{ linea.producto or '—' }}</td>
+            <td>{{ linea.color or '—' }}</td>
+            <td>{{ linea.talla or '—' }}</td>
+            <td>{{ linea.cantidad_pedida or 0 }}</td>
+            <td>{{ linea.cantidad_despachada or 0 }}</td>
+            <td>{{ linea.cantidad_pendiente }}</td>
+            <td>{% if linea.stock_disponible is none %}—{% else %}{{ linea.stock_disponible }}{% endif %}</td>
+            <td>{{ linea.cantidad_cumplible }}</td>
+            <td>{{ linea.cantidad_faltante }}</td>
+            <td>{{ '%.1f'|format(linea.porcentaje_cumplible) }} %</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot><tr>
+          <th colspan="5" scope="row">Total pendiente</th>
+          <td>{{ unidades_pendientes }}</td><td>—</td><td>{{ unidades_cumplibles }}</td><td>{{ unidades_faltantes }}</td>
+          <td>{{ '%.1f'|format(porcentaje_cumplible) }} %</td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </section>
+</div>
+</body>
+</html>

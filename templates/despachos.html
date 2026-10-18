@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Despachos - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('despachos', 'editar') %}
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Ventas / Despachos</div>
+      <h1>Despachos</h1>
+      <p>Registra las guías de despacho de los pedidos, corrige sus datos o anúlalas devolviendo el stock a la bodega.</p>
+    </div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#elegirPedidoModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo despacho</span></button>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if nuevo %}
+  <div class="data-card mb-4">
+    <div class="data-card-header">
+      <div><h2>Nuevo despacho · {{ nuevo.numero_pedido }}</h2><span>Cliente: {{ nuevo.cliente or 'Sin cliente' }}</span></div>
+      <a href="{{ url_for('despachos') }}" class="btn btn-sm btn-outline-secondary">Cancelar</a>
+    </div>
+    <form method="POST" action="{{ url_for('despachos') }}" class="modal-body">
+      <input type="hidden" name="_method" value="post">
+      <input type="hidden" name="idPedido" value="{{ nuevo.id_pedido }}">
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label" for="idBodega">Bodega de origen</label>
+          <select class="form-select" id="idBodega" name="idBodega" required>
+            <option value="" selected disabled>Seleccione una bodega</option>
+            {% for bodega in bodegas %}<option value="{{ bodega.id_bodega }}">{{ bodega.descripcion }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="idFactura">Factura (opcional)</label>
+          <select class="form-select" id="idFactura" name="idFactura">
+            <option value="">Sin factura</option>
+            {% for factura in nuevo.facturas %}<option value="{{ factura.id_factura }}">{{ factura.numero_factura }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="viaDespacho">Vía de despacho</label>
+          <input type="text" class="form-control" id="viaDespacho" name="viaDespacho" value="{{ nuevo.via_despacho }}" placeholder="Ej.: Starken, retiro en tienda">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="observacion">Observación</label>
+          <input type="text" class="form-control" id="observacion" name="observacion">
+        </div>
+      </div>
+      <div class="data-table-wrap">
+        <table class="table table-striped align-middle mb-0">
+          <thead>
+            <tr><th>Producto</th><th>Color</th><th>Talla</th><th>Pedido</th><th>Despachado</th><th>Pendiente</th><th>Stock en bodega</th><th style="width:140px">A despachar</th></tr>
+          </thead>
+          <tbody>
+            {% for linea in nuevo.lineas %}
+            <tr>
+              <td>{{ linea.producto or ('Variante ' ~ linea.id_variante) }}</td>
+              <td>{{ linea.color or '' }}</td>
+              <td>{{ linea.talla or '' }}</td>
+              <td>{{ linea.cantidad_pedida }}</td>
+              <td>{{ linea.cantidad_despachada }}</td>
+              <td>{{ linea.cantidad_pendiente }}</td>
+              <td class="stock-bodega" data-variante="{{ linea.id_variante }}">—</td>
+              <td><input type="number" class="form-control form-control-sm" name="cantidad_{{ linea.id_detalle_pedido }}" min="0" max="{{ linea.cantidad_pendiente }}" placeholder="0"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        <button type="button" class="btn btn-outline-secondary" id="despacharTodo">Completar con lo pendiente</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-truck" aria-hidden="true"></i><span>Registrar despacho</span></button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if detalle %}
+  {% set d = detalle.despacho %}
+  <div class="data-card mb-4">
+    <div class="data-card-header">
+      <div><h2>Guía {{ d.numero_guia }}</h2><span>{{ d.fecha|fecha }} · {{ d.numero_pedido }} · {{ d.cliente or 'Sin cliente' }}</span></div>
+      <a href="{{ url_for('despachos') }}" class="btn btn-sm btn-outline-secondary">Cerrar</a>
+    </div>
+    <div class="modal-body">
+      <dl class="row mb-3">
+        <dt class="col-sm-2">Estado</dt><dd class="col-sm-4">{{ d.estado }}</dd>
+        <dt class="col-sm-2">Bodega</dt><dd class="col-sm-4">{{ d.bodega or d.id_bodega }}</dd>
+        <dt class="col-sm-2">Factura</dt><dd class="col-sm-4">{{ d.numero_factura or 'Sin factura' }}</dd>
+        <dt class="col-sm-2">Vía</dt><dd class="col-sm-4">{{ d.via_despacho or '—' }}</dd>
+        <dt class="col-sm-2">Observación</dt><dd class="col-sm-4">{{ d.observacion or '—' }}</dd>
+        <dt class="col-sm-2">Registrado por</dt><dd class="col-sm-4">{{ d.usuario_creacion }}</dd>
+        {% if d.estado == 'anulado' %}
+        <dt class="col-sm-2">Motivo anulación</dt><dd class="col-sm-4">{{ d.motivo_anulacion }}</dd>
+        <dt class="col-sm-2">Fecha anulación</dt><dd class="col-sm-4">{{ d.fecha_anulacion|fecha }}</dd>
+        {% endif %}
+      </dl>
+      {% if detalle.lineas %}
+      <div class="data-table-wrap">
+        <table class="table table-striped align-middle mb-0">
+          <thead><tr><th>Producto</th><th>Color</th><th>Talla</th><th>Cantidad</th><th>Precio unitario</th><th>Descuento</th><th>Subtotal</th></tr></thead>
+          <tbody>
+            {% for linea in detalle.lineas %}
+            <tr>
+              <td>{{ linea.producto or '' }}</td><td>{{ linea.color or '' }}</td><td>{{ linea.talla or '' }}</td>
+              <td>{{ linea.cantidad }}</td>
+              <td>${{ '{:,}'.format(linea.precio_unitario).replace(',', '.') }}</td>
+              <td>{{ linea.descuento_porcentaje }}%</td>
+              <td>${{ '{:,}'.format(linea.subtotal).replace(',', '.') }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot><tr><th colspan="6" class="text-end">Total neto</th><th>${{ '{:,}'.format(detalle.total).replace(',', '.') }}</th></tr></tfoot>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">Este despacho no tiene líneas registradas.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="data-card mb-4">
+    <div class="data-card-header">
+      <div><h2>Filtros</h2><span>Combina los criterios disponibles</span></div>
+    </div>
+    <form method="GET" action="{{ url_for('despachos') }}" class="modal-body row g-3 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label" for="guia">N° de guía</label>
+        <input type="text" class="form-control" id="guia" name="guia" value="{{ filtros.guia }}" placeholder="GD-000001">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="pedido_numero">Pedido</label>
+        <input type="text" class="form-control" id="pedido_numero" name="pedido_numero" value="{{ filtros.pedido_numero }}" placeholder="PED-000001">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="estado">Estado</label>
+        <select class="form-select" id="estado" name="estado">
+          <option value="">Todos</option>
+          <option value="emitido" {% if filtros.estado == 'emitido' %}selected{% endif %}>Emitido</option>
+          <option value="anulado" {% if filtros.estado == 'anulado' %}selected{% endif %}>Anulado</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="desde">Desde</label>
+        <input type="date" class="form-control" id="desde" name="desde" value="{{ filtros.desde }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="hasta">Hasta</label>
+        <input type="date" class="form-control" id="hasta" name="hasta" value="{{ filtros.hasta }}">
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <a href="{{ url_for('despachos') }}" class="btn btn-outline-secondary">Limpiar</a>
+        <button type="submit" class="btn btn-primary">Filtrar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <div><h2>Despachos registrados</h2><span>{{ datos|length }} resultado{{ '' if datos|length == 1 else 's' }}</span></div>
+    </div>
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead>
+          <tr><th>Guía</th><th>Fecha</th><th>Pedido</th><th>Cliente</th><th>Bodega</th><th>Factura</th><th>Vía</th><th>Unidades</th><th>Estado</th><th class="text-end">Acciones</th></tr>
+        </thead>
+        <tbody>
+          {% for d in datos %}
+          <tr>
+            <td>{{ d.numero_guia }}</td>
+            <td>{{ d.fecha|fecha }}</td>
+            <td>{{ d.numero_pedido or d.id_pedido }}</td>
+            <td>{{ d.cliente or '' }}</td>
+            <td>{{ d.bodega or d.id_bodega }}</td>
+            <td>{{ d.numero_factura or '' }}</td>
+            <td>{{ d.via_despacho or '' }}</td>
+            <td>{{ d.unidades }} <small class="text-muted">({{ d.lineas }} línea{{ '' if d.lineas == 1 else 's' }})</small></td>
+            <td><span class="badge {{ 'text-bg-secondary' if d.estado == 'anulado' else 'text-bg-success' }}">{{ d.estado }}</span></td>
+            <td class="text-end text-nowrap">
+              <a href="{{ url_for('despachos', ver=d.id_despacho) }}" class="btn btn-sm btn-outline-secondary" title="Ver detalle"><i class="bi bi-eye" aria-hidden="true"></i></a>
+              {% if puede_editar and d.estado == 'emitido' %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-bs-toggle="modal" data-bs-target="#editarModal"
+                      data-id="{{ d.id_despacho }}" data-guia="{{ d.numero_guia }}" data-pedido="{{ d.id_pedido }}"
+                      data-factura="{{ d.id_factura or '' }}" data-via="{{ d.via_despacho or '' }}" data-observacion="{{ d.observacion or '' }}"><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Anular" data-bs-toggle="modal" data-bs-target="#anularModal"
+                      data-id="{{ d.id_despacho }}" data-guia="{{ d.numero_guia }}"><i class="bi bi-x-octagon" aria-hidden="true"></i></button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">No hay despachos{% if filtros.values()|select|list %} para los filtros aplicados{% endif %}.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal fade" id="elegirPedidoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">Nuevo despacho</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form method="GET" action="{{ url_for('despachos') }}">
+        <div class="modal-body">
+          {% if pedidos_pendientes %}
+          <label class="form-label" for="pedido">Pedido con unidades pendientes</label>
+          <select class="form-select" id="pedido" name="pedido" required>
+            <option value="" selected disabled>Seleccione un pedido</option>
+            {% for p in pedidos_pendientes %}<option value="{{ p.id_pedido }}">{{ p.numero_pedido }} · {{ p.nombre_cliente or 'Sin cliente' }}</option>{% endfor %}
+          </select>
+          {% else %}
+          <div class="empty-state">No hay pedidos con unidades pendientes de despacho.</div>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          {% if pedidos_pendientes %}<button type="submit" class="btn btn-primary">Continuar</button>{% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="editarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">Editar despacho <span id="editarGuia"></span></h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form method="POST" action="{{ url_for('despachos') }}">
+        <div class="modal-body">
+          <input type="hidden" name="_method" value="put">
+          <input type="hidden" name="idDespacho" id="editarId">
+          <div class="mb-3">
+            <label class="form-label" for="editarFactura">Factura</label>
+            <select class="form-select" id="editarFactura" name="idFactura">
+              <option value="">Sin factura</option>
+              {% for factura in facturas %}<option value="{{ factura.id_factura }}" data-pedido="{{ factura.id_pedido }}">{{ factura.numero_factura }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="editarVia">Vía de despacho</label>
+            <input type="text" class="form-control" id="editarVia" name="viaDespacho">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="editarObservacion">Observación</label>
+            <input type="text" class="form-control" id="editarObservacion" name="observacion">
+          </div>
+          <small class="text-muted">Las cantidades no se editan: para corregirlas, anula el despacho y registra uno nuevo.</small>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="anularModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">Anular despacho <span id="anularGuia"></span></h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form method="POST" action="{{ url_for('despachos') }}">
+        <div class="modal-body">
+          <input type="hidden" name="_method" value="anular">
+          <input type="hidden" name="idDespacho" id="anularId">
+          <p>Las unidades despachadas vuelven a la bodega de origen y el pedido queda otra vez pendiente de despacho.</p>
+          <label class="form-label" for="motivo">Motivo de la anulación</label>
+          <input type="text" class="form-control" id="motivo" name="motivo" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-danger">Anular despacho</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Nuevo despacho: stock de la bodega elegida y botón para completar lo pendiente.
+    const stock = {{ (nuevo.stock if nuevo else {}) | tojson }};
+    const bodega = document.getElementById('idBodega');
+    if (bodega) {
+      bodega.addEventListener('change', function () {
+        document.querySelectorAll('.stock-bodega').forEach(function (celda) {
+          celda.textContent = stock[bodega.value + '-' + celda.dataset.variante] || 0;
+        });
+      });
+      document.getElementById('despacharTodo').addEventListener('click', function () {
+        document.querySelectorAll('input[name^="cantidad_"]').forEach(function (input) { input.value = input.max; });
+      });
+    }
+
+    // Editar: carga los datos del despacho y deja solo las facturas de su pedido.
+    document.getElementById('editarModal').addEventListener('show.bs.modal', function (event) {
+      const boton = event.relatedTarget;
+      document.getElementById('editarId').value = boton.dataset.id;
+      document.getElementById('editarGuia').textContent = boton.dataset.guia;
+      document.getElementById('editarVia').value = boton.dataset.via;
+      document.getElementById('editarObservacion').value = boton.dataset.observacion;
+      const factura = document.getElementById('editarFactura');
+      factura.querySelectorAll('option[data-pedido]').forEach(function (opcion) {
+        opcion.hidden = opcion.dataset.pedido !== boton.dataset.pedido;
+      });
+      factura.value = boton.dataset.factura;
+    });
+
+    document.getElementById('anularModal').addEventListener('show.bs.modal', function (event) {
+      const boton = event.relatedTarget;
+      document.getElementById('anularId').value = boton.dataset.id;
+      document.getElementById('anularGuia').textContent = boton.dataset.guia;
+    });
+  });
+</script>
+</body>
+</html>

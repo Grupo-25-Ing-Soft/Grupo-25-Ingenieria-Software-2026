@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Producción - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Operación / Producción</div><h1>Producción</h1><p>Accede a los procesos de corte, ingreso y pedidos.</p></div>
+  </div>
+  <div class="data-card">
+    <div class="data-card-header"><div><h2>Procesos de producción</h2><span>Selecciona una operación para continuar</span></div></div>
+    <div class="dashboard-grid">
+      <a href="cortes.html" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-scissors" aria-hidden="true"></i></span><span><strong>Cortes</strong><small>Gestiona cortes de material</small></span><i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+      <a href="{{ url_for('ingresoBodega') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i></span><span><strong>Ingreso de producción a bodega</strong><small>Registra el ingreso de producción</small></span><i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+      <a href="pedidos.html" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span><strong>Pedidos</strong><small>Consulta y administra pedidos</small></span><i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+    </div>
+  </div>
+</div>
+
+<div>
+    
+</div>
+
+
+
+  
+</body>
+</html>

@@ -1,0 +1,18 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-toasts" aria-live="polite" aria-atomic="true">
+      {% for category, message in messages %}
+        <div class="flash-toast flash-toast-{{ category }}" role="alert">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+    <script>
+      window.setTimeout(function () {
+        document.querySelectorAll('.flash-toast').forEach(function (toast) {
+          toast.classList.add('flash-toast-hidden');
+        });
+      }, 3500);
+    </script>
+  {% endif %}
+{% endwith %}

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Análisis de Productos Pedidos Versus Despachados - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+ </head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Reportes / Productos pedidos versus despachados</div><h1>Productos pedidos versus despachados</h1><p>Compara las cantidades de productos pedidos con los productos despachados.</p></div></div>
+  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Resultados</h2><span>Comparación de cantidades pedidas y despachadas</span></div></div>
+    <div class="data-table-wrap" id="tablaProductosPedidosDespachados"></div><div class="empty-state">Este análisis está en desarrollo</div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Detalle de pedido - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
+<script>
+
+    function inicializarCrudDetallePedido(){
+        var test = document.querySelector('#my_variable').value 
+        const data = JSON.parse(test);
+        console.log(data);
+        createTableFromJSON();
+    }
+
+    function createTableFromJSON() {
+        var test = document.querySelector('#my_variable').value 
+        const data = JSON.parse(test)
+        if (!data || !data.length) return;
+
+        const table = document.createElement('table');
+        table.className = "table table-striped";
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+        const headerRow = document.createElement('tr');
+
+        // Extract headers from the first object's keys
+        const headers = ordenarColumnasTabla(Object.keys(data[0]));
+        console.log(headers)
+        headers.forEach(key => {
+            const th = document.createElement('th');
+            th.textContent = key;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // Create rows for each data object
+        data.forEach((rowData) => {
+            const tr = document.createElement('tr');
+            headers.forEach(key => {
+            const td = document.createElement('td');
+            // Handle null/undefined or nested objects
+            const value = rowData[key];
+            td.textContent = formatearCeldaTabla(key, (typeof value === 'object') ? JSON.stringify(value) : value);
+            tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        document.getElementById('tablaBodegas').appendChild(table);
+        } 
+</script>
+ </head>
+<body onload="inicializarCrudDetallePedido()">
+{% include '_flash_toast.html' %}
+<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Ventas / Detalle de pedido</div><h1>Detalle de pedido</h1><p>Administra y consulta los productos asociados al pedido.</p></div>
+    <div class="heading-actions">
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarIDModal"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar por ID</span></button>
+      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarDescripcionModal"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar por descripción</span></button>
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Crear</span></button>
+      <button type="button" class="btn btn-outline-secondary icon-button" onclick="createTableFromJSON()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Ver</span></button>
+    </div>
+  </div>
+  <div class="data-card"><div class="data-card-header"><div><h2>Resultados</h2><span>Detalle de productos del pedido</span></div></div><div class="data-table-wrap" id="tablaBodegas"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}</div>
+</div>
+
+<div class="modal" id="crearModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Crear Bodega</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
+         <!-- Action es a dónde los manda, y # los manda a la misma página-->
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="post" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3">
+                <label for="descripcionForm" class="form-label">Descripción:</label>
+                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionCrear">
+            </div>
+            <button type="submit" class="btn btn-primary">Crear</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="actualizarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Actualizar Bodega</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="put" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="IDidBodegaActualizar" class="form-label">Id de la bodega a actualizar:</label>
+                <input type="text" class="form-control" id="IDidBodegaActualizar" placeholder="Inserte id de la bodega" name="IdBodegaActualizar">
+            </div>
+            <div class="mb-3">
+                <label for="descripcionForm" class="form-label">Descripción:</label>
+                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionActualizar">
+            </div>
+            <button type="submit" class="btn btn-primary">Actualizar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="borrarModal">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <h4 class="modal-title">Borrar Bodega</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- Modal body -->
+      <div class="modal-body">
+        <form method="POST" role="form" action="#">
+            <input type="hidden" name="_method" value="delete" />
+            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
+            <div class="mb-3 mt-3">
+                <label for="idBodegaFormBorrar" class="form-label">Id de la bodega:</label>
+                <input type="text" class="form-control" id="idBodegaFormBorrar" placeholder="Inserte id de la bodega" name="idBodegaBorrar">
+            </div>
+            <button type="submit" class="btn btn-primary">Borrar</button>
+        </form>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+</body>
+
+</html>

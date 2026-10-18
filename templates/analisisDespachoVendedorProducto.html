@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Análisis de Despachos por Vendedor y Producto - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+
+ <script src="{{ url_for('static', filename='report_helpers.js') }}"></script>
+ <script>
+function buildVendedorProductoTables() {
+  const clientes = {{ clientes|tojson if clientes else '[]' }};
+  const vendedores = {{ vendedores|tojson if vendedores else '[]' }};
+  const productos = {{ productos|tojson if productos else '[]' }};
+  const despachoRows = document.getElementById('my_variable') ? JSON.parse(document.getElementById('my_variable').value || '[]') : [];
+  const pedidoRows = document.getElementById('pedidos_json') ? JSON.parse(document.getElementById('pedidos_json').value || '[]') : [];
+
+  const formattedDespachos = flattenDespachoRows(despachoRows, { clientes, vendedores, productos });
+  const formattedPedidos = flattenPedidoDetails(pedidoRows, { clientes, vendedores, productos });
+
+  renderStructuredTable(formattedDespachos, 'tablaDespachosVendedorProducto');
+  renderStructuredTable(formattedPedidos, 'tablaPedidosProducto');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildVendedorProductoTables();
+});
+</script></head>
+<body>
+{% include '_flash_toast.html' %}
+{% if datos %}<input type="hidden" id="my_variable" value='{{ datos | tojson}}'>{% endif %}
+{% if datosPedidos %}<input type="hidden" id="pedidos_json" value='{{ datosPedidos | tojson }}'>{% endif %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Reportes / Despachos por vendedor y producto</div><h1>Despachos por vendedor y producto</h1><p>Consulta despachos según el vendedor y el producto seleccionado.</p></div></div>
+  <div class="data-card">
+    <div class="data-card-header"><div><h2>Filtros</h2><span>Selecciona los criterios a consultar</span></div></div>
+    <div class="p-3 p-md-4">
+      <form method="POST" role="form" action="#">
+        <div class="row g-3">
+          <div class="col-md-6"><label for="IDVendedorForm" class="form-label">Vendedor asociado</label><select class="form-select" id="IDVendedorForm" name="IDVendedor" required><option value="" selected disabled>Selecciona...</option>{% for vendedor in vendedores %}<option value="{{ vendedor.id_vendedor }}">{{ vendedor.nombre }}</option>{% endfor %}</select></div>
+          <div class="col-md-6"><label for="IDProductoForm" class="form-label">Producto</label><select class="form-select" id="IDProductoForm" name="IDProducto" required><option value="" selected disabled>Selecciona...</option>{% for producto in productos %}<option value="{{ producto.id_variante }}">{{ producto.descripcion }}</option>{% endfor %}</select></div>
+          <div class="col-12"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button></div>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class="data-card mt-4">
+    <div class="data-card-header"><div><h2>Resultados</h2><span>Despachos asociados a la selección</span></div></div>
+    <div class="data-table-wrap" id="tablaDespachosVendedorProducto"></div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+  <div class="data-card mt-4">
+    <div class="data-card-header"><div><h2>Pedidos que incluyen el producto</h2><span>Pedidos asociados al producto seleccionado</span></div></div>
+    <div class="data-table-wrap" id="tablaPedidosProducto"></div>
+    {% if not datosPedidos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+  </div>
+</div>
+</body>
+</html>
