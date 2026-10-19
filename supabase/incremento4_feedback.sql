@@ -96,9 +96,12 @@ alter table public.facturas
 do $$
 begin
   if pg_temp.existe('facturas', 'numero_factura') then
-    update public.facturas set folio = numero_factura::bigint
-     where folio is null and numero_factura ~ '^[0-9]+$'
-       and not exists (select 1 from public.facturas f2 where f2.folio = numero_factura::bigint);
+    -- El case evita convertir números no numéricos (ej. 'F-TEST-001'): PostgreSQL
+    -- no garantiza el orden en que evalúa las condiciones del where.
+    update public.facturas f set folio = case when f.numero_factura ~ '^[0-9]+$' then f.numero_factura::bigint end
+     where f.folio is null and f.numero_factura ~ '^[0-9]+$'
+       and not exists (select 1 from public.facturas f2
+                        where f2.folio = case when f.numero_factura ~ '^[0-9]+$' then f.numero_factura::bigint end);
   end if;
   if pg_temp.existe('facturas', 'id_pedido') then
     update public.facturas set pedido_asociado = id_pedido where pedido_asociado is null and id_pedido is not null;
@@ -215,9 +218,11 @@ alter table public.notas_credito
 do $$
 begin
   if pg_temp.existe('notas_credito', 'numero_nota') then
-    update public.notas_credito n set folio = numero_nota::bigint
-     where folio is null and numero_nota::text ~ '^[0-9]+$'
-       and not exists (select 1 from public.notas_credito n2 where n2.folio = n.numero_nota::bigint);
+    update public.notas_credito n
+       set folio = case when n.numero_nota::text ~ '^[0-9]+$' then n.numero_nota::text::bigint end
+     where n.folio is null and n.numero_nota::text ~ '^[0-9]+$'
+       and not exists (select 1 from public.notas_credito n2
+                        where n2.folio = case when n.numero_nota::text ~ '^[0-9]+$' then n.numero_nota::text::bigint end);
   end if;
   if pg_temp.existe('notas_credito', 'id_factura') then
     update public.notas_credito set factura_referencia = id_factura
