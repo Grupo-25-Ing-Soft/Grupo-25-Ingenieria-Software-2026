@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <title>Clientes - Comercial D Nix</title>
   <meta charset="utf-8">
@@ -9,587 +9,217 @@
   <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
   <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
-  <style>
-    :root {
-      --surface: #ffffff;
-      --canvas: #f5f7f6;
-      --ink: #17231f;
-      --muted: #728079;
-      --line: #e4e9e6;
-      --accent: #9acd32;
-      --accent-dark: #527d13;
-      --accent-soft: #eff8df;
-      --danger-soft: #fff1f1;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      min-height: 100vh;
-      margin: 0;
-      color: var(--ink);
-      background: var(--canvas);
-      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-    }
-
-    .page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 25px; }
-    .eyebrow { margin-bottom: 7px; color: var(--accent-dark); font-size: .68rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-    .page-heading h1 { margin: 0; color: var(--ink); font-size: clamp(1.6rem, 3vw, 2.05rem); font-weight: 800; letter-spacing: -.04em; }
-    .page-heading p { margin: 6px 0 0; color: var(--muted); font-size: .86rem; }
-    .heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-
-    .btn { border-radius: 7px; font-size: .78rem; font-weight: 700; }
-    .btn-success { color: #31470e; background: var(--accent); border-color: var(--accent); }
-    .btn-success:hover { color: #26370b; background: #a9d94b; border-color: #a9d94b; }
-    .btn-outline-secondary { color: #68756f; border-color: #d4ddd7; }
-    .btn-outline-secondary:hover { color: var(--ink); background: #edf2ee; border-color: #c7d2ca; }
-
-    .data-card { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(39, 59, 47, .04); }
-    .data-card-header { display: flex; align-items: center; justify-content: space-between; padding: 17px 21px; border-bottom: 1px solid var(--line); }
-    .data-card-header h2 { margin: 0; font-size: .96rem; font-weight: 800; }
-    .data-card-header span { color: var(--muted); font-size: .73rem; }
-    #tablaClientes { overflow-x: auto; padding: 0; }
-    #tablaClientes table { width: 100%; min-width: 1000px; margin: 0; border: 0 !important; color: #526059; font-size: .76rem; }
-    #tablaClientes th { padding: 13px 18px !important; color: #89958f; background: #fafcfb; border: 0 !important; border-bottom: 1px solid var(--line) !important; font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
-    #tablaClientes td { padding: 14px 18px !important; border: 0 !important; border-bottom: 1px solid #eef2ef !important; white-space: nowrap; }
-    #tablaClientes tr:last-child td { border-bottom: 0 !important; }
-    #tablaClientes tbody tr:hover { background: #fbfdf9; }
-
-    .modal-content { overflow: hidden; border: 0; border-radius: 12px; box-shadow: 0 20px 60px rgba(26, 46, 33, .2); }
-    .modal-header { padding: 20px 24px; background: #fbfdfb; border-bottom: 1px solid var(--line); }
-    .modal-title { font-size: 1.05rem; font-weight: 800; }
-    .modal-body { padding: 24px; }
-    .modal-footer { padding: 15px 24px; background: #fbfdfb; border-top: 1px solid var(--line); }
-    .form-label { margin-bottom: 6px; color: #526059; font-size: .76rem; font-weight: 700; }
-    .form-control { padding: 10px 12px; border-color: #dce4de; border-radius: 7px; font-size: .8rem; }
-    .form-control:focus { border-color: #add268; box-shadow: 0 0 0 .2rem rgba(154, 205, 50, .16); }
-    .btn-primary { color: #31470e; background: var(--accent); border-color: var(--accent); }
-    .btn-primary:hover { color: #26370b; background: #a9d94b; border-color: #a9d94b; }
-    .btn-danger { color: #a84949; background: var(--danger-soft); border-color: #f0d2d2; }
-
-    @media (max-width: 600px) {
-      .page-heading { flex-direction: column; }
-      .heading-actions { justify-content: flex-start; }
-    }
-
-    @media (max-width: 540px) {
-    }
-  </style>
 </head>
-<script>
-
-    
-    function renderClientesTabla(containerId){
-        var test = document.querySelector('#my_variable').value 
-        //const aux = JSON.parse(test)
-        const clientes = test
-        const test2 = test
-        console.log(test)
-        console.log(clientes)
-        const container = document.getElementById(containerId);
-        if (!container){
-          console.log('test')
-          return;  
-        } 
-        // Limpiar contenidos
-        container.textContent = '';
-        // Comprobar la existencia de los usuarios
-        /*if (clientes.length === 0){
-            const p = document.createElement('p'); // Sin asignación
-            p.textContent = 'Sin Datos';
-            container.appendChild(p); // Asignación de p a div
-            return;
-            console.log('iftest')
-        }*/
-       // Crear Tabla
-       console.log('test2')
-       const table = document.createElement('table'); // Sin asignación
-       table.className = "table table-striped";
-       const thead = document.createElement('thead'); // Sin asignación
-       const headerRow = document.createElement('tr'); // Sin asignación
-       ['id_cliente','rut','nombre', 'correo', 'telefono', 'direccion',
-        'digito_verificador', 'abreviacion', 'ciudad', 'comuna', 'condiciones_venta',
-        'via_despacho', 'porcentaje_comision', 'porcentaje_cobranza', 'observaciones',
-        'id_zona_venta'].forEach((col) => {
-            const th = document.createElement('th'); // Sin asignación
-            th.textContent = col;
-            headerRow.appendChild(th); // Asignar th a tr
-       });
-       thead.appendChild(headerRow); // Asignar tr a thead
-       table.appendChild(thead) // Asignar thead a table
-       const tbody = document.createElement('tbody'); // Sin asignación
-       for (const u of clientes) { // count(usuarios)
-        const tr = document.createElement('tr');
-        const tdId = document.createElement('td');
-        const tdRut = document.createElement('td');
-        const tdNombre = document.createElement('td');
-        const tdCorreo = document.createElement('td');
-        const tdTelefono = document.createElement('td');
-        const tdDireccion = document.createElement('td');
-        const tdDigitoVerificador = document.createElement('td');
-        const tdAbreviacion = document.createElement('td');
-        const tdCiudad = document.createElement('td');
-        const tdComuna = document.createElement('td');
-        const tdCondicionesVenta = document.createElement('td');
-        const tdViaDespacho = document.createElement('td');
-        const tdPorcentajeComision = document.createElement('td');
-        const tdPorcentajeCobranza = document.createElement('td');
-        const tdObservaciones = document.createElement('td');
-        const tdIdZonaVenta = document.createElement('td');
-        tdId. textContent = u.id_cliente ?? '';
-        tdRut. textContent = u.rut ?? '';
-        tdNombre. textContent = u.nombre ?? '';
-        tdCorreo. textContent = u.correo ?? '';
-        tdTelefono. textContent = u.telefono ?? '';
-        tdDireccion. textContent = u.direccion ?? '';
-        tdDigitoVerificador. textContent = u.digito_verificador ?? '';
-        tdAbreviacion. textContent = u.abreviacion ?? '';
-        tdCiudad. textContent = u.ciudad ?? '';
-        tdComuna. textContent = u.comuna ?? '';
-        tdCondicionesVenta. textContent = u.condiciones_venta ?? '';
-        tdViaDespacho. textContent = u.via_despacho ?? '';
-        tdPorcentajeComision. textContent = u.porcentaje_comision ?? '';
-        tdPorcentajeCobranza. textContent = u.porcentaje_cobranza ?? '';
-        tdObservaciones. textContent = u.observaciones ?? '';
-        tdIdZonaVenta. textContent = u.id_zona_venta ?? '';
-        tr.appendChild(tdId);
-        tr.appendChild(tdRut);
-        tr.appendChild(tdNombre);
-        tr.appendChild(tdTelefono);
-        tr.appendChild(tdDireccion);
-        tr.appendChild(tdDigitoVerificador);
-        tr.appendChild(tdAbreviacion);
-        tr.appendChild(tdCiudad);
-        tr.appendChild(tdComuna);
-        tr.appendChild(tdCondicionesVenta);
-        tr.appendChild(tdViaDespacho);
-        tr.appendChild(tdPorcentajeComision);
-        tr.appendChild(tdPorcentajeCobranza);
-        tr.appendChild(tdObservaciones);
-        tr.appendChild(tdIdZonaVenta);
-        tbody.appendChild(tr);
-       }
-       table.appendChild(tbody);
-       table.style.borderCollapse = 'collapse';
-       //CSS minimo groupselector
-       table.querySelectorAll('th, td').forEach((cell) => {
-            cell.style.border = '1px solid #ccc';
-            cell.style.padding = '6px 8px';
-       });
-       container.appendChild(table);
-    }
-    
-
-    function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = ordenarColumnasTabla(Object.keys(data[0]));
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = formatearCeldaTabla(key, (typeof value === 'object') ? JSON.stringify(value) : value);
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaClientes').appendChild(table);
-        } 
-</script>
-
-<body onload="createTableFromJSON()">
-  {% include '_flash_toast.html' %}
-<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
-
+<body>
+{% include '_flash_toast.html' %}
 {% include '_sidebar.html' %}
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('clientes', 'editar') %}
+{% set nombre_zona = {} %}
+{% for z in zonasVenta %}{% set _ = nombre_zona.update({z.id_zona_venta: z.nombre or z.descripcion}) %}{% endfor %}
 
 <div class="container-fluid">
   <div class="page-heading">
-    <div><div class="eyebrow">Datos maestros / Clientes</div><h1>Clientes</h1><p>Administra la información comercial y de contacto.</p></div>
+    <div><div class="eyebrow">Archivos maestros / Comercial</div><h1>Clientes</h1><p>Administra los clientes, sus condiciones comerciales y descuentos.</p></div>
+    {% if puede_editar %}
     <div class="heading-actions">
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
       <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo cliente</span></button>
     </div>
+    {% endif %}
   </div>
   <div class="data-card">
     <div class="data-card-header">
-      <div>
-        <h2>Clientes registrados</h2>
-        <span>Consulta en tiempo real</span>
-      </div>
-      <div class="heading-actions">
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarIDModal">
-          <i class="bi bi-search" aria-hidden="true"></i><span>ID</span></button>
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarNombreModal">
-          <i class="bi bi-person-lines-fill" aria-hidden="true"></i><span>Nombre</span></button>
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarAbreviacionModal">
-          <i class="bi bi-tag" aria-hidden="true"></i><span>Abreviación</span></button>
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="createTableFromJSON()">
-          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Actualizar listado</span></button>
-      </div>
+      <div><h2>Clientes registrados</h2><span>{{ datos|length }} cliente{{ '' if datos|length == 1 else 's' }}</span></div>
+      <form method="GET" action="{{ url_for('clientes') }}" class="d-flex gap-2" role="search">
+        <input type="search" class="form-control form-control-sm" name="q" value="{{ busqueda }}" placeholder="Buscar por nombre, RUT o código" aria-label="Buscar cliente">
+        <button type="submit" class="btn btn-sm btn-outline-secondary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
+        {% if busqueda %}<a href="{{ url_for('clientes') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>{% endif %}
+      </form>
     </div>
-    <div class="data-table-wrap" id="tablaClientes" onload="createTableFromJSON()"></div>
-    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr>
+          <th>Nombre</th><th>Código</th><th>RUT</th><th>Abreviación</th><th>Teléfono</th><th>Correo</th><th>Dirección</th>
+          <th>Comuna</th><th>Ciudad</th><th>Zona de venta</th><th class="text-end">Descuentos</th><th class="text-end">Comisión</th>
+          <th class="text-end">Cobranza</th><th>Vía de despacho</th><th>Condiciones de venta</th><th>Observaciones</th>
+          {% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}
+        </tr></thead>
+        <tbody>
+          {% for c in datos %}
+          <tr>
+            <td>{{ c.nombre }}</td>
+            <td>{{ c.codigo or '' }}</td>
+            <td class="text-nowrap">{{ c.rut }}{% if c.digito_verificador %}-{{ c.digito_verificador }}{% endif %}</td>
+            <td>{{ c.abreviacion or '' }}</td>
+            <td>{{ c.telefono or '' }}</td>
+            <td>{{ c.correo or '' }}</td>
+            <td>{{ c.direccion or '' }}</td>
+            <td>{{ c.comuna or '' }}</td>
+            <td>{{ c.ciudad or '' }}</td>
+            <td>{{ nombre_zona.get(c.id_zona_venta, '') }}</td>
+            <td class="text-end text-nowrap">{{ '%.2f'|format(c.descuento_1 or 0) }}% / {{ '%.2f'|format(c.descuento_2 or 0) }}% / {{ '%.2f'|format(c.descuento_3 or 0) }}%</td>
+            <td class="text-end">{% if c.porcentaje_comision is not none %}{{ '%.2f'|format(c.porcentaje_comision) }}%{% endif %}</td>
+            <td class="text-end">{% if c.porcentaje_cobranza is not none %}{{ '%.2f'|format(c.porcentaje_cobranza) }}%{% endif %}</td>
+            <td>{{ c.via_despacho or '' }}</td>
+            <td>{{ c.condiciones_venta or '' }}</td>
+            <td>{{ c.observaciones or '' }}</td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="cliente {{ c.nombre }}"
+                      data-valores='{{ {"idClienteActualizar": c.id_cliente, "nombreActualizar": c.nombre, "codigoActualizar": c.codigo or "",
+                        "rutActualizar": c.rut, "digVerActualizar": c.digito_verificador, "abreviacionActualizar": c.abreviacion or "",
+                        "telefonoActualizar": c.telefono or "", "correoActualizar": c.correo or "", "direccionActualizar": c.direccion or "",
+                        "comunaActualizar": c.comuna or "", "ciudadActualizar": c.ciudad or "", "idZonaVentaActualizar": c.id_zona_venta or "",
+                        "descuento1Actualizar": c.descuento_1 or 0, "descuento2Actualizar": c.descuento_2 or 0, "descuento3Actualizar": c.descuento_3 or 0,
+                        "porComisionActualizar": c.porcentaje_comision if c.porcentaje_comision is not none else "",
+                        "porCobranzaActualizar": c.porcentaje_cobranza if c.porcentaje_cobranza is not none else "",
+                        "viaDespachoActualizar": c.via_despacho or "", "condicionesVentaActualizar": c.condiciones_venta or "",
+                        "observacionesActualizar": c.observaciones or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="cliente {{ c.nombre }}"
+                      data-valores='{{ {"idClienteBorrar": c.id_cliente} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">{% if busqueda %}No se encontraron resultados para «{{ busqueda }}».{% else %}Sin clientes registrados todavía.{% endif %}</div>
+    {% endif %}
   </div>
 </div>
 
-<div class="modal" id="crearModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
+{% macro campos_cliente(sufijo) %}
+<div class="row g-3">
+  <div class="col-md-8">
+    <label class="form-label" for="nombre{{ sufijo }}">Nombre completo (apellidos-nombres o razón social)</label>
+    <input type="text" class="form-control" id="nombre{{ sufijo }}" name="nombre{{ sufijo }}" required>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="codigo{{ sufijo }}">Código de cliente</label>
+    <input type="text" class="form-control" id="codigo{{ sufijo }}" name="codigo{{ sufijo }}">
+  </div>
+  <div class="col-md-5">
+    <label class="form-label" for="rut{{ sufijo }}">RUT (sin dígito verificador)</label>
+    <input type="text" class="form-control" id="rut{{ sufijo }}" name="rut{{ sufijo }}" inputmode="numeric" placeholder="Ej: 12345678" required>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label" for="digVer{{ sufijo }}">DV</label>
+    <input type="text" class="form-control" id="digVer{{ sufijo }}" name="digVer{{ sufijo }}" maxlength="1" placeholder="K" required>
+  </div>
+  <div class="col-md-5">
+    <label class="form-label" for="abreviacion{{ sufijo }}">Abreviación</label>
+    <input type="text" class="form-control" id="abreviacion{{ sufijo }}" name="abreviacion{{ sufijo }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="telefono{{ sufijo }}">Teléfono</label>
+    <input type="text" class="form-control" id="telefono{{ sufijo }}" name="telefono{{ sufijo }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="correo{{ sufijo }}">Correo</label>
+    <input type="email" class="form-control" id="correo{{ sufijo }}" name="correo{{ sufijo }}">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="direccion{{ sufijo }}">Dirección</label>
+    <input type="text" class="form-control" id="direccion{{ sufijo }}" name="direccion{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="comuna{{ sufijo }}">Comuna</label>
+    <input type="text" class="form-control" id="comuna{{ sufijo }}" name="comuna{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="ciudad{{ sufijo }}">Ciudad</label>
+    <input type="text" class="form-control" id="ciudad{{ sufijo }}" name="ciudad{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="idZonaVenta{{ sufijo }}">Zona de venta</label>
+    <select class="form-select" id="idZonaVenta{{ sufijo }}" name="idZonaVenta{{ sufijo }}">
+      <option value="">Sin zona</option>
+      {% for zona in zonasVenta %}<option value="{{ zona.id_zona_venta }}">{{ zona.nombre or zona.descripcion }}</option>{% endfor %}
+    </select>
+  </div>
+  {% for n in [1, 2, 3] %}
+  <div class="col-md-4">
+    <label class="form-label" for="descuento{{ n }}{{ sufijo }}">Descuento {{ n }} (%)</label>
+    <input type="number" class="form-control" id="descuento{{ n }}{{ sufijo }}" name="descuento{{ n }}{{ sufijo }}" min="0" max="100" step="0.01" value="0">
+  </div>
+  {% endfor %}
+  <div class="col-md-6">
+    <label class="form-label" for="porComision{{ sufijo }}">Porcentaje de comisión (%)</label>
+    <input type="number" class="form-control" id="porComision{{ sufijo }}" name="porComision{{ sufijo }}" min="0" max="100" step="0.01">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="porCobranza{{ sufijo }}">Porcentaje de cobranza (%)</label>
+    <input type="number" class="form-control" id="porCobranza{{ sufijo }}" name="porCobranza{{ sufijo }}" min="0" max="100" step="0.01">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="viaDespacho{{ sufijo }}">Vía de despacho</label>
+    <input type="text" class="form-control" id="viaDespacho{{ sufijo }}" name="viaDespacho{{ sufijo }}" placeholder="Ej.: Starken, retiro en tienda">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="condicionesVenta{{ sufijo }}">Condiciones de venta</label>
+    <input type="text" class="form-control" id="condicionesVenta{{ sufijo }}" name="condicionesVenta{{ sufijo }}" placeholder="Ej.: 30 días">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="observaciones{{ sufijo }}">Observaciones</label>
+    <textarea class="form-control" id="observaciones{{ sufijo }}" name="observaciones{{ sufijo }}" maxlength="256" rows="2"></textarea>
+  </div>
+</div>
+{% endmacro %}
 
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Crear Cliente</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+{% if puede_editar %}
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Nuevo cliente</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('clientes') }}">
       <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="post" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-          <div class="form-section-title">Identificación y contacto</div>
-            <div class="mb-3 mt-3">
-                <label for="rutForm" class="form-label">Rut:</label>
-                <input type="text" class="form-control" id="rutForm" placeholder="Inserte Rut sin dígito verificador" name="rut">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="nombreForm" class="form-label">Nombre:</label>
-                <input type="text" class="form-control" id="nombreForm" placeholder="Inserte nombre" name="nombre">
-            </div>
-            <div class="mb-3">
-                <label for="correoForm" class="form-label">Correo:</label>
-                <input type="email" class="form-control" id="correoForm" placeholder="Inserte correo" name="correo">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="telefonoForm" class="form-label">Teléfono:</label>
-                <input type="text" class="form-control" id="telefonoForm" placeholder="Inserte teléfono" name="telefono">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="direccionForm" class="form-label">Dirección:</label>
-                <input type="text" class="form-control" id="direccionForm" placeholder="Inserte dirección" name="direccion">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="digVerForm" class="form-label">Dígito verificador:</label>
-                <input type="text" class="form-control" id="digVerForm" placeholder="Inserte dígito verificador" name="digVer">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="abreviacionForm" class="form-label">Abreviación:</label>
-                <input type="text" class="form-control" id="abreviacionForm" placeholder="Inserte abreviación" name="abreviacion">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="ciudadForm" class="form-label">Ciudad:</label>
-                <input type="text" class="form-control" id="ciudadForm" placeholder="Inserte ciudad" name="ciudad">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="comunaForm" class="form-label">Comuna:</label>
-                <input type="" class="form-control" id="comunaForm" placeholder="Inserte comuna" name="comuna">
-            </div>
-            <div class="form-section-title">Condiciones comerciales</div>
-            <div class="mb-3 mt-3">
-                <label for="condicionesVentaForm" class="form-label">Condiciones de venta:</label>
-                <input type="text" class="form-control" id="condicionesVentaForm" placeholder="Inserte condiciones de venta" name="condicionesVenta">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="viaDespachoForm" class="form-label">Vía de despacho:</label>
-                <input type="text" class="form-control" id="viaDespachoForm" placeholder="Inserte vía de despacho" name="viaDespacho">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="porComisionForm" class="form-label">Porcentaje de comisión:</label>
-                <input type="number" class="form-control" id="porComisionForm" placeholder="Inserte porcentaje de comisión" name="porComision">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="porCobranzaForm" class="form-label">Porcentaje de cobranza:</label>
-                <input type="number" class="form-control" id="porCobranzaForm" placeholder="Inserte porcentaje de cobranza" name="porCobranza">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="observacionesForm" class="form-label">Observaciones:</label>
-                <input type="text" class="form-control" id="observacionesForm" placeholder="Inserte observaciones" name="observaciones">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="idZonaVentaForm" class="form-label">Zona de venta asociada:</label>
-                <select class="form-select" id="idZonaVentaForm" name="IDZonaVentaCrear" required>
-                  <option value="" selected disabled>Seleccione una zona de venta</option>
-                  {% for zona in zonasVenta %}
-                  <option value="{{ zona.id_zona_venta }}">{{ zona.descripcion }}</option>
-                  {% endfor %}
-                </select>
-                <!--<input type="number" class="form-control" id="idZonaVentaForm" placeholder="Inserte id de la zona de venta" name="idZonaVenta"> -->
-            </div>
-            <button type="submit" class="btn btn-primary">Crear</button>
-        </form>
+        <input type="hidden" name="_method" value="post">
+        {{ campos_cliente('Crear') }}
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="actualizarModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Actualizar Cliente</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('clientes') }}">
       <div class="modal-body">
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="put" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-          <div class="form-section-title">Identificación y contacto</div>
-            <div class="mb-3 mt-3">
-                <label for="IDidClienteActualizar" class="form-label">id del Cliente a actualizar:</label>
-                <input type="text" class="form-control" id="IDidClienteActualizar" placeholder="Inserte id del cliente" name="idClienteActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDrutActualizar" class="form-label">Rut:</label>
-                <input type="text" class="form-control" id="IDrutActualizar" placeholder="Inserte Rut sin dígito verificador" name="rutActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDnombreActualizar" class="form-label">Nombre:</label>
-                <input type="text" class="form-control" id="IDnombreActualizar" placeholder="Inserte nombre" name="nombreActualizar">
-            </div>
-            <div class="mb-3">
-                <label for="IDcorreoActualizar" class="form-label">Correo:</label>
-                <input type="email" class="form-control" id="IDcorreoActualizar" placeholder="Inserte correo" name="correoActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDtelefonoActualizar" class="form-label">Teléfono:</label>
-                <input type="text" class="form-control" id="IDtelefonoActualizar" placeholder="Inserte teléfono" name="telefonoActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDdireccionActualizar" class="form-label">Dirección:</label>
-                <input type="text" class="form-control" id="IDdireccionActualizar" placeholder="Inserte dirección" name="direccionActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDdigVerActualizar" class="form-label">Dígito verificador:</label>
-                <input type="text" class="form-control" id="IDdigVerActualizar" placeholder="Inserte dígito verificador" name="digVerActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDabreviacionActualizar" class="form-label">Abreviación:</label>
-                <input type="text" class="form-control" id="IDabreviacionActualizar" placeholder="Inserte abreviación" name="abreviacionActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDciudadActualizar" class="form-label">Ciudad:</label>
-                <input type="text" class="form-control" id="IDciudadActualizar" placeholder="Inserte ciudad" name="ciudadActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDcomunaActualizar" class="form-label">Comuna:</label>
-                <input type="" class="form-control" id="IDcomunaActualizar" placeholder="Inserte comuna" name="comunaActualizar">
-            </div>
-            <div class="form-section-title">Condiciones comerciales</div>
-            <div class="mb-3 mt-3">
-                <label for="IDcondicionesVentaActualizar" class="form-label">Condiciones de venta:</label>
-                <input type="text" class="form-control" id="IDcondicionesVentaActualizar" placeholder="Inserte condiciones de venta" name="condicionesVentaActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDviaDespachoActualizar" class="form-label">Vía de despacho:</label>
-                <input type="text" class="form-control" id="IDviaDespachoActualizar" placeholder="Inserte vía de despacho" name="viaDespachoActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDporComisionActualizar" class="form-label">Porcentaje de comisión:</label>
-                <input type="number" class="form-control" id="IDporComisionActualizar" placeholder="Inserte porcentaje de comisión" name="porComisionActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDporCobranzaActualizar" class="form-label">Porcentaje de cobranza:</label>
-                <input type="number" class="form-control" id="IDporCobranzaActualizar" placeholder="Inserte porcentaje de cobranza" name="porCobranzaActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDobservacionesActualizar" class="form-label">Observaciones:</label>
-                <input type="text" class="form-control" id="IDobservacionesActualizar" placeholder="Inserte observaciones" name="observacionesActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="IDidZonaVentaActualizar" class="form-label">Zona de venta asociada:</label>
-                <select class="form-select" id="IDidZonaVentaActualizar" name="IDZonaVentaActualizar" required>
-                  <option value="" selected disabled>Seleccione una zona de venta</option>
-                  {% for zona in zonasVenta %}
-                  <option value="{{ zona.id_zona_venta }}">{{ zona.descripcion }}</option>
-                  {% endfor %}
-                </select>
-                <!--<input type="number" class="form-control" id="IDidZonaVentaActualizar" placeholder="Inserte id de la zona de venta" name="idZonaVentaActualizar"> -->
-            </div>
-            <button type="submit" class="btn btn-primary">Actualizar</button>
-        </form>
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="idClienteActualizar">
+        {{ campos_cliente('Actualizar') }}
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="borrarModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Borrar Cliente</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar cliente</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('clientes') }}">
       <div class="modal-body">
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="delete" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="idClienteForm" class="form-label">Id del Cliente:</label>
-                <input type="text" class="form-control" id="idClienteForm" placeholder="Inserte id del cliente" name="idClienteBorrar">
-            </div>
-            <button type="submit" class="btn btn-primary">Borrar</button>
-        </form>
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idClienteBorrar">
+        <p>¿Seguro que quieres eliminar al <strong data-registro></strong>? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Un cliente con pedidos, facturas o pagos no se puede eliminar.</small>
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
-
-<div class="modal" id="buscarIDModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Buscar Clientes</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
-      <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="buscarID" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="idForm" class="form-label">Por ID:</label>
-                <input type="text" class="form-control" id="idBuscar" placeholder="Inserte ID a buscar" name="idBuscar">
-            </div>
-            <button type="submit" class="btn btn-primary">Buscar</button>
-        </form>
-      </div>
-
-      <!-- Modal footer -->
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
-      </div>
-
-    </div>
-  </div>
-</div>
-
-<div class="modal" id="buscarNombreModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Buscar Clientes</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
-      <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="buscarNombre" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="nombreForm" class="form-label">Por nombre:</label>
-                <input type="text" class="form-control" id="nombreBuscar" placeholder="Inserte nombre a buscar" name="nombreBuscar">
-            </div>
-            <button type="submit" class="btn btn-primary">Buscar</button>
-        </form>
-      </div>
-
-      <!-- Modal footer -->
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
-      </div>
-
-    </div>
-  </div>
-</div>
-
-<div class="modal" id="buscarAbreviacionModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Buscar Clientes</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
-      <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="buscarAbreviacion" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="abreviacionForm" class="form-label">Por abreviación:</label>
-                <input type="text" class="form-control" id="abreviacionBuscar" placeholder="Inserte abreviacion a buscar" name="abreviacionBuscar">
-            </div>
-            <button type="submit" class="btn btn-primary">Buscar</button>
-        </form>
-      </div>
-
-      <!-- Modal footer -->
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
-      </div>
-
-    </div>
-  </div>
-</div>
-
+{% endif %}
 </body>
-
 </html>

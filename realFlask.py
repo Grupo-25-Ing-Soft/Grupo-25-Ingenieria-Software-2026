@@ -2328,125 +2328,139 @@ def cortes():
             
         return render_template('cortes.html', datos = response.data)
 
+def digito_verificador_rut(numero):
+    """Dígito verificador de un RUT chileno (módulo 11): '0'-'9' o 'K'."""
+    suma, factor = 0, 2
+    for digito in reversed(str(numero)):
+        suma += int(digito) * factor
+        factor = 2 if factor == 7 else factor + 1
+    resto = 11 - suma % 11
+    return {11: '0', 10: 'K'}.get(resto, str(resto))
+
+
+def _porcentaje(valor, nombre, obligatorio=False):
+    """Porcentaje 0-100 con dos decimales (formato llll/mmmm/nnnn del Documento 0)."""
+    texto = (valor or '').strip().replace(',', '.')
+    if not texto:
+        return (0 if obligatorio else None), None
+    try:
+        numero = round(float(texto), 2)
+    except ValueError:
+        return None, f'{nombre} debe ser un número entre 0 y 100.'
+    if not 0 <= numero <= 100:
+        return None, f'{nombre} debe estar entre 0 y 100.'
+    return numero, None
+
+
+def _leer_cliente_formulario(sufijo, id_cliente=None):
+    """Valida el modal de clientes (RF-001, CU-01.1 y CU-01.5). Devuelve (datos, error)."""
+    form = lambda campo: request.form.get(campo + sufijo)
+    nombre = (form('nombre') or '').strip()
+    if not nombre:
+        return None, 'El nombre del cliente es obligatorio.'
+    rut = re.sub(r'[.\s-]', '', form('rut') or '')
+    dv = (form('digVer') or '').strip().upper()
+    if not rut.isdigit():
+        return None, 'El RUT debe tener solo números (sin puntos ni dígito verificador).'
+    if not re.fullmatch(r'[0-9K]', dv):
+        return None, 'El dígito verificador debe ser un número del 0 al 9 o la letra K.'
+    if digito_verificador_rut(rut) != dv:
+        return None, f'El RUT {rut}-{dv} no es válido: el dígito verificador no coincide.'
+    repetidos = supabase.table('clientes').select('id_cliente').eq('rut', rut).execute().data or []
+    if any(str(c['id_cliente']) != str(id_cliente) for c in repetidos):
+        return None, f'Ya existe un cliente con el RUT {rut}-{dv}.'
+    codigo = _texto_o_nulo(form('codigo'))
+    if codigo:
+        mismos = supabase.table('clientes').select('id_cliente').eq('codigo', codigo).execute().data or []
+        if any(str(c['id_cliente']) != str(id_cliente) for c in mismos):
+            return None, f'Ya existe un cliente con el código {codigo}.'
+    datos = {
+        'codigo': codigo, 'rut': rut, 'digito_verificador': dv, 'nombre': nombre,
+        'abreviacion': _texto_o_nulo(form('abreviacion')), 'correo': _texto_o_nulo(form('correo')),
+        'telefono': _texto_o_nulo(form('telefono')), 'direccion': _texto_o_nulo(form('direccion')),
+        'comuna': _texto_o_nulo(form('comuna')), 'ciudad': _texto_o_nulo(form('ciudad')),
+        'condiciones_venta': _texto_o_nulo(form('condicionesVenta')),
+        'via_despacho': _texto_o_nulo(form('viaDespacho')),
+        'observaciones': _texto_o_nulo(form('observaciones')),
+        'id_zona_venta': _entero_positivo(form('idZonaVenta')),
+    }
+    if datos['observaciones'] and len(datos['observaciones']) > 256:
+        return None, 'Las observaciones admiten hasta 256 caracteres.'
+    for campo, etiqueta, columna, obligatorio in (
+            ('descuento1', 'El descuento 1', 'descuento_1', True),
+            ('descuento2', 'El descuento 2', 'descuento_2', True),
+            ('descuento3', 'El descuento 3', 'descuento_3', True),
+            ('porComision', 'El porcentaje de comisión', 'porcentaje_comision', False),
+            ('porCobranza', 'El porcentaje de cobranza', 'porcentaje_cobranza', False)):
+        valor, error = _porcentaje(form(campo), etiqueta, obligatorio)
+        if error:
+            return None, error
+        datos[columna] = valor
+    return datos, None
+
+
 @app.route('/clientes.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def clientes():
-    zonaVenta_response = supabase.table("zona_venta").select("id_zona_venta, descripcion").execute()
+    # RF-001/002, CU-01.1 a CU-01.5 y CU-02. Mismo patrón que colores: _method
+    # post/put/delete, modales crear/actualizar/borrar y avisos con flash.
+    zonas = supabase.table("zona_venta").select("id_zona_venta, nombre, descripcion").execute().data or []
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            rut = request.form['rut']
-            nom = request.form['nombre']
-            correo = request.form['correo']
-            tf = request.form['telefono']
-            direccion = request.form['direccion']
-            digVer = request.form['digVer']
-            abreviacion = request.form['abreviacion']
-            ciudad = request.form['ciudad']
-            comuna = request.form['comuna']
-            condVenta = request.form['condicionesVenta']
-            viaDes = request.form['viaDespacho']
-            porComi = request.form['porComision']
-            porCobra = request.form['porCobranza']
-            obs = request.form['observaciones']
-            idZona = request.form.get('idZonaVentaForm')
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
-
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("clientes").insert({"rut": rut, "nombre": nom,
-                        "correo": correo, "telefono": tf, "direccion": direccion, 
-                        "digito_verificador": digVer,
-                        "abreviacion": abreviacion,"ciudad": ciudad,
-                        "comuna": comuna, "condiciones_venta": condVenta,
-                        "via_despacho": viaDes,"porcentaje_comision": porComi,
-                        "porcentaje_cobranza": porCobra,"observaciones": obs,
-                        "id_zona_venta": idZona
-                        }).execute()
-            )
-            if response.data:
-                flash("Cliente creado exitosamente", "success")
-                return redirect(url_for('clientes'))
+        metodo = request.form.get('_method')
+        if metodo == "post":
+            datos, error = _leer_cliente_formulario('Crear')
+            if error:
+                flash(error, "error")
+            elif supabase.table("clientes").insert(datos).execute().data:
+                flash(f"Cliente {datos['nombre']} creado exitosamente", "success")
             else:
                 flash("Error creando cliente", "error")
+            return redirect(url_for('clientes'))
+        if metodo in ("put", "delete"):
+            id_cliente = _entero_positivo(request.form.get('idClienteActualizar') or request.form.get('idClienteBorrar'))
+            actual = supabase.table("clientes").select("id_cliente, nombre").eq("id_cliente", id_cliente) \
+                .execute().data if id_cliente else []
+            if not actual:
+                flash("El cliente no existe", "error")
                 return redirect(url_for('clientes'))
-        if (metodo == "put"):
-            idAACtualizar = request.form['idClienteActualizar']
-            rut = request.form['rutActualizar']
-            nom = request.form['nombreActualizar']
-            correo = request.form['correoActualizar']
-            tf = request.form['telefonoActualizar']
-            direccion = request.form['direccionActualizar']
-            digVer = request.form['digVerActualizar']
-            abreviacion = request.form['abreviacionActualizar']
-            ciudad = request.form['ciudadActualizar']
-            comuna = request.form['comunaActualizar']
-            condVenta = request.form['condicionesVentaActualizar']
-            viaDes = request.form['viaDespachoActualizar']
-            porComi = request.form['porComisionActualizar']
-            porCobra = request.form['porCobranzaActualizar']
-            obs = request.form['observacionesActualizar']
-            idZona = request.form.get('idZonaVentaActualizar')  
-            response = (
-                
-                supabase.table("clientes").update({"rut": rut, "nombre": nom,
-                        "correo": correo, "telefono": tf, "direccion": direccion, 
-                        "digito_verificador": digVer,
-                        "abreviacion": abreviacion,"ciudad": ciudad,
-                        "comuna": comuna, "condiciones_venta": condVenta,
-                        "via_despacho": viaDes,"porcentaje_comision": porComi,
-                        "porcentaje_cobranza": porCobra,"observaciones": obs,
-                        "id_zona_venta": idZona
-                        }).eq("id_cliente", idAACtualizar).select("id_cliente").execute()
-            )
-            if response.data:
-                flash("Cliente actualizado exitosamente", "success")
-                return redirect(url_for('clientes'))
+            if metodo == "put":
+                datos, error = _leer_cliente_formulario('Actualizar', id_cliente)
+                if error:
+                    flash(error, "error")
+                else:
+                    supabase.table("clientes").update(datos).eq("id_cliente", id_cliente).execute()
+                    flash(f"Cliente {datos['nombre']} actualizado exitosamente", "success")
             else:
-                flash("Error actualizando cliente", "error")
-                return redirect(url_for('clientes'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idClienteBorrar']
-            response = (
-                supabase.table("clientes").delete()
-                .eq("id_cliente", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Cliente borrado exitosamente", "success")
-                return redirect(url_for('clientes'))
-            else:
-                flash("Error borrando cliente", "error")
-                return redirect(url_for('clientes'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarclienteid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
-            else:
-                return "No se ha encontrado ningún cliente con la id buscada"
-        if (metodo == "buscarNombre"):
-            texto = request.form["nombreBuscar"]
-            response = supabase.rpc('buscarclientenombre', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
-            else:
-                return "No se ha encontrado ningún cliente con el nombre buscado"
-        if (metodo == "buscarAbreviacion"):
-            texto = request.form["abreviacionBuscar"]
-            response = supabase.rpc('buscarclienteabreviacion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
-            else:
-                return "No se ha encontrado ningún cliente con la abreviacion buscada" 
-    else:
-        response =(
-            supabase.table("clientes").select("*").execute()
-        )
-            
-        return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
+                # CU-01.4 excepción 2: no se elimina un cliente con pedidos, facturas o pagos.
+                asociados = [texto for texto, tabla, columna in (
+                    ('pedidos', 'pedidos', 'cliente_asociado'), ('facturas', 'facturas', 'cliente_asociado'),
+                    ('pagos', 'pagos', 'cliente_asociado'))
+                    if supabase.table(tabla).select(columna).eq(columna, id_cliente).limit(1).execute().data]
+                if asociados:
+                    flash(f"El cliente {actual[0]['nombre']} tiene {', '.join(asociados)} asociados y no se puede eliminar",
+                          "error")
+                else:
+                    supabase.table("clientes").delete().eq("id_cliente", id_cliente).execute()
+                    flash(f"Cliente {actual[0]['nombre']} borrado exitosamente", "success")
+            return redirect(url_for('clientes'))
+        # Búsquedas antiguas por función de la base (se mantienen por compatibilidad).
+        busquedas = {'buscarID': ('buscarclienteid', 'idBuscar'), 'buscarNombre': ('buscarclientenombre', 'nombreBuscar'),
+                     'buscarAbreviacion': ('buscarclienteabreviacion', 'abreviacionBuscar')}
+        if metodo in busquedas:
+            funcion, campo = busquedas[metodo]
+            datos = supabase.rpc(funcion, {'textobusqueda': request.form.get(campo, '')}).execute().data or []
+            if not datos:
+                flash("No se encontraron clientes con ese criterio", "warning")
+            return render_template('clientes.html', datos=datos, zonasVenta=zonas, busqueda='')
+        return redirect(url_for('clientes'))
+
+    # RF-002 / CU-02: barra de búsqueda por nombre (también busca en RUT y abreviación).
+    busqueda = request.args.get('q', '').strip()
+    datos = supabase.table("clientes").select("*").order("nombre").execute().data or []
+    if busqueda:
+        texto = busqueda.lower()
+        datos = [c for c in datos if texto in ' '.join(str(c.get(k) or '') for k in ('nombre', 'rut', 'abreviacion', 'codigo')).lower()]
+    return render_template('clientes.html', datos=datos, zonasVenta=zonas, busqueda=busqueda)
+
 
 @app.route('/colores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def colores():
