@@ -277,6 +277,10 @@
             <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
           <div class="form-section-title">Identificación y contacto</div>
             <div class="mb-3 mt-3">
+                <label for="codigoForm" class="form-label">Código:</label>
+                <input type="text" class="form-control" id="codigoForm" placeholder="Inserte código del cliente" name="codigo">
+            </div>
+            <div class="mb-3 mt-3">
                 <label for="rutForm" class="form-label">Rut:</label>
                 <input type="text" class="form-control" id="rutForm" placeholder="Inserte Rut sin dígito verificador" name="rut">
             </div>
@@ -343,6 +347,18 @@
                 </select>
                 <!--<input type="number" class="form-control" id="idZonaVentaForm" placeholder="Inserte id de la zona de venta" name="idZonaVenta"> -->
             </div>
+            <div class="mb-3 mt-3">
+                <label for="descuento1Form" class="form-label">Descuento 1:</label>
+                <input type="number" class="form-control" id="descuento1Form" placeholder="Inserte el primer descuento del cliente" name="descuento1">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="descuento2Form" class="form-label">Descuento 2:</label>
+                <input type="number" class="form-control" id="descuento2Form" placeholder="Inserte el segundo descuento del cliente" name="descuento2">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="descuento3Form" class="form-label">Descuento 3:</label>
+                <input type="number" class="form-control" id="descuento3Form" placeholder="Inserte el tercer descuento del cliente" name="descuento3">
+            </div>
             <button type="submit" class="btn btn-primary">Crear</button>
         </form>
       </div>
@@ -372,9 +388,17 @@
             <input type="hidden" name="_method" value="put" />
             <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
           <div class="form-section-title">Identificación y contacto</div>
-            <div class="mb-3 mt-3">
+            <!--<div class="mb-3 mt-3">
                 <label for="IDidClienteActualizar" class="form-label">id del Cliente a actualizar:</label>
                 <input type="text" class="form-control" id="IDidClienteActualizar" placeholder="Inserte id del cliente" name="idClienteActualizar">
+            </div>-->
+            <div class="mb-3 mt-3">
+                <label for="codigoClienteActualizar" class="form-label">Código del Cliente a actualizar:</label>
+                <input type="text" class="form-control" id="codigoClienteActualizar" placeholder="Inserte código del cliente a actualizar" name="codigoActualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="codigoClienteActualizarNuevo" class="form-label">Código al que actualizarlo:</label>
+                <input type="text" class="form-control" id="codigoClienteActualizarNuevo" placeholder="Inserte código del cliente nuevo que tendrá el cliente" name="codigoActualizarNuevo">
             </div>
             <div class="mb-3 mt-3">
                 <label for="IDrutActualizar" class="form-label">Rut:</label>
@@ -441,7 +465,18 @@
                   <option value="{{ zona.id_zona_venta }}">{{ zona.descripcion }}</option>
                   {% endfor %}
                 </select>
-                <!--<input type="number" class="form-control" id="IDidZonaVentaActualizar" placeholder="Inserte id de la zona de venta" name="idZonaVentaActualizar"> -->
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="descuento1FormActualizar" class="form-label">Descuento 1:</label>
+                <input type="number" class="form-control" id="descuento1FormActualizar" placeholder="Inserte el primer descuento del cliente" name="descuento1Actualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="descuento2FormActualizar" class="form-label">Descuento 2:</label>
+                <input type="number" class="form-control" id="descuento2FormActualizar" placeholder="Inserte el segundo descuento del cliente" name="descuento2Actualizar">
+            </div>
+            <div class="mb-3 mt-3">
+                <label for="descuento3FormActualizar" class="form-label">Descuento 3:</label>
+                <input type="number" class="form-control" id="descuento3FormActualizar" placeholder="Inserte el tercer descuento del cliente" name="descuento3Actualizar">
             </div>
             <button type="submit" class="btn btn-primary">Actualizar</button>
         </form>
@@ -472,8 +507,8 @@
             <input type="hidden" name="_method" value="delete" />
             <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
             <div class="mb-3 mt-3">
-                <label for="idClienteForm" class="form-label">Id del Cliente:</label>
-                <input type="text" class="form-control" id="idClienteForm" placeholder="Inserte id del cliente" name="idClienteBorrar">
+                <label for="codigoClienteForm" class="form-label">Id del Cliente:</label>
+                <input type="text" class="form-control" id="codigoClienteForm" placeholder="Inserte código del cliente" name="codigoClienteBorrar">
             </div>
             <button type="submit" class="btn btn-primary">Borrar</button>
         </form>

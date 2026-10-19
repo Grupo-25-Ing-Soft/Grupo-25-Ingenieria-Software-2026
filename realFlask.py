@@ -2137,6 +2137,7 @@ def clientes():
     if request.method == 'POST':
         metodo = request.form['_method']
         if (metodo == "post"):
+            codigo = request.form['codigo']
             rut = request.form['rut']
             nom = request.form['nombre']
             correo = request.form['correo']
@@ -2152,6 +2153,9 @@ def clientes():
             porCobra = request.form['porCobranza']
             obs = request.form['observaciones']
             idZona = request.form.get('idZonaVentaForm')
+            desc1 = request.form['descuento1']
+            desc2 = request.form['descuento2']
+            desc3 = request.form['descuento3']
             #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
             #se pulsó el botón con submit.
 
@@ -2166,7 +2170,9 @@ def clientes():
                         "comuna": comuna, "condiciones_venta": condVenta,
                         "via_despacho": viaDes,"porcentaje_comision": porComi,
                         "porcentaje_cobranza": porCobra,"observaciones": obs,
-                        "id_zona_venta": idZona
+                        "id_zona_venta": idZona, "descuento_1": desc1,
+                        "descuento_2": desc2, "descuento_3": desc3,
+                        "codigo": codigo
                         }).execute()
             )
             if response.data:
@@ -2176,7 +2182,8 @@ def clientes():
                 flash("Error creando cliente", "error")
                 return redirect(url_for('clientes'))
         if (metodo == "put"):
-            idAACtualizar = request.form['idClienteActualizar']
+            codigoAActualizar = request.form['codigoActualizar']
+            codigoNuevo = request.form['codigoActualizarNuevo']
             rut = request.form['rutActualizar']
             nom = request.form['nombreActualizar']
             correo = request.form['correoActualizar']
@@ -2191,7 +2198,10 @@ def clientes():
             porComi = request.form['porComisionActualizar']
             porCobra = request.form['porCobranzaActualizar']
             obs = request.form['observacionesActualizar']
-            idZona = request.form.get('idZonaVentaActualizar')  
+            idZona = request.form.get('idZonaVentaActualizar')
+            desc1 = request.form['descuento1Actualizar']
+            desc2 = request.form['descuento2Actualizar']
+            desc3 = request.form['descuento3Actualizar']  
             response = (
                 
                 supabase.table("clientes").update({"rut": rut, "nombre": nom,
@@ -2201,8 +2211,10 @@ def clientes():
                         "comuna": comuna, "condiciones_venta": condVenta,
                         "via_despacho": viaDes,"porcentaje_comision": porComi,
                         "porcentaje_cobranza": porCobra,"observaciones": obs,
-                        "id_zona_venta": idZona
-                        }).eq("id_cliente", idAACtualizar).select("id_cliente").execute()
+                        "id_zona_venta": idZona, "descuento_1": desc1,
+                        "descuento_2": desc2, "descuento_3": desc3,
+                        "codigo": codigoNuevo
+                        }).eq("codigo", codigoAActualizar).select("id_cliente").execute()
             )
             if response.data:
                 flash("Cliente actualizado exitosamente", "success")
@@ -2211,10 +2223,10 @@ def clientes():
                 flash("Error actualizando cliente", "error")
                 return redirect(url_for('clientes'))
         if (metodo == "delete"):
-            idABorrar = request.form['idClienteBorrar']
+            codigoABorrar = request.form['codigoClienteBorrar']
             response = (
                 supabase.table("clientes").delete()
-                .eq("id_cliente", idABorrar)
+                .eq("codigo", codigoABorrar)
                 .execute()
             )
             if response.data:
@@ -2244,6 +2256,9 @@ def clientes():
                 return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
             else:
                 return "No se ha encontrado ningún cliente con la abreviacion buscada" 
+        if (metodo == "buscarCodigo"):
+            texto = request.form["codigoBuscar"]
+            #TODO
     else:
         response =(
             supabase.table("clientes").select("*").execute()
@@ -2526,6 +2541,7 @@ def zonasVenta():
         if (metodo == "post"):
             nombre = request.form['nombreCrear'].strip()
             descripcion = request.form['descripcionCrear']
+            codigo = request.form['codigoCrear']
 
             #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
             #se pulsó el botón con submit.
@@ -2535,7 +2551,7 @@ def zonasVenta():
 
                 #Este es el comando para insertar los datos a la base de datos.
                 supabase.table("zona_venta").insert({"nombre": nombre,
-                        "descripcion": descripcion
+                        "descripcion": descripcion, "codigo": codigo
                         }).execute()
             )
             if response.data:
@@ -2548,10 +2564,11 @@ def zonasVenta():
             idZonaVenta = request.form['IdZonaVentaActualizar']
             nombre = request.form['nombreActualizar'].strip()
             descripcion = request.form['descripcionActualizar']
+            codigo = request.form['codigoActualizar']
             response = (
 
                 supabase.table("zona_venta").update({"nombre": nombre,
-                        "descripcion": descripcion
+                        "descripcion": descripcion, "codigo": codigo
                         }).eq("id_zona_venta", idZonaVenta).select("id_zona_venta").execute()
             )
             if response.data:
@@ -2587,6 +2604,9 @@ def zonasVenta():
                 return render_template('zonasVenta.html', datos = response.data)
             else:
                 return "No se ha encontrado ninguna zona de venta con la descripción buscada"
+        if (metodo == "buscarCodigo"):
+            texto = request.form["codigoBuscar"]
+            #TODO
     else:
         response =(
             supabase.table("zona_venta").select("*").execute()
