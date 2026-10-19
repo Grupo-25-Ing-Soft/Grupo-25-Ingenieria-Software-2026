@@ -1420,26 +1420,20 @@ def _obtener_clientes_map():
     return {int(row.get('id_cliente')): (row.get('nombre') or 'Sin cliente') for row in rows if row.get('id_cliente') is not None}
 
 
-def _obtener_facturas_pendientes(cliente_id):
+def _facturas_pendientes(cliente_id=None):
+    """Facturas no anuladas con saldo por cobrar (de un cliente o de todos), por fecha y folio."""
+    query = supabase.table('facturas').select(
+        'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado')
+    if cliente_id is not None:
+        query = query.eq('cliente_asociado', cliente_id)
     try:
-        response = supabase.table('facturas').select(
-            'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado'
-        ).eq('cliente_asociado', cliente_id).execute()
-        rows = response.data or []
+        rows = query.execute().data or []
     except Exception:
         rows = []
-    pendientes = []
-    for row in rows:
-        saldo = float(row.get('saldo_pendiente') or 0)
-        if saldo > 0:
-            pendientes.append({
-                'id_factura': row.get('id_factura'),
-                'folio': row.get('folio'),
-                'fecha_emision': row.get('fecha_emision'),
-                'monto_total': float(row.get('monto_total') or 0),
-                'saldo_pendiente': saldo,
-                'estado': row.get('estado') or 'vigente',
-            })
+    pendientes = [{**row, 'monto_total': float(row.get('monto_total') or 0),
+                   'saldo_pendiente': float(row.get('saldo_pendiente') or 0)}
+                  for row in rows
+                  if float(row.get('saldo_pendiente') or 0) > 0 and row.get('estado') != 'anulada']
     pendientes.sort(key=lambda item: (item.get('fecha_emision') or '9999-12-31', item.get('folio') or 0))
     return pendientes
 
@@ -1462,289 +1456,141 @@ def _pago_facturas_disponible():
         return False
 
 
-def _obtener_detalle_pago(pago_id):
-    if not _pago_facturas_disponible():
-        return []
-    try:
-        response = supabase.table('pago_facturas').select(
-            '*, facturas(id_factura, folio, saldo_pendiente)'
-        ).eq('id_pago', pago_id).execute()
-        return response.data or []
-    except Exception:
-        return []
+def _leer_pago_formulario(sufijo):
+    """Campos del modal de pagos. sufijo '' para crear y '_actualizar' para editar.
+    Devuelve (datos, ids de facturas elegidas, error)."""
+    cliente_id = _entero_positivo(request.form.get('cliente' + sufijo))
+    monto = (request.form.get('monto' + sufijo) or '').strip()
+    fecha_pago = (request.form.get('fecha_pago' + sufijo) or '').strip()
+    medio_pago = (request.form.get('medio_pago' + sufijo) or '').strip()
+    if not cliente_id or not monto or not fecha_pago or not medio_pago:
+        return None, [], 'Faltan campos obligatorios: cliente, monto, fecha y medio de pago.'
+    monto_valor = _numero_positivo(monto)
+    if monto_valor is None:
+        return None, [], 'El monto del pago debe ser un número mayor a cero.'
+    ids = [int(i) for i in request.form.getlist('facturas' + sufijo) if str(i).isdigit()]
+    if not ids:
+        return None, [], 'Debes seleccionar al menos una factura pendiente para aplicar el pago.'
+    return {'cliente_asociado': cliente_id, 'fecha_pago': fecha_pago, 'monto': monto_valor,
+            'medio_pago': medio_pago, 'referencia': _texto_o_nulo(request.form.get('referencia' + sufijo))}, ids, None
+
+
+def _aplicar_pago(pago_id, cliente_id, monto, ids_facturas):
+    """Reparte el monto entre las facturas elegidas (en ese orden, hasta su saldo),
+    guarda pago_facturas y recalcula cada factura. Devuelve el saldo a favor que sobra.
+    Lanza ValueError si alguna factura no es del cliente o no tiene saldo."""
+    facturas = {f['id_factura']: f for f in _facturas_pendientes(cliente_id)}
+    elegidas = [facturas[i] for i in ids_facturas if i in facturas]
+    if len(elegidas) != len(ids_facturas):
+        raise ValueError('Las facturas elegidas deben ser del cliente del pago y tener saldo pendiente.')
+    restante = monto
+    for factura in elegidas:
+        asignado = round(min(factura['saldo_pendiente'], restante), 2)
+        if asignado <= 0:
+            continue
+        supabase.table('pago_facturas').insert({'id_pago': pago_id, 'id_factura': factura['id_factura'],
+                                                'monto_aplicado': asignado}).execute()
+        _recalcular_factura(factura['id_factura'])
+        restante = round(restante - asignado, 2)
+    return restante
+
+
+def _facturas_del_pago(pago_id):
+    return supabase.table('pago_facturas').select('id_factura, monto_aplicado').eq('id_pago', pago_id).execute().data or []
 
 
 @app.route('/pagos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def pagos():
+    # RF-032/033/034. Esquema de supabase/pagos.sql: el folio es identity (lo asigna la
+    # base) y cada pago se reparte entre facturas en pago_facturas. Al registrar,
+    # editar o anular, las facturas tocadas se recalculan con _recalcular_factura()
+    # (saldo_pendiente y estado vía _estado_para_saldo()).
     if request.method == 'POST':
         metodo = request.form.get('_method')
+        if not _pago_facturas_disponible():
+            flash('La tabla de detalle de pagos (pago_facturas) aún no está creada en la base de datos.', 'error')
+            return redirect(url_for('pagos'))
+
         if metodo == 'post':
-            if not _pago_facturas_disponible():
-                flash('La tabla de detalle de pagos aún no está creada en la base de datos. Activa el esquema de pagos para registrar movimientos.', 'error')
+            datos, ids, error = _leer_pago_formulario('')
+            if error:
+                flash(error, 'error')
                 return redirect(url_for('pagos'))
-            cliente_id = request.form.get('cliente')
-            monto = request.form.get('monto', '').strip()
-            fecha_pago = request.form.get('fecha_pago', '').strip()
-            medio_pago = request.form.get('medio_pago', '').strip()
-            referencia = request.form.get('referencia', '').strip()
-            facturas_seleccionadas = request.form.getlist('facturas')
-
-            if not cliente_id or not monto or not fecha_pago or not medio_pago:
-                flash('Faltan campos obligatorios para registrar el pago.', 'error')
+            pendientes = {f['id_factura'] for f in _facturas_pendientes(datos['cliente_asociado'])}
+            if not pendientes:
+                flash('El cliente no tiene facturas con saldo pendiente.', 'error')
                 return redirect(url_for('pagos'))
-
+            # Se valida antes de insertar para no gastar un folio (identity) en un pago rechazado.
+            if not set(ids) <= pendientes:
+                flash('Las facturas elegidas deben ser del cliente del pago y tener saldo pendiente.', 'error')
+                return redirect(url_for('pagos'))
             try:
-                monto_valor = float(monto)
-            except ValueError:
-                flash('El monto del pago debe ser numérico.', 'error')
-                return redirect(url_for('pagos'))
-
-            if monto_valor <= 0:
-                flash('El monto del pago debe ser mayor a cero.', 'error')
-                return redirect(url_for('pagos'))
-
-            if not facturas_seleccionadas:
-                flash('Debes seleccionar al menos una factura pendiente para aplicar el pago.', 'error')
-                return redirect(url_for('pagos'))
-
-            facturas = []
-            for factura_id in facturas_seleccionadas:
-                factura_row = supabase.table('facturas').select(
-                    'id_factura, folio, saldo_pendiente, monto_total'
-                ).eq('id_factura', factura_id).execute()
-                if not factura_row.data:
-                    continue
-                factura_data = factura_row.data[0]
-                saldo = float(factura_data.get('saldo_pendiente') or 0)
-                if saldo <= 0:
-                    continue
-                facturas.append(factura_data)
-
-            if not facturas:
-                flash('Las facturas seleccionadas no tienen saldo pendiente.', 'error')
-                return redirect(url_for('pagos'))
-
-            total_saldos = sum(float(factura.get('saldo_pendiente') or 0) for factura in facturas)
-            asignaciones = []
-            monto_restante = monto_valor
-            for factura in facturas:
-                factura_id = factura.get('id_factura')
-                saldo = float(factura.get('saldo_pendiente') or 0)
-                if saldo <= 0:
-                    continue
-                asignado = min(saldo, monto_restante) if monto_restante > 0 else 0
-                asignaciones.append((factura_id, asignado))
-                monto_restante -= asignado
-
-            if monto_restante > 0:
-                flash(f'Se registró el pago con un saldo a favor de $ {monto_restante:,.2f} para el cliente.', 'warning')
-
-            try:
-                pago_response = supabase.table('pagos').insert({
-                    'cliente_asociado': int(cliente_id),
-                    'fecha_pago': fecha_pago,
-                    'monto': monto_valor,
-                    'medio_pago': medio_pago,
-                    'referencia': referencia or None,
-                    'estado': 'vigente',
-                    'usuario_creacion': 'Admin',
-                }).execute()
-            except Exception:
+                creado = supabase.table('pagos').insert({
+                    **datos, 'estado': 'vigente', 'usuario_creacion': g.usuario.get('nombre_usuario') or 'Admin',
+                }).execute().data
+            except APIError:
+                creado = None
+            if not creado:
                 flash('No se pudo registrar el pago.', 'error')
                 return redirect(url_for('pagos'))
-
-            if not pago_response.data:
-                flash('No se pudo registrar el pago.', 'error')
+            pago = creado[0]
+            try:
+                sobrante = _aplicar_pago(pago['id_pago'], datos['cliente_asociado'], datos['monto'], ids)
+            except ValueError as error:
+                supabase.table('pagos').delete().eq('id_pago', pago['id_pago']).execute()
+                flash(str(error), 'error')
                 return redirect(url_for('pagos'))
+            flash(f"Pago N° {pago.get('folio') or pago['id_pago']} registrado exitosamente.", 'success')
+            if sobrante > 0:
+                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)}.', 'warning')
+            return redirect(url_for('pagos'))
 
-            pago_id = pago_response.data[0].get('id_pago')
-            for factura_id, asignado in asignaciones:
-                if asignado <= 0:
-                    continue
-                try:
-                    factura_row = supabase.table('facturas').select(
-                        'id_factura, saldo_pendiente, monto_total'
-                    ).eq('id_factura', factura_id).execute().data or []
-                    if not factura_row:
-                        continue
-                    factura_data = factura_row[0]
-                    saldo_actual = float(factura_data.get('saldo_pendiente') or 0)
-                    nuevo_saldo = max(saldo_actual - asignado, 0)
-                    supabase.table('pago_facturas').insert({
-                        'id_pago': pago_id,
-                        'id_factura': factura_id,
-                        'monto_aplicado': asignado,
-                    }).execute()
-                    supabase.table('facturas').update({
-                        'saldo_pendiente': nuevo_saldo,
-                        'estado': _estado_para_saldo(factura_data.get('monto_total'), nuevo_saldo),
-                    }).eq('id_factura', factura_id).execute()
-                except Exception:
-                    continue
-
-            flash('Pago registrado exitosamente.', 'success')
+        pago_id = _entero_positivo(request.form.get('id_pago_actualizar') or request.form.get('id_pago_anular'))
+        actual = supabase.table('pagos').select('*').eq('id_pago', pago_id).execute().data if pago_id else []
+        if not actual:
+            flash('No existe el pago seleccionado.', 'error')
+            return redirect(url_for('pagos'))
+        actual = actual[0]
+        numero = actual.get('folio') or actual['id_pago']
+        if (actual.get('estado') or '').lower() == 'anulada':
+            flash(f'El pago N° {numero} está anulado y no se puede modificar.', 'error')
             return redirect(url_for('pagos'))
 
         if metodo == 'put':
-            if not _pago_facturas_disponible():
-                flash('La tabla de detalle de pagos aún no está creada en la base de datos. Activa el esquema de pagos para actualizar movimientos.', 'error')
+            datos, ids, error = _leer_pago_formulario('_actualizar')
+            if error:
+                flash(error, 'error')
                 return redirect(url_for('pagos'))
-            pago_id = request.form.get('id_pago_actualizar')
-            cliente_id = request.form.get('cliente_actualizar')
-            monto = request.form.get('monto_actualizar', '').strip()
-            fecha_pago = request.form.get('fecha_pago_actualizar', '').strip()
-            medio_pago = request.form.get('medio_pago_actualizar', '').strip()
-            referencia = request.form.get('referencia_actualizar', '').strip()
-            facturas_seleccionadas = request.form.getlist('facturas_actualizar')
-
-            if not pago_id or not cliente_id or not monto or not fecha_pago or not medio_pago:
-                flash('Faltan campos obligatorios para actualizar el pago.', 'error')
-                return redirect(url_for('pagos'))
-
-            try:
-                pago_actual = supabase.table('pagos').select('*').eq('id_pago', pago_id).execute().data or []
-                if not pago_actual:
-                    flash('No existe el pago que intentas actualizar.', 'error')
-                    return redirect(url_for('pagos'))
-                pago_data = pago_actual[0]
-                if (pago_data.get('estado') or '').lower() == 'anulada':
-                    flash('No se puede modificar un pago anulado.', 'error')
-                    return redirect(url_for('pagos'))
-                monto_valor = float(monto)
-            except ValueError:
-                flash('El monto del pago debe ser numérico.', 'error')
-                return redirect(url_for('pagos'))
-
-            if monto_valor <= 0:
-                flash('El monto del pago debe ser mayor a cero.', 'error')
-                return redirect(url_for('pagos'))
-
-            asignaciones = []
-            if facturas_seleccionadas:
-                for factura_id in facturas_seleccionadas:
-                    factura_row = supabase.table('facturas').select('id_factura, folio, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                    if not factura_row:
-                        continue
-                    factura_data = factura_row[0]
-                    saldo = float(factura_data.get('saldo_pendiente') or 0)
-                    if saldo <= 0:
-                        continue
-                    asignaciones.append(factura_id)
-                if not asignaciones:
-                    flash('Las facturas seleccionadas no tienen saldo pendiente.', 'error')
-                    return redirect(url_for('pagos'))
-
-            pagos_facturas_actuales = supabase.table('pago_facturas').select('*').eq('id_pago', pago_id).execute().data or []
-            for detalle in pagos_facturas_actuales:
-                factura_id = detalle.get('id_factura')
-                monto_aplicado = float(detalle.get('monto_aplicado') or 0)
-                factura_row = supabase.table('facturas').select('id_factura, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                if not factura_row:
-                    continue
-                factura_data = factura_row[0]
-                nuevo_saldo = float(factura_data.get('saldo_pendiente') or 0) + monto_aplicado
-                supabase.table('facturas').update({
-                    'saldo_pendiente': nuevo_saldo,
-                    'estado': _estado_para_saldo(factura_data.get('monto_total'), nuevo_saldo),
-                }).eq('id_factura', factura_id).execute()
-
+            anteriores = _facturas_del_pago(pago_id)
+            # Se quita la aplicación anterior, se recalculan esas facturas y se vuelve a repartir.
             supabase.table('pago_facturas').delete().eq('id_pago', pago_id).execute()
-
-            monto_restante = monto_valor
-            nueva_asignacion = []
-            if facturas_seleccionadas:
-                for factura_id in facturas_seleccionadas:
-                    factura_row = supabase.table('facturas').select('id_factura, folio, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                    if not factura_row:
-                        continue
-                    factura_data = factura_row[0]
-                    saldo = float(factura_data.get('saldo_pendiente') or 0)
-                    if saldo <= 0:
-                        continue
-                    asignado = min(saldo, monto_restante) if monto_restante > 0 else 0
-                    nueva_asignacion.append((factura_id, asignado))
-                    monto_restante -= asignado
-
-            if monto_restante > 0:
-                flash(f'Se actualizó el pago con un saldo a favor de $ {monto_restante:,.2f} para el cliente.', 'warning')
-
+            for detalle in anteriores:
+                _recalcular_factura(detalle['id_factura'])
             try:
-                supabase.table('pagos').update({
-                    'cliente_asociado': int(cliente_id),
-                    'fecha_pago': fecha_pago,
-                    'monto': monto_valor,
-                    'medio_pago': medio_pago,
-                    'referencia': referencia or None,
-                }).eq('id_pago', pago_id).execute()
-            except Exception:
-                flash('No se pudo actualizar el pago.', 'error')
+                sobrante = _aplicar_pago(pago_id, datos['cliente_asociado'], datos['monto'], ids)
+            except ValueError as error:
+                for detalle in anteriores:  # se restaura la aplicación anterior
+                    supabase.table('pago_facturas').insert({'id_pago': pago_id, **detalle}).execute()
+                    _recalcular_factura(detalle['id_factura'])
+                flash(str(error), 'error')
                 return redirect(url_for('pagos'))
+            supabase.table('pagos').update(datos).eq('id_pago', pago_id).execute()
+            flash(f'Pago N° {numero} actualizado exitosamente.', 'success')
+            if sobrante > 0:
+                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)}.', 'warning')
 
-            for factura_id, asignado in nueva_asignacion:
-                if asignado <= 0:
-                    continue
-                factura_data = supabase.table('facturas').select('id_factura, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                if not factura_data:
-                    continue
-                factura_row = factura_data[0]
-                saldo_actual = float(factura_row.get('saldo_pendiente') or 0)
-                nuevo_saldo = max(saldo_actual - asignado, 0)
-                supabase.table('pago_facturas').insert({
-                    'id_pago': pago_id,
-                    'id_factura': factura_id,
-                    'monto_aplicado': asignado,
-                }).execute()
-                supabase.table('facturas').update({
-                    'saldo_pendiente': nuevo_saldo,
-                    'estado': _estado_para_saldo(factura_row.get('monto_total'), nuevo_saldo),
-                }).eq('id_factura', factura_id).execute()
-
-            flash('Pago actualizado exitosamente.', 'success')
-            return redirect(url_for('pagos'))
-
-        if metodo == 'delete':
-            if not _pago_facturas_disponible():
-                flash('La tabla de detalle de pagos aún no está creada en la base de datos. Activa el esquema de pagos para anular movimientos.', 'error')
-                return redirect(url_for('pagos'))
-            pago_id = request.form.get('id_pago_anular')
-            motivo = request.form.get('motivo_anulacion', '').strip()
-            if not pago_id:
-                flash('Debes seleccionar un pago para anular.', 'error')
-                return redirect(url_for('pagos'))
+        elif metodo == 'delete':
+            motivo = (request.form.get('motivo_anulacion') or '').strip()
             if not motivo:
                 flash('Debes indicar el motivo de anulación.', 'error')
                 return redirect(url_for('pagos'))
-
-            pago_response = supabase.table('pagos').select('*').eq('id_pago', pago_id).execute().data or []
-            if not pago_response:
-                flash('No existe el pago que intentas anular.', 'error')
-                return redirect(url_for('pagos'))
-            pago_data = pago_response[0]
-            if (pago_data.get('estado') or '').lower() == 'anulada':
-                flash('El pago ya está anulado.', 'error')
-                return redirect(url_for('pagos'))
-
-            detalles = supabase.table('pago_facturas').select('*').eq('id_pago', pago_id).execute().data or []
-            for detalle in detalles:
-                factura_id = detalle.get('id_factura')
-                monto_aplicado = float(detalle.get('monto_aplicado') or 0)
-                factura_rows = supabase.table('facturas').select('id_factura, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                if not factura_rows:
-                    continue
-                factura_data = factura_rows[0]
-                nuevo_saldo = float(factura_data.get('saldo_pendiente') or 0) + monto_aplicado
-                supabase.table('facturas').update({
-                    'saldo_pendiente': nuevo_saldo,
-                    'estado': _estado_para_saldo(factura_data.get('monto_total'), nuevo_saldo),
-                }).eq('id_factura', factura_id).execute()
-
-            supabase.table('pagos').update({
-                'estado': 'anulada',
-                'motivo_anulacion': motivo,
-            }).eq('id_pago', pago_id).execute()
-            supabase.table('pago_facturas').delete().eq('id_pago', pago_id).execute()
-            flash('Pago anulado correctamente.', 'success')
-            return redirect(url_for('pagos'))
+            supabase.table('pagos').update({'estado': 'anulada', 'motivo_anulacion': motivo}) \
+                .eq('id_pago', pago_id).execute()
+            # Las filas de pago_facturas quedan como historial; un pago anulado ya no cuenta en el saldo.
+            for detalle in _facturas_del_pago(pago_id):
+                _recalcular_factura(detalle['id_factura'])
+            flash(f'Pago N° {numero} anulado: su monto volvió al saldo de las facturas.', 'success')
+        return redirect(url_for('pagos'))
 
     cliente_filter = (request.args.get('cliente') or '').strip()
     fecha_desde = (request.args.get('fecha_desde') or '').strip()
@@ -1752,16 +1598,24 @@ def pagos():
     referencia_filter = (request.args.get('referencia') or '').strip()
 
     try:
-        response = supabase.table('pagos').select('*').execute()
-        pagos_rows = response.data or []
+        pagos_rows = supabase.table('pagos').select('*').execute().data or []
     except Exception:
         flash('No se pudo cargar el listado de pagos.', 'error')
         pagos_rows = []
 
     clientes_map = _obtener_clientes_map()
+    facturas_rows = supabase.table('facturas').select('id_factura, folio, saldo_pendiente').execute().data or []
+    folio_factura = {f['id_factura']: f.get('folio') for f in facturas_rows}
+    aplicaciones = supabase.table('pago_facturas').select('id_pago, id_factura, monto_aplicado').execute().data \
+        if _pago_facturas_disponible() else []
+    por_pago = {}
+    for aplicacion in aplicaciones or []:
+        por_pago.setdefault(aplicacion['id_pago'], []).append({
+            'id_factura': aplicacion['id_factura'], 'folio': folio_factura.get(aplicacion['id_factura']),
+            'monto_aplicado': float(aplicacion.get('monto_aplicado') or 0)})
+
     datos = []
     for pago in pagos_rows:
-        pago_id = pago.get('id_pago')
         cliente_id = pago.get('cliente_asociado')
         cliente_nombre = clientes_map.get(int(cliente_id), 'Sin cliente') if cliente_id is not None else 'Sin cliente'
         fecha_pago = pago.get('fecha_pago') or ''
@@ -1771,56 +1625,33 @@ def pagos():
             continue
         if fecha_hasta and fecha_pago > fecha_hasta:
             continue
-        if referencia_filter and (pago.get('referencia') or '').lower() not in referencia_filter.lower():
+        if referencia_filter and referencia_filter.lower() not in (pago.get('referencia') or '').lower():
             continue
-
-        detalle_rows = _obtener_detalle_pago(pago_id)
-        facturas = []
-        for detalle in detalle_rows:
-            factura = detalle.get('facturas') or {}
-            if isinstance(factura, dict):
-                facturas.append({
-                    'id_factura': factura.get('id_factura'),
-                    'folio': factura.get('folio'),
-                    'monto_aplicado': detalle.get('monto_aplicado'),
-                    'saldo_pendiente': factura.get('saldo_pendiente'),
-                })
-
         datos.append({
-            'id_pago': pago_id,
-            'folio': pago.get('folio'),
-            'cliente': cliente_nombre,
-            'cliente_id': cliente_id,
-            'fecha_pago': fecha_pago,
-            'monto': float(pago.get('monto') or 0),
-            'medio_pago': pago.get('medio_pago'),
-            'referencia': pago.get('referencia'),
-            'estado': pago.get('estado') or 'vigente',
-            'motivo_anulacion': pago.get('motivo_anulacion'),
-            'detalle_facturas': facturas,
+            'id_pago': pago.get('id_pago'), 'folio': pago.get('folio'), 'cliente': cliente_nombre,
+            'cliente_id': cliente_id, 'fecha_pago': fecha_pago, 'monto': float(pago.get('monto') or 0),
+            'medio_pago': pago.get('medio_pago'), 'referencia': pago.get('referencia'),
+            'estado': pago.get('estado') or 'vigente', 'motivo_anulacion': pago.get('motivo_anulacion'),
+            'detalle_facturas': por_pago.get(pago.get('id_pago'), []),
         })
+    datos.sort(key=lambda p: p.get('folio') or 0, reverse=True)
 
-    if request.args:
-        if not datos:
-            flash('No se encontraron pagos para los filtros aplicados.', 'warning')
+    if request.args and not datos:
+        flash('No se encontraron pagos para los filtros aplicados.', 'warning')
 
-    clientes = supabase.table('clientes').select('id_cliente, nombre').execute().data or []
-    facturas = []
-    if request.args.get('cliente'):
-        cliente_id = next((item.get('id_cliente') for item in clientes if str(item.get('id_cliente')) == str(request.args.get('cliente'))), None)
-        if cliente_id is not None:
-            facturas = _obtener_facturas_pendientes(cliente_id)
-
+    clientes = supabase.table('clientes').select('id_cliente, nombre').order('nombre').execute().data or []
     return render_template(
         'pagos.html',
         datos=datos,
         clientes=clientes,
-        facturas=facturas,
+        # Todas las facturas con saldo; el modal muestra solo las del cliente elegido.
+        facturas=_facturas_pendientes(),
         cliente_filter=cliente_filter,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
         referencia_filter=referencia_filter,
     )
+
 
 
 def obtener_informe_cobranza(request_args):
