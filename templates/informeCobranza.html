@@ -70,11 +70,12 @@
               <th>Cliente</th>
               <th>Folio</th>
               <th>Fecha emisión</th>
+              <th>Vencimiento</th>
               <th class="text-end">Monto</th>
               <th class="text-end">Pagos aplicados</th>
               <th class="text-end">Notas de crédito</th>
               <th class="text-end">Saldo</th>
-              <th>Días transcurridos</th>
+              <th>Días de mora</th>
             </tr>
           </thead>
           <tbody>
@@ -83,6 +84,7 @@
               <td>{{ fila.cliente }}</td>
               <td>{{ fila.folio }}</td>
               <td>{{ fila.fecha|fecha }}</td>
+              <td>{{ fila.vencimiento|fecha if fila.vencimiento else '-' }}</td>
               <td class="text-end">{{ fila.monto|moneda }}</td>
               <td class="text-end">{{ fila.pagos_aplicados|moneda }}</td>
               <td class="text-end">{{ fila.notas_credito|moneda }}</td>
@@ -91,7 +93,7 @@
             </tr>
             {% endfor %}
           </tbody>
-          <tfoot><tr><th colspan="6" class="text-end">Total por cobrar</th><th class="text-end">{{ datos|sum(attribute='saldo')|moneda }}</th><th></th></tr></tfoot>
+          <tfoot><tr><th colspan="7" class="text-end">Total por cobrar</th><th class="text-end">{{ datos|sum(attribute='saldo')|moneda }}</th><th></th></tr></tfoot>
         </table>
       </div>
     {% endif %}

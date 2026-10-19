@@ -88,3 +88,14 @@ def test_filtro_por_cliente(admin, base):
 def test_facturas_en_la_barra_lateral(admin, base):
     html = admin.get('/facturas.html').get_data(as_text=True)
     assert 'href="/facturas.html" class="active"' in html and 'href="/despachos.html"' in html
+
+
+def test_fecha_limite_de_pago(admin, base):
+    # RF-029: fecha límite de pago opcional, no anterior a la emisión.
+    datos = {'_method': 'post', 'folioCrear': 200, 'pedidoCrear': 10, 'fechaEmisionCrear': '2026-10-01',
+             'montoNetoCrear': '1000'}
+    r = admin.post('/facturas.html', data={**datos, 'fechaVencimientoCrear': '2026-09-30'}, follow_redirects=True)
+    assert 'no puede ser anterior a la fecha de emisión' in r.get_data(as_text=True) and base.tablas['facturas'] == []
+    admin.post('/facturas.html', data={**datos, 'fechaVencimientoCrear': '2026-10-31'})
+    assert base.tablas['facturas'][0]['fecha_vencimiento'] == '2026-10-31'
+    assert '31/10/2026' in admin.get('/facturas.html').get_data(as_text=True)

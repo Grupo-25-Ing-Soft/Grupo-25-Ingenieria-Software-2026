@@ -754,12 +754,16 @@ def _leer_factura_formulario(sufijo):
     fecha = (request.form.get('fechaEmision' + sufijo) or '').strip()
     if not fecha:
         return None, 'Ingrese la fecha de emisión.'
+    # RF-029: fecha límite de pago (opcional; no puede ser anterior a la emisión).
+    vencimiento = (request.form.get('fechaVencimiento' + sufijo) or '').strip()
+    if vencimiento and vencimiento < fecha:
+        return None, 'La fecha límite de pago no puede ser anterior a la fecha de emisión.'
     neto = _numero_positivo(request.form.get('montoNeto' + sufijo), permitir_cero=True)
     if neto is None:
         return None, 'El monto neto debe ser un número mayor o igual a cero.'
     # El impuesto sale del porcentaje configurado en Configuración (RF-056).
     impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
-    return {
+    datos = {
         'folio': folio,
         'pedido_asociado': id_pedido,
         # El cliente es el del pedido, para que no puedan quedar distintos.
@@ -768,7 +772,10 @@ def _leer_factura_formulario(sufijo):
         'monto_neto': neto,
         'monto_impuesto': impuesto,
         'monto_total': round(neto + impuesto, 2),
-    }, None
+    }
+    if ('fechaVencimiento' + sufijo) in request.form:
+        datos['fecha_vencimiento'] = vencimiento or None
+    return datos, None
 
 
 def _folio_repetido(tabla, clave, folio, id_actual=None):
@@ -1695,9 +1702,8 @@ def obtener_informe_cobranza(request_args):
     except ValueError:
         dias_min = None
 
-    facturas = supabase.table('facturas').select(
-        'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado'
-    ).gt('saldo_pendiente', 0).neq('estado', 'anulada').execute().data or []
+    # select('*'): fecha_vencimiento existe solo después de incremento4_campos_documento0.sql.
+    facturas = supabase.table('facturas').select('*').gt('saldo_pendiente', 0).neq('estado', 'anulada').execute().data or []
     clientes = _obtener_clientes_map()
 
     ids_factura = [f['id_factura'] for f in facturas]
@@ -1733,10 +1739,14 @@ def obtener_informe_cobranza(request_args):
         if fecha_hasta and fecha_factura > fecha_hasta:
             continue
 
+        # RF-029: la mora se cuenta desde la fecha límite de pago; si la factura no
+        # la tiene, desde la emisión (como antes). Antes del vencimiento es 0.
+        vencimiento = (factura.get('fecha_vencimiento') or '').strip()
         dias_morosidad = 0
-        if fecha_factura:
+        if vencimiento or fecha_factura:
             try:
-                dias_morosidad = (hoy - datetime.strptime(fecha_factura[:10], '%Y-%m-%d').date()).days
+                desde = datetime.strptime((vencimiento or fecha_factura)[:10], '%Y-%m-%d').date()
+                dias_morosidad = max((hoy - desde).days, 0)
             except ValueError:
                 dias_morosidad = 0
         if dias_min is not None and dias_morosidad < dias_min:
@@ -1748,6 +1758,7 @@ def obtener_informe_cobranza(request_args):
             'cliente': cliente_nombre,
             'folio': factura.get('folio'),
             'fecha': fecha_factura,
+            'vencimiento': vencimiento,
             'monto': float(factura.get('monto_total') or 0),
             'pagos_aplicados': pagos_por_factura.get(factura_id, 0.0),
             'notas_credito': notas_por_factura.get(factura_id, 0.0),
@@ -2241,21 +2252,22 @@ def informeCobranzaPDF():
         generated = Paragraph(f'Generado: {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S UTC")}', styles['BodyText'])
 
         table_data = [[
-            'Cliente', 'Folio', 'Fecha emisión', 'Monto', 'Pagos aplicados', 'Notas de crédito', 'Saldo',
-            'Días transcurridos'
+            'Cliente', 'Folio', 'Fecha emisión', 'Vencimiento', 'Monto', 'Pagos aplicados', 'Notas de crédito',
+            'Saldo', 'Días de mora'
         ]]
         for row in rows:
             table_data.append([
                 row.get('cliente') or 'Sin cliente',
                 str(row.get('folio') or ''),
                 formatear_fecha(row.get('fecha')),
+                formatear_fecha(row.get('vencimiento')) if row.get('vencimiento') else '-',
                 formatear_moneda(row.get('monto', 0)),
                 formatear_moneda(row.get('pagos_aplicados', 0)),
                 formatear_moneda(row.get('notas_credito', 0)),
                 formatear_moneda(row.get('saldo', 0)),
                 str(row.get('dias_morosidad', 0)),
             ])
-        table_data.append(['Total', '', '', '', '', '',
+        table_data.append(['Total', '', '', '', '', '', '',
                            formatear_moneda(sum(r.get('saldo', 0) for r in rows)), ''])
 
         table = Table(table_data, repeatRows=1)

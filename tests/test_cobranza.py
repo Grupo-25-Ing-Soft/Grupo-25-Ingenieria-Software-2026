@@ -52,3 +52,14 @@ def test_acceso_desde_reportes_y_barra_lateral(admin, base):
 def realFlask_informe():
     import realFlask
     return realFlask.obtener_informe_cobranza({})
+
+
+def test_mora_desde_la_fecha_limite_de_pago(admin, base):
+    # RF-029: con fecha límite la mora se cuenta desde ella; antes de vencer es 0.
+    from datetime import datetime, timedelta, timezone
+    hoy = datetime.now(timezone.utc).date()  # el informe calcula con la fecha UTC
+    base.tablas['facturas'][0]['fecha_vencimiento'] = (hoy - timedelta(days=10)).isoformat()
+    base.tablas['facturas'][1]['fecha_vencimiento'] = (hoy + timedelta(days=5)).isoformat()
+    mora = {f['folio']: f['dias_morosidad'] for f in realFlask_informe()}
+    assert mora == {100: 10, 101: 0}
+    assert 'Días de mora' in admin.get('/informeCobranza.html').get_data(as_text=True)

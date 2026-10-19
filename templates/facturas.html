@@ -61,12 +61,13 @@
     {% if datos %}
     <div class="data-table-wrap data-table-wrap--scroll">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th>Folio</th><th>Fecha emisión</th><th>Cliente</th><th>Pedido</th><th class="text-end">Neto</th><th class="text-end">Impuesto</th><th class="text-end">Total</th><th class="text-end">Saldo pendiente</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <thead><tr><th>Folio</th><th>Fecha emisión</th><th>Vencimiento</th><th>Cliente</th><th>Pedido</th><th class="text-end">Neto</th><th class="text-end">Impuesto</th><th class="text-end">Total</th><th class="text-end">Saldo pendiente</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
         <tbody>
           {% for f in datos %}
           <tr>
             <td>{{ f.folio }}</td>
             <td>{{ f.fecha_emision|fecha }}</td>
+            <td>{{ f.fecha_vencimiento|fecha if f.get('fecha_vencimiento') else '-' }}</td>
             <td>{{ f.cliente }}</td>
             <td>{{ f.numero_pedido }}</td>
             <td class="text-end">{{ f.monto_neto|moneda }}</td>
@@ -78,7 +79,7 @@
             <td class="text-end text-nowrap">
               {% if f.estado != 'anulada' %}
               <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="Factura {{ f.folio }}"
-                      data-valores='{{ {"idFacturaActualizar": f.id_factura, "folioActualizar": f.folio, "fechaEmisionActualizar": f.fecha_emision, "pedidoActualizar": f.pedido_asociado, "montoNetoActualizar": f.monto_neto} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+                      data-valores='{{ {"idFacturaActualizar": f.id_factura, "folioActualizar": f.folio, "fechaEmisionActualizar": f.fecha_emision, "fechaVencimientoActualizar": f.get('fecha_vencimiento') or '', "pedidoActualizar": f.pedido_asociado, "montoNetoActualizar": f.monto_neto} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
               <button type="button" class="btn btn-sm btn-outline-warning" title="Anular" data-modal="#anularModal" data-registro="Factura {{ f.folio }}"
                       data-valores='{{ {"idFacturaAnular": f.id_factura} | tojson }}'><i class="bi bi-x-octagon" aria-hidden="true"></i></button>
               {% endif %}
@@ -106,6 +107,11 @@
   <div class="col-md-6">
     <label class="form-label" for="fechaEmision{{ sufijo }}">Fecha de emisión</label>
     <input type="date" class="form-control" id="fechaEmision{{ sufijo }}" name="fechaEmision{{ sufijo }}" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="fechaVencimiento{{ sufijo }}">Fecha límite de pago</label>
+    <input type="date" class="form-control" id="fechaVencimiento{{ sufijo }}" name="fechaVencimiento{{ sufijo }}">
+    <small class="text-muted">Opcional. No puede ser anterior a la emisión.</small>
   </div>
   <div class="col-12">
     <label class="form-label" for="pedido{{ sufijo }}">Pedido asociado</label>
