@@ -100,3 +100,23 @@ def test_eliminar_pedido_sin_asociados_borra_sus_lineas(admin, base):
 def test_filtros_por_cliente_y_fecha(admin, base):
     assert 'PED-000001' in admin.get('/pedidos.html?cliente=sur&desde=2026-10-01').get_data(as_text=True)
     assert 'No hay pedidos para los filtros aplicados' in admin.get('/pedidos.html?desde=2026-11-01').get_data(as_text=True)
+
+
+def test_precio_sugerido_segun_lista_del_cliente(admin, base):
+    # CU-24.1 paso 5: lista 1 = precio mayor; otra lista usa su precio; liquidación manda.
+    detalle = admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)
+    assert '$2.990' in detalle and 'lista de precios 1' in detalle
+
+    base.tablas['clientes'][0]['lista_precios'] = 2
+    base.tablas['variante_precios_lista'] = [{'id_variante': 5, 'lista_precios': 2, 'precio': 2500}]
+    detalle = admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)
+    assert '$2.500' in detalle and 'lista de precios 2' in detalle
+
+    base.tablas['producto_variantes'][0].update({'en_liquidacion': True, 'precio_liquidacion': 1990})
+    detalle = admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)
+    assert '$1.990 (liquidación)' in detalle
+
+
+def test_vendedor_del_cliente_en_el_formulario(admin, base):
+    base.tablas['clientes'][0]['id_vendedor'] = 1
+    assert 'data-vendedor="1"' in admin.get('/pedidos.html').get_data(as_text=True)

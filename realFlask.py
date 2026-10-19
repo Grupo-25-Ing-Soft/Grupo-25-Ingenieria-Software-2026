@@ -566,7 +566,8 @@ def pedidos():
             flash(f'Pedido {nombre} borrado exitosamente', 'success')
         return redirect(url_for('pedidos'))
 
-    clientes = supabase.table('clientes').select('id_cliente, nombre').order('nombre').execute().data or []
+    # select('*'): clientes.id_vendedor existe solo después de incremento4_campos_documento0.sql.
+    clientes = supabase.table('clientes').select('*').order('nombre').execute().data or []
     vendedores = supabase.table('vendedores').select('id_vendedor, nombre').order('nombre').execute().data or []
     nombre_cliente = {c['id_cliente']: c.get('nombre') for c in clientes}
     nombre_vendedor = {v['id_vendedor']: v.get('nombre') for v in vendedores}
@@ -897,6 +898,26 @@ def _leer_linea_formulario(sufijo):
             'observacion': observacion}, None
 
 
+def _precios_de_lista(lista):
+    """Precio mayor de cada variante en una lista de precios distinta de la 1."""
+    if lista <= 1:
+        return {}
+    try:
+        return {f['id_variante']: f['precio'] for f in supabase.table('variante_precios_lista').select('*')
+                .eq('lista_precios', lista).execute().data or []}
+    except APIError:
+        return {}  # incremento4_campos_documento0.sql todavía no se ejecuta
+
+
+def _precio_sugerido(variante, lista, precios_lista):
+    """CU-24.1 paso 5: precio según la lista de precios del cliente. Si la variante está
+    en liquidación se propone su precio de liquidación (CU-13.5); si no, el de la lista
+    del cliente y, si esa lista no tiene precio propio, el precio mayor (lista 1)."""
+    if variante.get('en_liquidacion') and variante.get('precio_liquidacion'):
+        return variante['precio_liquidacion']
+    return precios_lista.get(variante['id_variante'], variante.get('precio_venta') or 0)
+
+
 @app.route('/crudDetallePedido.html', methods=['GET', 'POST'])
 def crudDetallePedido():
     # RF-024/026 y CU-24.1: líneas (producto + color + talla) de un pedido.
@@ -968,20 +989,24 @@ def crudDetallePedido():
 
     lineas = supabase.table('detalle_pedidos').select('*').eq('id_pedido', id_pedido) \
         .order('id_detalle_pedido').execute().data or []
-    variantes_activas = supabase.table('producto_variantes').select('id_variante, precio_venta, activo') \
-        .execute().data or []
+    variantes_activas = supabase.table('producto_variantes').select('*').execute().data or []
+    cliente_pedido = supabase.table('clientes').select('*').eq('id_cliente', pedido.get('cliente_asociado')) \
+        .execute().data or [{}]
+    lista_cliente = int(cliente_pedido[0].get('lista_precios') or 1)
     descripcion = _variantes_por_id({v['id_variante'] for v in variantes_activas} | {l['id_variante'] for l in lineas})
     for linea in lineas:
         linea.update(descripcion.get(linea['id_variante'], {}))
         linea['subtotal'] = int(linea.get('cantidad') or 0) * int(linea.get('precio_unitario') or 0)
+    precios_lista = _precios_de_lista(lista_cliente)
     opciones = sorted(
-        ({'id_variante': v['id_variante'], 'precio_venta': v.get('precio_venta') or 0,
+        ({'id_variante': v['id_variante'], 'precio_venta': _precio_sugerido(v, lista_cliente, precios_lista),
+          'en_liquidacion': bool(v.get('en_liquidacion')),
           **descripcion.get(v['id_variante'], {})} for v in variantes_activas if v.get('activo') is not False),
         key=lambda v: (str(v.get('producto') or ''), str(v.get('color') or ''), str(v.get('talla') or '')))
     clientes = _obtener_clientes_map()
     return render_template('crudDetallePedido.html', pedido=pedido, nombre=nombre,
                            cliente=clientes.get(pedido.get('cliente_asociado'), 'Sin cliente'),
-                           lineas=lineas, variantes=opciones,
+                           lineas=lineas, variantes=opciones, lista_cliente=lista_cliente,
                            total=sum(l['subtotal'] for l in lineas),
                            editable=pedido.get('estado') not in ESTADOS_PEDIDO_CERRADOS)
 

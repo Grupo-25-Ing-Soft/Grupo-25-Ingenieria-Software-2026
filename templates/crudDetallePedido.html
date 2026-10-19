@@ -77,9 +77,9 @@
           <label class="form-label" for="idVarianteCrear">Producto, color y talla</label>
           <select class="form-select" id="idVarianteCrear" name="idVarianteCrear" required>
             <option value="" selected disabled>Seleccione una variante</option>
-            {% for v in variantes %}<option value="{{ v.id_variante }}" data-precio="{{ v.precio_venta }}">{{ v.producto or ('Variante ' ~ v.id_variante) }} · {{ v.color or 'sin color' }} · {{ v.talla or 'sin talla' }}</option>{% endfor %}
+            {% for v in variantes %}<option value="{{ v.id_variante }}" data-precio="{{ v.precio_venta }}">{{ v.producto or ('Variante ' ~ v.id_variante) }} · {{ v.color or 'sin color' }} · {{ v.talla or 'sin talla' }} · {{ v.precio_venta|moneda }}{% if v.en_liquidacion %} (liquidación){% endif %}</option>{% endfor %}
           </select>
-          <small class="text-muted">Si falta una combinación, créala en Productos.</small>
+          <small class="text-muted">Precio según la lista de precios {{ lista_cliente }} del cliente (o el de liquidación). Si falta una combinación, créala en Productos.</small>
         </div>
         <div class="row g-3">
           <div class="col-md-6">

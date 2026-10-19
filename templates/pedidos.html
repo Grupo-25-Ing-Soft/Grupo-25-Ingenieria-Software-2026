@@ -97,8 +97,9 @@
   <label class="form-label" for="cliente{{ sufijo }}">Cliente</label>
   <select class="form-select" id="cliente{{ sufijo }}" name="IDCliente{{ sufijo }}" required>
     <option value="" selected disabled>Seleccione un cliente</option>
-    {% for c in clientes %}<option value="{{ c.id_cliente }}">{{ c.nombre }}</option>{% endfor %}
+    {% for c in clientes %}<option value="{{ c.id_cliente }}" data-vendedor="{{ c.get('id_vendedor') or '' }}">{{ c.nombre }}</option>{% endfor %}
   </select>
+  {% if sufijo == 'Crear' %}<small class="text-muted">Se propone el vendedor asignado al cliente (RF-001).</small>{% endif %}
 </div>
 <div class="mb-3">
   <label class="form-label" for="vendedor{{ sufijo }}">Vendedor</label>
@@ -189,5 +190,12 @@
     </form>
   </div></div>
 </div>
+<script>
+  // RF-001: al elegir el cliente en un pedido nuevo se propone su vendedor asignado.
+  document.getElementById('clienteCrear').addEventListener('change', function () {
+    const vendedor = this.selectedOptions[0] ? this.selectedOptions[0].dataset.vendedor : '';
+    if (vendedor) document.getElementById('vendedorCrear').value = vendedor;
+  });
+</script>
 </body>
 </html>
