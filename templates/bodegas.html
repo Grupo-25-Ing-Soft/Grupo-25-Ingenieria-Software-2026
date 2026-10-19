@@ -72,7 +72,7 @@
   <div class="data-card">
     <div class="data-card-header"><div><h2>Bodegas registradas</h2><span>Consulta en tiempo real</span></div><button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="createTableFromJSON()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Actualizar listado</span></button></div>
     <div class="data-table-wrap" id="tablaBodegas" onload="createTableFromJSON()"></div>
-    <div class="empty-state">Sin resultados todavía</div>
+    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
   </div>
 </div>
 
