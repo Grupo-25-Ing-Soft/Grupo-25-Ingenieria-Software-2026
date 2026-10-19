@@ -57,7 +57,10 @@ begin
 end $$;
 
 -- Reemplaza el check de "estado" que tuviera la tabla por el de los scripts.
-create or replace function pg_temp.reemplazar_check_estado(p_tabla text, p_nombre text, p_valores text)
+-- Orden: 1) borra los checks antiguos (si no, no aceptan los estados nuevos),
+-- 2) pasa los estados que no están en la lista nueva a p_defecto, 3) crea el check.
+create or replace function pg_temp.reemplazar_check_estado(p_tabla text, p_nombre text, p_valores text,
+                                                            p_defecto text)
 returns void language plpgsql as $$
 declare
   r record;
@@ -69,6 +72,7 @@ begin
   loop
     execute format('alter table public.%I drop constraint %I', p_tabla, r.conname);
   end loop;
+  execute format('update public.%I set estado = %L where estado not in (%s)', p_tabla, p_defecto, p_valores);
   execute format('alter table public.%I add constraint %I check (estado in (%s))', p_tabla, p_nombre, p_valores);
 end $$;
 
@@ -164,11 +168,9 @@ end $$;
 select pg_temp.exigir_si_completa('facturas', 'pedido_asociado');
 select pg_temp.exigir_si_completa('facturas', 'cliente_asociado');
 
--- Estados: el antiguo 'emitida' pasa a los de facturas.sql (se recalcula en la sección 4).
-update public.facturas set estado = 'vigente'
- where estado not in ('vigente', 'pagada', 'parcialmente_pagada', 'anulada');
+-- Estados: el antiguo 'emitida' pasa a 'vigente' (se recalcula en la sección 4).
 select pg_temp.reemplazar_check_estado('facturas', 'facturas_estado_check',
-  $v$'vigente','pagada','parcialmente_pagada','anulada'$v$);
+  $v$'vigente','pagada','parcialmente_pagada','anulada'$v$, 'vigente');
 
 select pg_temp.opcionales_salvo('facturas', array['id_factura', 'folio', 'fecha_emision', 'monto_neto',
   'monto_impuesto', 'monto_total', 'saldo_pendiente', 'estado', 'fecha_creacion', 'usuario_creacion',
@@ -193,8 +195,11 @@ begin
       new.iva            := new.monto_impuesto;
       new.total          := new.monto_total;
       new.saldo          := new.saldo_pendiente;
-      if new.cliente_asociado is not null then
-        select c.nombre, nullif(concat_ws('-', c.rut, c.digito_verificador), '')
+      -- Razón social y RUT solo se completan si faltan (facturas nuevas): las
+      -- antiguas conservan los datos con que se emitieron.
+      if new.cliente_asociado is not null and (new.razon_social is null or new.rut is null) then
+        select coalesce(new.razon_social, c.nombre),
+               coalesce(new.rut, nullif(concat_ws('-', c.rut, c.digito_verificador), ''))
           into new.razon_social, new.rut
           from clientes c where c.id_cliente = new.cliente_asociado;
       end if;
@@ -286,9 +291,8 @@ end $$;
 select pg_temp.exigir_si_completa('notas_credito', 'factura_referencia');
 select pg_temp.exigir_si_completa('notas_credito', 'cliente_asociado');
 
-update public.notas_credito set estado = 'vigente' where estado not in ('vigente', 'anulada', 'aplicada');
 select pg_temp.reemplazar_check_estado('notas_credito', 'notas_credito_estado_check',
-  $v$'vigente','anulada','aplicada'$v$);
+  $v$'vigente','anulada','aplicada'$v$, 'vigente');
 
 select pg_temp.opcionales_salvo('notas_credito', array['id_nota_credito', 'folio', 'fecha', 'monto_neto',
   'monto_impuesto', 'monto_total', 'motivo', 'estado', 'fecha_creacion', 'usuario_creacion',
@@ -333,8 +337,7 @@ begin
   end if;
 end $$;
 
-update public.pagos set estado = 'vigente' where estado not in ('vigente', 'anulada');
-select pg_temp.reemplazar_check_estado('pagos', 'pagos_estado_check', $v$'vigente','anulada'$v$);
+select pg_temp.reemplazar_check_estado('pagos', 'pagos_estado_check', $v$'vigente','anulada'$v$, 'vigente');
 select pg_temp.opcionales_salvo('pagos', array['id_pago', 'cliente_asociado', 'fecha_pago', 'monto',
   'medio_pago', 'estado', 'fecha_creacion', 'usuario_creacion']);
 
