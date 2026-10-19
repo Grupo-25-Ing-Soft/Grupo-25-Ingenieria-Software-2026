@@ -2730,81 +2730,6 @@ def vendedores():
             
         return render_template('vendedores.html', datos = response.data)
 
-@app.route('/zonasVenta.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
-def zonasVenta():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            nombre = request.form['nombreCrear'].strip()
-            descripcion = request.form['descripcionCrear']
-
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
-
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("zona_venta").insert({"nombre": nombre,
-                        "descripcion": descripcion
-                        }).execute()
-            )
-            if response.data:
-                flash("Zona de venta creada exitosamente", "success")
-                return redirect(url_for('zonasVenta'))
-            else:
-                flash("Error creando zona de venta", "error")
-                return redirect(url_for('zonasVenta'))
-        if (metodo == "put"):
-            idZonaVenta = request.form['IdZonaVentaActualizar']
-            nombre = request.form['nombreActualizar'].strip()
-            descripcion = request.form['descripcionActualizar']
-            response = (
-
-                supabase.table("zona_venta").update({"nombre": nombre,
-                        "descripcion": descripcion
-                        }).eq("id_zona_venta", idZonaVenta).select("id_zona_venta").execute()
-            )
-            if response.data:
-                flash("Zona de venta actualizada exitosamente", "success")
-                return redirect(url_for('zonasVenta'))
-            else:
-                flash("Error actualizando zona de venta", "error")
-                return redirect(url_for('zonasVenta'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idZonaVentaBorrar']
-            response = (
-                supabase.table("zona_venta").delete()
-                .eq("id_zona_venta", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Zona de venta borrada exitosamente", "success")
-                return redirect(url_for('zonasVenta'))
-            else:
-                flash("Error borrando zona de venta", "error")
-                return redirect(url_for('zonasVenta'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarzonaventaid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('zonasVenta.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna zona de venta con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarzonaventadescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('zonasVenta.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna zona de venta con la descripción buscada"
-    else:
-        response =(
-            supabase.table("zona_venta").select("*").execute()
-        )
-            
-        return render_template('zonasVenta.html', datos = response.data)
-
 # ---------------------------------------------------------------------
 # Archivos maestros simples (CU-03 a CU-11). Mismo patrón que el CRUD de colores:
 # _method post/put/delete, modales crear/actualizar/borrar con campos <campo>Crear y
@@ -2826,6 +2751,19 @@ MAESTROS_SIMPLES = {
         ],
         'en_uso': [('producto_variantes', 'id_talla', 'variantes de producto'), ('productos', 'talla', 'productos'),
                    ('inventario', 'id_talla', 'inventario')],
+    },
+    'zonas_venta': {
+        'tabla': 'zona_venta', 'clave': 'id_zona_venta', 'endpoint': 'zonasVenta', 'modulo': 'zonas_venta',
+        'plantilla': 'zonasVenta.html', 'singular': 'zona de venta', 'plural': 'zonas de venta', 'articulo': 'la',
+        'id_form': 'idZonaVenta', 'principal': 'nombre',
+        'campos': [
+            {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre', 'obligatorio': True, 'max': 64},
+            {'columna': 'codigo', 'form': 'codigo', 'etiqueta': 'Código', 'max': 3, 'unico': True,
+             'ayuda': 'Hasta 3 caracteres (glosario gggg)'},
+            {'columna': 'descripcion', 'form': 'descripcion', 'etiqueta': 'Descripción', 'obligatorio': True, 'max': 64,
+             'ayuda': 'Regiones o comunas que abarca'},
+        ],
+        'en_uso': [('clientes', 'id_zona_venta', 'clientes')],
     },
 }
 
@@ -2923,6 +2861,12 @@ def _crud_maestro(nombre):
         texto = busqueda.lower()
         datos = [f for f in datos if any(texto in str(f.get(c['columna']) or '').lower() for c in maestro['campos'])]
     return render_template(maestro['plantilla'], datos=datos, maestro=maestro, busqueda=busqueda)
+
+
+@app.route('/zonasVenta.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+def zonasVenta():
+    # RF-009/010, CU-09.1 a CU-09.4. La columna nombre se muestra primero.
+    return _crud_maestro('zonas_venta')
 
 
 @app.route('/tallas.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
