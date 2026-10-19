@@ -2805,74 +2805,131 @@ def zonasVenta():
             
         return render_template('zonasVenta.html', datos = response.data)
 
+# ---------------------------------------------------------------------
+# Archivos maestros simples (CU-03 a CU-11). Mismo patrón que el CRUD de colores:
+# _method post/put/delete, modales crear/actualizar/borrar con campos <campo>Crear y
+# <campo>Actualizar, avisos con flash y confirmación que nombra el registro.
+# Cada maestro define sus columnas, validaciones (largos del glosario, campos únicos)
+# y las tablas que impiden borrarlo (excepción "registro referenciado").
+MAESTROS_SIMPLES = {
+    'tallas': {
+        'tabla': 'tallas', 'clave': 'id_talla', 'endpoint': 'tallas', 'modulo': 'tallas',
+        'plantilla': 'tallas.html', 'singular': 'talla', 'plural': 'tallas', 'articulo': 'la',
+        'id_form': 'idTalla', 'principal': 'talla',
+        'campos': [
+            {'columna': 'talla', 'form': 'talla', 'etiqueta': 'Código de talla', 'obligatorio': True, 'max': 2,
+             'unico': True, 'ayuda': 'Hasta 2 caracteres, por ejemplo S, M, 38'},
+            {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre en la etiqueta', 'max': 16,
+             'ayuda': 'Lo que se imprime en la etiqueta EAN (S, M, L, 38...)'},
+            {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN de la talla', 'max': 3,
+             'numerico': True, 'ayuda': 'Solo números, hasta 3 dígitos (ej. 010)'},
+        ],
+        'en_uso': [('producto_variantes', 'id_talla', 'variantes de producto'), ('productos', 'talla', 'productos'),
+                   ('inventario', 'id_talla', 'inventario')],
+    },
+}
+
+
+def _leer_maestro_formulario(maestro, sufijo, id_registro=None):
+    """Valida los campos de un maestro simple. Devuelve (datos, error)."""
+    datos = {}
+    for campo in maestro['campos']:
+        valor = (request.form.get(campo['form'] + sufijo) or '').strip()
+        etiqueta = campo['etiqueta']
+        if not valor:
+            if campo.get('obligatorio'):
+                return None, f'Complete el campo «{etiqueta}».'
+            datos[campo['columna']] = None
+            continue
+        if campo.get('max') and len(valor) > campo['max']:
+            return None, f'«{etiqueta}» admite hasta {campo["max"]} caracteres.'
+        if campo.get('numerico') and not valor.isdigit():
+            return None, f'«{etiqueta}» solo puede tener números.'
+        if campo.get('porcentaje'):
+            valor, error = _porcentaje(valor, f'«{etiqueta}»')
+            if error:
+                return None, error
+        if campo.get('unico'):
+            mismos = supabase.table(maestro['tabla']).select(maestro['clave']) \
+                .eq(campo['columna'], valor).execute().data or []
+            if any(str(f[maestro['clave']]) != str(id_registro) for f in mismos):
+                return None, f'Ya existe {maestro["articulo"]} {maestro["singular"]} con {etiqueta.lower()} {valor}.'
+        datos[campo['columna']] = valor
+    return datos, None
+
+
+def _mensaje_error_maestro(maestro, error):
+    if error.code == '23505':
+        return f'Ya existe {maestro["articulo"]} {maestro["singular"]} con esos datos.'
+    if error.code == '23514':
+        return 'Hay un campo con un formato no permitido (los códigos EAN solo admiten números).'
+    if error.code == '23503':
+        return f'{maestro["articulo"].capitalize()} {maestro["singular"]} está en uso y no se puede eliminar.'
+    return error.message or 'No se pudo guardar el registro.'
+
+
+def _crud_maestro(nombre):
+    maestro = MAESTROS_SIMPLES[nombre]
+    tabla, clave, singular = maestro['tabla'], maestro['clave'], maestro['singular']
+    sufijo = 'a' if maestro['articulo'] == 'la' else 'o'  # creada / creado
+    if request.method == 'POST':
+        metodo = request.form.get('_method', '')
+        if metodo.startswith('buscar'):
+            # Las búsquedas antiguas por POST pasan a la barra de búsqueda (GET ?q=).
+            texto = next((v for k, v in request.form.items() if k.endswith('Buscar')), '')
+            return redirect(url_for(maestro['endpoint'], q=texto))
+        try:
+            if metodo == 'post':
+                datos, error = _leer_maestro_formulario(maestro, 'Crear')
+                if error:
+                    flash(error, 'error')
+                elif supabase.table(tabla).insert(datos).execute().data:
+                    flash(f'{singular.capitalize()} {datos[maestro["principal"]]} cread{sufijo} exitosamente', 'success')
+                else:
+                    flash(f'Error creando {singular}', 'error')
+                return redirect(url_for(maestro['endpoint']))
+            id_registro = _entero_positivo(request.form.get(maestro['id_form'] + 'Actualizar')
+                                           or request.form.get(maestro['id_form'] + 'Borrar'))
+            actual = supabase.table(tabla).select('*').eq(clave, id_registro).execute().data if id_registro else []
+            if metodo not in ('put', 'delete'):
+                return redirect(url_for(maestro['endpoint']))
+            if not actual:
+                flash(f'{maestro["articulo"].capitalize()} {singular} no existe', 'error')
+                return redirect(url_for(maestro['endpoint']))
+            nombre_registro = actual[0].get(maestro['principal'])
+            if metodo == 'put':
+                datos, error = _leer_maestro_formulario(maestro, 'Actualizar', id_registro)
+                if error:
+                    flash(error, 'error')
+                else:
+                    supabase.table(tabla).update(datos).eq(clave, id_registro).execute()
+                    flash(f'{singular.capitalize()} {datos[maestro["principal"]]} actualizad{sufijo} exitosamente', 'success')
+            else:
+                en_uso = [texto for t, columna, texto in maestro['en_uso']
+                          if supabase.table(t).select(columna).eq(columna, id_registro).limit(1).execute().data]
+                if en_uso:
+                    flash(f'{maestro["articulo"].capitalize()} {singular} {nombre_registro} está en uso en '
+                          f'{", ".join(en_uso)} y no se puede eliminar', 'error')
+                else:
+                    supabase.table(tabla).delete().eq(clave, id_registro).execute()
+                    flash(f'{singular.capitalize()} {nombre_registro} borrad{sufijo} exitosamente', 'success')
+        except APIError as error:
+            flash(_mensaje_error_maestro(maestro, error), 'error')
+        return redirect(url_for(maestro['endpoint']))
+
+    busqueda = request.args.get('q', '').strip()
+    datos = supabase.table(tabla).select('*').order(maestro['principal']).execute().data or []
+    if busqueda:
+        texto = busqueda.lower()
+        datos = [f for f in datos if any(texto in str(f.get(c['columna']) or '').lower() for c in maestro['campos'])]
+    return render_template(maestro['plantilla'], datos=datos, maestro=maestro, busqueda=busqueda)
+
+
 @app.route('/tallas.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def tallas():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            talla = request.form['tallaCrear']
-            nombre = _texto_o_nulo(request.form.get('nombreCrear'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanCrear'))
+    # RF-011/012, CU-11.1 a CU-11.4.
+    return _crud_maestro('tallas')
 
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
-
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("tallas").insert({"talla": talla, "nombre": nombre, "codigo_ean": codigoEan
-                        }).execute()
-            )
-            if response.data:
-                return "Talla creada exitosamente"
-            else:
-                return "Error creando talla", 500
-        if (metodo == "put"):
-            idTalla = request.form['IdTallaActualizar']
-            talla = request.form['tallaActualizar']
-            nombre = _texto_o_nulo(request.form.get('nombreActualizar'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanActualizar'))
-            response = (
-
-                supabase.table("tallas").update({"talla": talla, "nombre": nombre, "codigo_ean": codigoEan
-                        }).eq("id_talla", idTalla).select("id_talla").execute()
-            )
-            if response.data:
-                return "Talla actualizada exitosamente"
-            else:
-                return "Error actualizando talla", 500
-        if (metodo == "delete"):
-            idABorrar = request.form['idTallaBorrar']
-            response = (
-                supabase.table("tallas").delete()
-                .eq("id_talla", idABorrar)
-                .execute()
-            )
-            if response.data:
-                return "Talla borrada exitosamente"
-            else:
-                return "Error borrando talla", 500
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscartallaid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('tallas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna talla con la id buscada"
-        if (metodo == "buscarNTalla"):
-            texto = request.form["nTallaBuscar"]
-            response = supabase.rpc('buscartallanumerotalla', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('tallas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna talla con el número de talla buscado"
-    else:
-        response =(
-            supabase.table("tallas").select("*").execute()
-        )
-            
-        return render_template('tallas.html', datos = response.data)
 
 def _mensaje_error_producto(error, accion):
     return {
