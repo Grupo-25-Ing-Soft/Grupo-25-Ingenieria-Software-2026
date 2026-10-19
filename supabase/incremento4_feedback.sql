@@ -169,6 +169,8 @@ select pg_temp.exigir_si_completa('facturas', 'pedido_asociado');
 select pg_temp.exigir_si_completa('facturas', 'cliente_asociado');
 
 -- Estados: el antiguo 'emitida' pasa a 'vigente' (se recalcula en la sección 4).
+-- El valor por defecto antiguo era 'emitida', que el check nuevo no acepta.
+alter table public.facturas alter column estado set default 'vigente';
 select pg_temp.reemplazar_check_estado('facturas', 'facturas_estado_check',
   $v$'vigente','pagada','parcialmente_pagada','anulada'$v$, 'vigente');
 
@@ -291,6 +293,7 @@ end $$;
 select pg_temp.exigir_si_completa('notas_credito', 'factura_referencia');
 select pg_temp.exigir_si_completa('notas_credito', 'cliente_asociado');
 
+alter table public.notas_credito alter column estado set default 'vigente';
 select pg_temp.reemplazar_check_estado('notas_credito', 'notas_credito_estado_check',
   $v$'vigente','anulada','aplicada'$v$, 'vigente');
 
@@ -337,6 +340,7 @@ begin
   end if;
 end $$;
 
+alter table public.pagos alter column estado set default 'vigente';
 select pg_temp.reemplazar_check_estado('pagos', 'pagos_estado_check', $v$'vigente','anulada'$v$, 'vigente');
 select pg_temp.opcionales_salvo('pagos', array['id_pago', 'cliente_asociado', 'fecha_pago', 'monto',
   'medio_pago', 'estado', 'fecha_creacion', 'usuario_creacion']);
