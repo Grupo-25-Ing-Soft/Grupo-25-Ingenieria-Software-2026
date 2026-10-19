@@ -2540,121 +2540,103 @@ def colores():
             
         return render_template('colores.html', datos = response.data)
     
+def _cantidad_inventario(valor, etiqueta):
+    texto = (valor or '').strip()
+    if not texto:
+        return 0, None
+    if not texto.isdigit():
+        return None, f'{etiqueta} debe ser un número entero mayor o igual a cero.'
+    return int(texto), None
+
+
+def _inventario_de_bodega(bodegas):
+    """Existencias de la bodega elegida (?bodega=, por defecto la primera) con nombres
+    de producto, talla y color. Talla y color salen de las columnas de inventario."""
+    id_bodega = _entero_positivo(request.args.get('bodega'))
+    if id_bodega is None and bodegas:
+        id_bodega = bodegas[0]['id_bodega']
+    try:
+        filas = supabase.table('inventario').select('*').eq('id_bodega', id_bodega).execute().data or [] \
+            if id_bodega else []
+        disponible = True
+    except APIError as error:
+        if 'PGRST205' not in str(error):
+            raise
+        filas, disponible = [], False
+    tallas = {t['id_talla']: t.get('nombre') or str(t.get('talla'))
+              for t in supabase.table('tallas').select('id_talla, talla, nombre').execute().data or []}
+    colores = {c['id_color']: c.get('descripcion')
+               for c in supabase.table('colores').select('id_color, descripcion').execute().data or []}
+    variantes = supabase.table('producto_variantes').select('id_variante, activo').execute().data or []
+    descripcion = _variantes_por_id({v['id_variante'] for v in variantes} | {f.get('id_variante') for f in filas} - {None})
+    for fila in filas:
+        fila['producto'] = descripcion.get(fila.get('id_variante'), {}).get('producto') or f"Variante {fila.get('id_variante')}"
+        fila['talla'] = tallas.get(fila.get('id_talla'), '')
+        fila['color'] = colores.get(fila.get('id_color'), '')
+    filas.sort(key=lambda f: (str(f['producto']), str(f['color']), str(f['talla'])))
+    opciones = sorted(({'id_variante': v['id_variante'], **descripcion.get(v['id_variante'], {})}
+                       for v in variantes if v.get('activo') is not False),
+                      key=lambda v: (str(v.get('producto') or ''), str(v.get('color') or ''), str(v.get('talla') or '')))
+    return {'inventario': filas, 'inventario_disponible': disponible, 'bodega_actual': id_bodega,
+            'variantes': opciones,
+            'total_unidades': sum(int(f.get('cantidad') or 0) for f in filas),
+            'total_defectuosas': sum(int(f.get('cantidad_defectuosa') or 0) for f in filas)}
+
+
 @app.route('/bodegas.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def bodegas():
-    if request.method == 'POST':
+    # RF-005/006 (CU-05.1 a 05.4) con el CRUD de maestros simples, y RF-037: inventario
+    # de la bodega elegida (tabla inventario: id_bodega, id_variante, id_talla, id_color,
+    # cantidad, cantidad_defectuosa).
+    if request.method == 'POST' and (request.form.get('_method') or '').startswith('inventario_'):
         metodo = request.form['_method']
-        if metodo == "inventario_post":
-            response = supabase.table("inventario").insert({
-                "id_bodega": request.form['idBodegaInventario'],
-                "id_producto": request.form['idProductoInventario'],
-                "id_talla": request.form['idTallaInventario'],
-                "id_color": request.form['idColorInventario'],
-                "cantidad": request.form['cantidadInventario']
+        usuario = g.usuario.get('nombre_usuario') or 'Admin'
+        id_bodega = _entero_positivo(request.form.get('idBodegaInventario'))
+        volver = redirect(url_for('bodegas', bodega=id_bodega) if id_bodega else url_for('bodegas'))
+        cantidad, error = _cantidad_inventario(request.form.get('cantidadInventario'), 'La cantidad')
+        defectuosa, error_def = _cantidad_inventario(request.form.get('cantidadDefectuosaInventario'),
+                                                     'La cantidad defectuosa')
+        if metodo == 'inventario_post':
+            id_variante = _entero_positivo(request.form.get('idVarianteInventario'))
+            variante = supabase.table('producto_variantes').select('id_variante, id_talla, id_color') \
+                .eq('id_variante', id_variante).execute().data if id_variante else []
+            if not id_bodega or not variante:
+                error = 'Seleccione la bodega y el producto (color y talla).'
+            elif supabase.table('inventario').select('id_inventario').eq('id_bodega', id_bodega) \
+                    .eq('id_variante', id_variante).execute().data:
+                error = 'Ese producto ya tiene existencias en la bodega: edita su fila.'
+            if error or error_def:
+                flash(error or error_def, 'error')
+                return volver
+            # Talla y color se toman de la variante, para que coincidan con ella.
+            supabase.table('inventario').insert({
+                'id_bodega': id_bodega, 'id_variante': id_variante, 'id_talla': variante[0].get('id_talla'),
+                'id_color': variante[0].get('id_color'), 'cantidad': cantidad, 'cantidad_defectuosa': defectuosa,
+                'usuario_actualizacion': usuario,
             }).execute()
-            if response.data:
-                return redirect(url_for('bodegas'))
-            return "Error creando registro de inventario", 500
-        if metodo == "inventario_put":
-            idInventario = request.form['idInventarioActualizar']
-            response = supabase.table("inventario").update({
-                "id_bodega": request.form['idBodegaInventarioActualizar'],
-                "id_producto": request.form['idProductoInventarioActualizar'],
-                "id_talla": request.form['idTallaInventarioActualizar'],
-                "id_color": request.form['idColorInventarioActualizar'],
-                "cantidad": request.form['cantidadInventarioActualizar']
-            }).eq("id_inventario", idInventario).select("id_inventario").execute()
-            if response.data:
-                return redirect(url_for('bodegas'))
-            return "Error actualizando registro de inventario", 500
-        if metodo == "inventario_delete":
-            response = supabase.table("inventario").delete().eq(
-                "id_inventario", request.form['idInventarioBorrar']
-            ).execute()
-            if response.data:
-                return redirect(url_for('bodegas'))
-            return "Error borrando registro de inventario", 500
-        if (metodo == "post"):
-            descripcion = request.form['descripcionCrear']
+            flash('Existencias registradas en la bodega', 'success')
+            return volver
+        id_inventario = _entero_positivo(request.form.get('idInventario'))
+        fila = supabase.table('inventario').select('id_inventario, id_bodega').eq('id_inventario', id_inventario) \
+            .execute().data if id_inventario else []
+        if not fila:
+            flash('El registro de inventario no existe', 'error')
+            return volver
+        volver = redirect(url_for('bodegas', bodega=fila[0]['id_bodega']))
+        if metodo == 'inventario_put':
+            if error or error_def:
+                flash(error or error_def, 'error')
+                return volver
+            supabase.table('inventario').update({'cantidad': cantidad, 'cantidad_defectuosa': defectuosa,
+                                                 'usuario_actualizacion': usuario}) \
+                .eq('id_inventario', id_inventario).execute()
+            flash('Existencias actualizadas', 'success')
+        elif metodo == 'inventario_delete':
+            supabase.table('inventario').delete().eq('id_inventario', id_inventario).execute()
+            flash('Registro de inventario borrado', 'success')
+        return volver
+    return _crud_maestro('bodegas', contexto=_inventario_de_bodega)
 
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("bodegas").insert({"descripcion": descripcion
-                        }).execute()
-            )
-            if response.data:
-                flash("Bodega creada exitosamente", "success")
-                return redirect(url_for('bodegas'))
-            else:
-                flash("Error creando bodega", "error")
-                return redirect(url_for('bodegas'))
-        if (metodo == "put"):
-            idBodega = request.form['IdBodegaActualizar']
-            descripcion = request.form['descripcionActualizar'] 
-            response = (
-                
-                supabase.table("bodegas").update({"descripcion": descripcion
-                        }).eq("id_bodega", idBodega).select("id_bodega").execute()
-            )
-            if response.data:
-                flash("Bodega actualizada exitosamente", "success")
-                return redirect(url_for('bodegas'))
-            else:
-                flash("Error actualizando bodega", "error")
-                return redirect(url_for('bodegas'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idBodegaBorrar']
-            response = (
-                supabase.table("bodegas").delete()
-                .eq("id_bodega", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Bodega borrada exitosamente", "success")
-                return redirect(url_for('bodegas'))
-            else:
-                flash("Error borrando bodega", "error")
-                return redirect(url_for('bodegas'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarbodegaid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('bodegas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna bodega con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarbodegadescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('bodegas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna bodega con la descrpición buscada"
-    else:
-        bodegas_response = supabase.table("bodegas").select("*").execute()
-        inventario_disponible = True
-        try:
-            inventario_response = supabase.table("inventario").select("*").execute()
-        except APIError as error:
-            if "PGRST205" not in str(error):
-                raise
-            inventario_data = []
-            inventario_disponible = False
-        else:
-            inventario_data = inventario_response.data
-        productos_response = supabase.table("productos").select("*").execute()
-        tallas_response = supabase.table("tallas").select("*").execute()
-        colores_response = supabase.table("colores").select("*").execute()
-
-        return render_template(
-            'bodegas.html',
-            datos=bodegas_response.data,
-            inventario=inventario_data,
-            inventario_disponible=inventario_disponible,
-            productos=productos_response.data,
-            tallas=tallas_response.data,
-            colores=colores_response.data
-        )
 
 @app.route('/vendedores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def vendedores():
@@ -2765,6 +2747,17 @@ MAESTROS_SIMPLES = {
         ],
         'en_uso': [('clientes', 'id_zona_venta', 'clientes')],
     },
+    'bodegas': {
+        'tabla': 'bodegas', 'clave': 'id_bodega', 'endpoint': 'bodegas', 'modulo': 'bodegas',
+        'plantilla': 'bodegas.html', 'singular': 'bodega', 'plural': 'bodegas', 'articulo': 'la',
+        'id_form': 'idBodega', 'principal': 'descripcion',
+        'campos': [
+            {'columna': 'descripcion', 'form': 'descripcion', 'etiqueta': 'Descripción', 'obligatorio': True, 'max': 64},
+            {'columna': 'codigo', 'form': 'codigo', 'etiqueta': 'Código de bodega', 'max': 16, 'unico': True},
+        ],
+        # CU-05.4 excepción 1: no se elimina una bodega con stock (ni con despachos).
+        'en_uso': [('inventario', 'id_bodega', 'inventario'), ('despachos', 'id_bodega', 'despachos')],
+    },
 }
 
 
@@ -2837,7 +2830,7 @@ def _mensaje_error_maestro(maestro, error):
     return error.message or 'No se pudo guardar el registro.'
 
 
-def _crud_maestro(nombre):
+def _crud_maestro(nombre, contexto=None):
     maestro = MAESTROS_SIMPLES[nombre]
     tabla, clave, singular = maestro['tabla'], maestro['clave'], maestro['singular']
     sufijo = 'a' if maestro['articulo'] == 'la' else 'o'  # creada / creado
@@ -2891,7 +2884,8 @@ def _crud_maestro(nombre):
     if busqueda:
         texto = busqueda.lower()
         datos = [f for f in datos if any(texto in str(f.get(c['columna']) or '').lower() for c in maestro['campos'])]
-    return render_template(maestro['plantilla'], datos=datos, maestro=maestro, busqueda=busqueda)
+    return render_template(maestro['plantilla'], datos=datos, maestro=maestro, busqueda=busqueda,
+                           **(contexto(datos) if contexto else {}))
 
 
 @app.route('/zonasVenta.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
