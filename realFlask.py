@@ -1655,6 +1655,11 @@ def pagos():
 
 
 def obtener_informe_cobranza(request_args):
+    """RF-031 / CU-31: facturas con saldo pendiente, con el esquema de facturas.sql y pagos.sql.
+
+    Pagos aplicados = pago_facturas.monto_aplicado de pagos no anulados; notas = notas de
+    crédito vigentes. El saldo es facturas.saldo_pendiente, que la app recalcula en cada
+    pago o nota (monto_total - pagos - notas)."""
     cliente_filter = (request_args.get('cliente') or '').strip()
     fecha_desde = (request_args.get('fecha_desde') or '').strip()
     fecha_hasta = (request_args.get('fecha_hasta') or '').strip()
@@ -1665,29 +1670,39 @@ def obtener_informe_cobranza(request_args):
     except ValueError:
         dias_min = None
 
-    try:
-        facturas_response = supabase.table('facturas').select('*').gt('saldo', 0).execute()
-        facturas = facturas_response.data or []
-    except Exception:
-        facturas = []
+    facturas = supabase.table('facturas').select(
+        'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado'
+    ).gt('saldo_pendiente', 0).neq('estado', 'anulada').execute().data or []
+    clientes = _obtener_clientes_map()
 
-    pagos_response = supabase.table('pagos').select('id_factura, monto').execute()
-    pagos = pagos_response.data or []
+    ids_factura = [f['id_factura'] for f in facturas]
+    aplicaciones = supabase.table('pago_facturas').select('id_pago, id_factura, monto_aplicado') \
+        .in_('id_factura', ids_factura).execute().data if ids_factura else []
+    ids_pago = list({a['id_pago'] for a in aplicaciones or []})
+    pagos_vigentes = {p['id_pago'] for p in supabase.table('pagos').select('id_pago, estado')
+                      .in_('id_pago', ids_pago).execute().data or []
+                      if (p.get('estado') or 'vigente') != 'anulada'} if ids_pago else set()
     pagos_por_factura = {}
-    for pago in pagos:
-        factura_id = pago.get('id_factura')
-        if factura_id is None:
-            continue
-        monto = float(pago.get('monto') or 0)
-        pagos_por_factura[factura_id] = pagos_por_factura.get(factura_id, 0.0) + monto
+    for aplicacion in aplicaciones or []:
+        if aplicacion['id_pago'] in pagos_vigentes:
+            pagos_por_factura[aplicacion['id_factura']] = (pagos_por_factura.get(aplicacion['id_factura'], 0.0)
+                                                          + float(aplicacion.get('monto_aplicado') or 0))
+    notas_por_factura = {}
+    for nota in (supabase.table('notas_credito').select('factura_referencia, monto_total, estado')
+                 .in_('factura_referencia', ids_factura).execute().data if ids_factura else []) or []:
+        if (nota.get('estado') or 'vigente') == 'vigente':
+            notas_por_factura[nota['factura_referencia']] = (notas_por_factura.get(nota['factura_referencia'], 0.0)
+                                                            + float(nota.get('monto_total') or 0))
 
     rows = []
+    hoy = datetime.now(timezone.utc).date()
     for factura in facturas:
-        cliente_nombre = (factura.get('razon_social') or '').strip()
+        cliente_id = factura.get('cliente_asociado')
+        cliente_nombre = clientes.get(cliente_id, 'Sin cliente') if cliente_id is not None else 'Sin cliente'
         if cliente_filter and cliente_filter.lower() not in cliente_nombre.lower():
             continue
 
-        fecha_factura = (factura.get('fecha') or '').strip()
+        fecha_factura = (factura.get('fecha_emision') or '').strip()
         if fecha_desde and fecha_factura < fecha_desde:
             continue
         if fecha_hasta and fecha_factura > fecha_hasta:
@@ -1696,27 +1711,27 @@ def obtener_informe_cobranza(request_args):
         dias_morosidad = 0
         if fecha_factura:
             try:
-                dias_morosidad = (datetime.utcnow().date() - datetime.strptime(fecha_factura, '%Y-%m-%d').date()).days
+                dias_morosidad = (hoy - datetime.strptime(fecha_factura[:10], '%Y-%m-%d').date()).days
             except ValueError:
                 dias_morosidad = 0
-
         if dias_min is not None and dias_morosidad < dias_min:
             continue
 
         factura_id = factura.get('id_factura')
-        pagos_aplicados = pagos_por_factura.get(factura_id, 0.0)
         rows.append({
             'id_factura': factura_id,
-            'cliente': cliente_nombre or 'Sin cliente',
-            'folio': factura.get('numero_factura'),
+            'cliente': cliente_nombre,
+            'folio': factura.get('folio'),
             'fecha': fecha_factura,
-            'monto': float(factura.get('total') or 0),
-            'pagos_aplicados': pagos_aplicados,
-            'saldo': float(factura.get('saldo') or 0),
+            'monto': float(factura.get('monto_total') or 0),
+            'pagos_aplicados': pagos_por_factura.get(factura_id, 0.0),
+            'notas_credito': notas_por_factura.get(factura_id, 0.0),
+            'saldo': float(factura.get('saldo_pendiente') or 0),
             'dias_morosidad': dias_morosidad,
         })
 
-    return sorted(rows, key=lambda item: (item.get('cliente') or '').lower())
+    return sorted(rows, key=lambda item: ((item.get('cliente') or '').lower(), -item['dias_morosidad']))
+
 
 @app.route('/informeProductosDespachados.html', methods=['GET', 'POST'])
 def informeProductosDespachados():
@@ -2198,21 +2213,25 @@ def informeCobranzaPDF():
         )
         styles = getSampleStyleSheet()
         title = Paragraph('Informe de cobranza', styles['Title'])
-        generated = Paragraph(f'Generado: {datetime.utcnow().strftime("%d-%m-%Y %H:%M:%S UTC")}', styles['BodyText'])
+        generated = Paragraph(f'Generado: {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S UTC")}', styles['BodyText'])
 
         table_data = [[
-            'Cliente', 'Folio', 'Fecha emisión', 'Monto', 'Pagos aplicados', 'Saldo', 'Días transcurridos'
+            'Cliente', 'Folio', 'Fecha emisión', 'Monto', 'Pagos aplicados', 'Notas de crédito', 'Saldo',
+            'Días transcurridos'
         ]]
         for row in rows:
             table_data.append([
                 row.get('cliente') or 'Sin cliente',
-                row.get('folio') or '',
-                row.get('fecha') or '',
-                f"${row.get('monto', 0):,.2f}",
-                f"${row.get('pagos_aplicados', 0):,.2f}",
-                f"${row.get('saldo', 0):,.2f}",
+                str(row.get('folio') or ''),
+                formatear_fecha(row.get('fecha')),
+                formatear_moneda(row.get('monto', 0)),
+                formatear_moneda(row.get('pagos_aplicados', 0)),
+                formatear_moneda(row.get('notas_credito', 0)),
+                formatear_moneda(row.get('saldo', 0)),
                 str(row.get('dias_morosidad', 0)),
             ])
+        table_data.append(['Total', '', '', '', '', '',
+                           formatear_moneda(sum(r.get('saldo', 0) for r in rows)), ''])
 
         table = Table(table_data, repeatRows=1)
         table.setStyle(TableStyle([
@@ -2221,6 +2240,7 @@ def informeCobranzaPDF():
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('GRID', (0, 0), (-1, -1), 0.7, colors.grey),
             ('ALIGN', (3, 1), (-1, -1), 'RIGHT'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 6),

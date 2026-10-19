@@ -11,6 +11,7 @@
   {# Los informes y análisis se abren desde Reportes. #}
   {{ enlace('reportes', 'bi-bar-chart-line', 'Reportes',
             ep.startswith('analisis') or ep.startswith('informeProductos') or ep in ('inventario', 'resumenProduccion')) }}
+  {{ enlace('informeCobranza', 'bi-cash-stack', 'Informe de cobranza') }}
 
   <div class="shared-caption">Ventas</div>
   {{ enlace('pedidos', 'bi-receipt-cutoff', 'Pedidos', ep in ('verDetalle', 'crudDetallePedido')) }}
@@ -18,7 +19,6 @@
   {{ enlace('facturas', 'bi-file-earmark-text', 'Facturas') }}
   {{ enlace('notasCredito', 'bi-receipt-cutoff', 'Notas de crédito') }}
   {{ enlace('pagos', 'bi-cash-coin', 'Pagos') }}
-  {{ enlace('informeCobranza', 'bi-cash-stack', 'Informe de cobranza') }}
 
   <div class="shared-caption">Archivos maestros</div>
   {{ enlace('clientes', 'bi-person-vcard-fill', 'Clientes') }}
