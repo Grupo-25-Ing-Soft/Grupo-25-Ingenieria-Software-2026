@@ -2926,31 +2926,55 @@ def productos():
             return redirect(url_for('productos'))
 
         if metodo == "variantes":
-            # Precio y estado de las variantes existentes, y combinaciones nuevas.
+            # CU-13.5: precios de cada variante (talla y color) y estado, más combinaciones nuevas.
+            # precio_<id> es el precio mayor de la lista 1 (precio_venta); costo, detalle y
+            # liquidación son los otros tipos de precio (RNF-004). La "lista adicional" guarda
+            # el precio mayor de otra lista de precios para todas las variantes a la vez.
             existentes = supabase.table('producto_variantes').select('id_variante') \
                 .eq('id_producto', id_producto).execute().data or []
+            lista_extra = (request.form.get('listaExtra') or '').strip()
+            if lista_extra and (not lista_extra.isdigit() or int(lista_extra) < 2):
+                flash('La lista de precios adicional debe ser un número entero desde 2 (la lista 1 es el precio mayor).',
+                      'error')
+                return redirect(url_for('productos'))
             cambios = []
             for v in existentes:
-                precio = (request.form.get(f"precio_{v['id_variante']}") or '').strip()
-                if precio and not precio.isdigit():
-                    flash('El precio de cada variante debe ser un número entero mayor o igual a cero.', 'error')
+                id_v = v['id_variante']
+                valores = {'activo': request.form.get(f'activo_{id_v}') == 'on',
+                           'en_liquidacion': request.form.get(f'enLiquidacion_{id_v}') == 'on'}
+                for campo, columna in (('precio', 'precio_venta'), ('costo', 'precio_costo'),
+                                       ('detalle', 'precio_detalle'), ('liquidacion', 'precio_liquidacion')):
+                    texto = (request.form.get(f'{campo}_{id_v}') or '').strip()
+                    if texto and not texto.isdigit():
+                        flash('Los precios deben ser números enteros mayores o iguales a cero.', 'error')
+                        return redirect(url_for('productos'))
+                    if texto:
+                        valores[columna] = int(texto)
+                precio_lista = (request.form.get(f'precioLista_{id_v}') or '').strip()
+                if precio_lista and not precio_lista.isdigit():
+                    flash('Los precios de la lista adicional deben ser números enteros.', 'error')
                     return redirect(url_for('productos'))
-                cambios.append((v['id_variante'], int(precio) if precio else None,
-                                request.form.get(f"activo_{v['id_variante']}") == 'on'))
+                cambios.append((id_v, valores, int(precio_lista) if precio_lista else None))
             try:
                 nuevas = _combinaciones_marcadas('nueva')
             except ValueError as e:
                 flash(str(e), 'error')
                 return redirect(url_for('productos'))
-            for id_variante, precio, activo in cambios:
-                valores = {'activo': activo}
-                if precio is not None:
-                    valores['precio_venta'] = precio
+            for id_variante, valores, precio_lista in cambios:
                 supabase.table('producto_variantes').update(valores).eq('id_variante', id_variante).execute()
+                if lista_extra:
+                    # Vacío = esa variante no tiene precio propio en la lista (usa el precio mayor).
+                    supabase.table('variante_precios_lista').delete().eq('id_variante', id_variante) \
+                        .eq('lista_precios', int(lista_extra)).execute()
+                    if precio_lista is not None:
+                        supabase.table('variante_precios_lista').insert({
+                            'id_variante': id_variante, 'lista_precios': int(lista_extra), 'precio': precio_lista,
+                        }).execute()
             _crear_variantes(id_producto, nuevas, actual[0].get('precio'))
-            desactivadas = sum(1 for _, _, activo in cambios if not activo)
+            desactivadas = sum(1 for _, valores, _ in cambios if not valores['activo'])
             flash(f"Variantes de {actual[0]['descripcion']} actualizadas: {len(nuevas)} nueva(s), "
-                  f"{desactivadas} desactivada(s)", "success")
+                  f"{desactivadas} desactivada(s)" + (f", precios de la lista {lista_extra} guardados" if lista_extra else ''),
+                  "success")
             return redirect(url_for('productos'))
 
         if metodo == "delete":
@@ -2995,13 +3019,22 @@ def productos():
     tallas = supabase.table("tallas").select("*").order("talla").execute().data or []
     nombre_color = {c['id_color']: c.get('descripcion') for c in colores}
     nombre_talla = {t['id_talla']: t.get('nombre') or str(t.get('talla')) for t in tallas}
-    variantes = supabase.table('producto_variantes').select(
-        'id_variante, id_producto, id_color, id_talla, precio_venta, activo, codigo_ean'
-    ).execute().data or []
+    variantes = supabase.table('producto_variantes').select('*').execute().data or []
+    listas = {}
+    try:
+        for fila in supabase.table('variante_precios_lista').select('*').execute().data or []:
+            listas.setdefault(fila['id_variante'], {})[str(fila['lista_precios'])] = fila['precio']
+    except APIError:
+        pass  # incremento4_campos_documento0.sql todavía no se ejecuta
     por_producto = {}
     for v in sorted(variantes, key=lambda v: (str(nombre_color.get(v.get('id_color')) or ''), str(nombre_talla.get(v.get('id_talla')) or ''))):
         por_producto.setdefault(v['id_producto'], []).append({
-            **v, 'color': nombre_color.get(v.get('id_color'), ''), 'talla': nombre_talla.get(v.get('id_talla'), ''),
+            'id_variante': v['id_variante'], 'id_color': v.get('id_color'), 'id_talla': v.get('id_talla'),
+            'codigo_ean': v.get('codigo_ean'), 'precio_venta': v.get('precio_venta') or 0,
+            'precio_costo': v.get('precio_costo') or 0, 'precio_detalle': v.get('precio_detalle') or 0,
+            'precio_liquidacion': v.get('precio_liquidacion') or 0, 'en_liquidacion': bool(v.get('en_liquidacion')),
+            'listas': listas.get(v['id_variante'], {}),
+            'color': nombre_color.get(v.get('id_color'), ''), 'talla': nombre_talla.get(v.get('id_talla'), ''),
             'activo': v.get('activo') is not False})
     for producto in datos:
         producto['variantes'] = por_producto.get(producto['id_producto'], [])

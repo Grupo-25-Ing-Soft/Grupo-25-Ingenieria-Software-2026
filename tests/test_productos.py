@@ -64,3 +64,36 @@ def test_validaciones(admin, base):
     r = admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'X', 'variante': ['1-1'],
                                             'precioVariante_1-1': '-3'}, follow_redirects=True)
     assert 'precio de cada variante' in r.get_data(as_text=True)
+
+
+def test_precios_por_variante_y_lista_adicional(admin, base):
+    # CU-13.5 / RF-013: costo, detalle, mayor, liquidación y precios mayores de otras listas.
+    admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'Colaless', 'precioCrear': '2990',
+                                        'variante': ['1-1']})
+    producto = base.tablas['productos'][-1]['id_producto']
+    variante = base.tablas['producto_variantes'][-1]['id_variante']
+    r = admin.post('/productos.html', data={'_method': 'variantes', 'idProductoVariantes': producto,
+                                            f'activo_{variante}': 'on', f'precio_{variante}': '3000',
+                                            f'costo_{variante}': '1200', f'detalle_{variante}': '4500',
+                                            f'liquidacion_{variante}': '1990', f'enLiquidacion_{variante}': 'on',
+                                            'listaExtra': '3', f'precioLista_{variante}': '2800'},
+                   follow_redirects=True)
+    assert 'precios de la lista 3 guardados' in r.get_data(as_text=True)
+    v = base.tablas['producto_variantes'][-1]
+    assert (v['precio_venta'], v['precio_costo'], v['precio_detalle'], v['precio_liquidacion'], v['en_liquidacion']) \
+        == (3000, 1200, 4500, 1990, True)
+    assert base.tablas['variante_precios_lista'] == [{'id_variante': variante, 'lista_precios': 3, 'precio': 2800}]
+
+    # Volver a guardar la lista 3 reemplaza el precio; vacío lo quita.
+    admin.post('/productos.html', data={'_method': 'variantes', 'idProductoVariantes': producto,
+                                        f'activo_{variante}': 'on', 'listaExtra': '3', f'precioLista_{variante}': ''})
+    assert base.tablas['variante_precios_lista'] == []
+    assert base.tablas['producto_variantes'][-1]['en_liquidacion'] is False
+
+
+def test_lista_adicional_invalida(admin, base):
+    admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'Colaless', 'variante': ['1-1']})
+    producto = base.tablas['productos'][-1]['id_producto']
+    r = admin.post('/productos.html', data={'_method': 'variantes', 'idProductoVariantes': producto, 'listaExtra': '1'},
+                   follow_redirects=True)
+    assert 'debe ser un número entero desde 2' in r.get_data(as_text=True)

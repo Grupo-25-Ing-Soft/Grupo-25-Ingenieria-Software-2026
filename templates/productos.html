@@ -50,7 +50,7 @@
             <td>{{ p.codigo_ean or '' }}</td>
             <td class="small">
               {% for v in p.variantes %}
-                <div class="{{ '' if v.activo else 'text-muted text-decoration-line-through' }}">{{ v.color }} · {{ v.talla }} · {{ v.precio_venta|moneda }}</div>
+                <div class="{{ '' if v.activo else 'text-muted text-decoration-line-through' }}">{{ v.color }} · {{ v.talla }} · {{ v.precio_venta|moneda }}{% if v.en_liquidacion %} <span class="badge text-bg-warning">liquidación {{ v.precio_liquidacion|moneda }}</span>{% endif %}</div>
               {% else %}<span class="text-muted">Sin variantes</span>{% endfor %}
             </td>
             {% if puede_editar %}
@@ -187,14 +187,21 @@
       <div class="modal-body">
         <input type="hidden" name="_method" value="variantes">
         <input type="hidden" name="idProductoVariantes" id="idProductoVariantes">
-        <h5>Variantes existentes</h5>
+        <h5>Precios por talla y color</h5>
+        <div class="row g-2 align-items-end mb-2">
+          <div class="col-md-4">
+            <label class="form-label" for="listaExtra">Lista de precios adicional a editar (opcional)</label>
+            <input type="number" class="form-control form-control-sm" id="listaExtra" name="listaExtra" min="2" step="1" placeholder="Ej: 2">
+          </div>
+          <div class="col-md-8"><small class="text-muted">El precio mayor es el de la lista 1. Para otra lista (2, 3…) escribe su número y completa la última columna; vacío = usa el precio mayor.</small></div>
+        </div>
         <div class="data-table-wrap mb-2">
           <table class="table table-sm align-middle mb-0">
-            <thead><tr><th>Color</th><th>Talla</th><th>Código EAN</th><th style="width: 10rem">Precio de venta</th><th>Activa</th></tr></thead>
+            <thead><tr><th>Color</th><th>Talla</th><th>Código EAN</th><th>Precio mayor (lista 1)</th><th>Precio costo</th><th>Precio detalle</th><th>Precio liquidación</th><th>En liquidación</th><th>Activa</th><th id="encabezadoLista">Precio lista —</th></tr></thead>
             <tbody id="variantesExistentes"></tbody>
           </table>
         </div>
-        <small class="text-muted">Una variante desactivada deja de ofrecerse en pedidos nuevos; se conserva para el historial.</small>
+        <small class="text-muted">Si una variante está en liquidación, ese precio se propone en los pedidos. Una variante desactivada deja de ofrecerse en pedidos nuevos; se conserva para el historial.</small>
         <h5 class="mt-4">Agregar combinaciones</h5>
         {{ grilla_combinaciones('nueva') }}
       </div>
@@ -225,6 +232,18 @@
 </div>
 
 <script>
+  // Al escribir el número de una lista adicional se cargan sus precios en la última columna.
+  function mostrarLista() {
+    const lista = document.getElementById('listaExtra').value;
+    const valida = /^[0-9]+$/.test(lista) && Number(lista) >= 2;
+    document.getElementById('encabezadoLista').textContent = 'Precio lista ' + (valida ? lista : '—');
+    document.querySelectorAll('#variantesExistentes [name^="precioLista_"]').forEach(function (campo) {
+      campo.disabled = !valida;
+      campo.value = valida ? (JSON.parse(campo.dataset.listas || '{}')[lista] ?? '') : '';
+    });
+  }
+  document.getElementById('listaExtra').addEventListener('input', mostrarLista);
+
   document.getElementById('variantesModal').addEventListener('show.bs.modal', function (event) {
     const boton = event.relatedTarget;
     if (!boton) return;
@@ -234,20 +253,38 @@
     const variantes = JSON.parse(boton.dataset.variantes || '[]');
     const cuerpo = document.getElementById('variantesExistentes');
     cuerpo.innerHTML = '';
-    if (!variantes.length) cuerpo.innerHTML = '<tr><td colspan="5" class="text-muted">Este producto todavía no tiene variantes.</td></tr>';
+    if (!variantes.length) cuerpo.innerHTML = '<tr><td colspan="10" class="text-muted">Este producto todavía no tiene variantes.</td></tr>';
+    function campoNumero(nombre, valor) {
+      const celda = document.createElement('td');
+      celda.innerHTML = '<input type="number" class="form-control form-control-sm" style="min-width:6.5rem" min="0" step="1" name="' + nombre + '">';
+      celda.querySelector('input').value = valor;
+      return celda;
+    }
+    function casilla(nombre, marcada) {
+      const celda = document.createElement('td');
+      celda.innerHTML = '<input class="form-check-input" type="checkbox" name="' + nombre + '">';
+      celda.querySelector('input').checked = marcada;
+      return celda;
+    }
     variantes.forEach(function (v) {
       const fila = document.createElement('tr');
       [v.color, v.talla, v.codigo_ean || ''].forEach(function (texto) {
         const celda = document.createElement('td'); celda.textContent = texto; fila.appendChild(celda);
       });
-      const precio = document.createElement('td');
-      precio.innerHTML = '<input type="number" class="form-control form-control-sm" min="0" step="1" name="precio_' + v.id_variante + '">';
-      precio.querySelector('input').value = v.precio_venta;
-      const activa = document.createElement('td');
-      activa.innerHTML = '<input class="form-check-input" type="checkbox" name="activo_' + v.id_variante + '">';
-      activa.querySelector('input').checked = v.activo;
-      fila.appendChild(precio); fila.appendChild(activa); cuerpo.appendChild(fila);
+      fila.appendChild(campoNumero('precio_' + v.id_variante, v.precio_venta));
+      fila.appendChild(campoNumero('costo_' + v.id_variante, v.precio_costo));
+      fila.appendChild(campoNumero('detalle_' + v.id_variante, v.precio_detalle));
+      fila.appendChild(campoNumero('liquidacion_' + v.id_variante, v.precio_liquidacion));
+      fila.appendChild(casilla('enLiquidacion_' + v.id_variante, v.en_liquidacion));
+      fila.appendChild(casilla('activo_' + v.id_variante, v.activo));
+      const lista = campoNumero('precioLista_' + v.id_variante, '');
+      lista.querySelector('input').dataset.listas = JSON.stringify(v.listas || {});
+      lista.querySelector('input').disabled = true;
+      fila.appendChild(lista);
+      cuerpo.appendChild(fila);
     });
+    document.getElementById('listaExtra').value = '';
+    mostrarLista();
     // En la grilla de nuevas se ocultan las combinaciones que ya existen.
     const existentes = new Set(variantes.map(function (v) { return v.id_color + '-' + v.id_talla; }));
     modal.querySelectorAll('[data-combinacion]').forEach(function (celda) {
