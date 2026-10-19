@@ -2874,128 +2874,199 @@ def tallas():
             
         return render_template('tallas.html', datos = response.data)
 
+def _mensaje_error_producto(error, accion):
+    return {
+        "23503": "El color o talla seleccionado no existe",
+        "22P02": "El color o talla seleccionado no es válido",
+        "23505": "Ya existe un producto con ese código de artículo",
+        "23514": "El código EAN del producto solo puede tener números",
+    }.get(error.code, error.message if error.code == "P0001" else f"No se pudo {accion} el producto")
+
+
+def _leer_producto_formulario(sufijo):
+    descripcion = (request.form.get('descripcion' + sufijo) or '').strip()
+    if not descripcion:
+        return None, 'La descripción del producto es obligatoria.'
+    if len(descripcion) > 64:
+        return None, 'La descripción admite hasta 64 caracteres.'
+    precio = (request.form.get('precio' + sufijo) or '').strip()
+    if precio and (not precio.isdigit()):
+        return None, 'El precio debe ser un número entero mayor o igual a cero.'
+    codigo = _texto_o_nulo(request.form.get('codigo' + sufijo))
+    if codigo and len(codigo) > 16:
+        return None, 'El código de producto admite hasta 16 caracteres.'
+    return {
+        'descripcion': descripcion,
+        'abreviacion': _texto_o_nulo(request.form.get('abreviacion' + sufijo)),
+        'color': _entero_positivo(request.form.get('idColor' + sufijo)),
+        'talla': _entero_positivo(request.form.get('idTalla' + sufijo)),
+        'precio': int(precio) if precio else None,
+        'codigo': codigo,
+        'codigo_ean': _texto_o_nulo(request.form.get('codigoEan' + sufijo)),
+    }, None
+
+
+def _combinaciones_marcadas(prefijo):
+    """Combinaciones color-talla marcadas en la grilla (checkbox prefijo con valor
+    'idColor-idTalla') con su precio (campo 'precio' + prefijo + '_idColor-idTalla')."""
+    combinaciones = []
+    for valor in request.form.getlist(prefijo):
+        partes = valor.split('-')
+        if len(partes) != 2 or not all(p.isdigit() for p in partes):
+            continue
+        precio = (request.form.get(f'precio{prefijo.capitalize()}_{valor}') or '').strip()
+        if precio and not precio.isdigit():
+            raise ValueError('El precio de cada variante debe ser un número entero mayor o igual a cero.')
+        combinaciones.append((int(partes[0]), int(partes[1]), int(precio) if precio else None))
+    return combinaciones
+
+
+def _crear_variantes(id_producto, combinaciones, precio_base):
+    """Crea (o reactiva) cada variante con obtener_variante(), que es la que le asigna
+    el código EAN (trigger fn_variante_ean / fn_generar_ean, incremento3_ean.sql)."""
+    for id_color, id_talla, precio in combinaciones:
+        variante = supabase.rpc('obtener_variante', {
+            'p_id_producto': id_producto, 'p_id_color': id_color, 'p_id_talla': id_talla,
+        }).execute().data or []
+        if variante:
+            supabase.table('producto_variantes').update({
+                'precio_venta': precio if precio is not None else (precio_base or 0), 'activo': True,
+            }).eq('id_variante', variante[0]['id_variante']).execute()
+    return len(combinaciones)
+
+
 @app.route('/productos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def productos():
+    # RF-013/014 y CU-13.1 a CU-13.5. Cada combinación talla/color con su precio es
+    # una fila de producto_variantes; las variantes no se borran, se desactivan.
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            descripcion = request.form['descripcionCrear']
-            abreviacion = request.form['abreviacionCrear']
-            idColor = request.form['idColorCrear']
-            precio = request.form['precioCrear']
-            idTalla = request.form['idTallaCrear']
-            codigo = _texto_o_nulo(request.form.get('codigoCrear'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanCrear'))
-
+        metodo = request.form.get('_method')
+        if metodo == "post":
+            datos, error = _leer_producto_formulario('Crear')
             try:
-                response = (
-                    supabase.table("productos").insert({"abreviacion": abreviacion, "descripcion": descripcion,
-                            "color": idColor, "precio": precio, "talla": idTalla,
-                            "codigo": codigo, "codigo_ean": codigoEan
-                            }).execute()
-                )
-            except APIError as error:
-                if error.code == "23503":
-                    mensaje = "El color o talla seleccionado no existe"
-                elif error.code == "22P02":
-                    mensaje = "El color o talla seleccionado no es válido"
-                elif error.code == "23505":
-                    mensaje = "Ya existe un producto con ese código de artículo"
-                elif error.code == "23514":
-                    mensaje = "El código EAN del producto solo puede tener números"
-                else:
-                    mensaje = "No se pudo crear el producto"
-                flash(mensaje, "error")
+                combinaciones = _combinaciones_marcadas('variante')
+            except ValueError as e:
+                error = error or str(e)
+            if error:
+                flash(error, "error")
                 return redirect(url_for('productos'))
-            if response.data:
-                flash("Producto creado exitosamente", "success")
+            try:
+                creado = supabase.table("productos").insert(datos).execute().data
+            except APIError as e:
+                flash(_mensaje_error_producto(e, 'crear'), "error")
                 return redirect(url_for('productos'))
-            else:
+            if not creado:
                 flash("Error creando producto", "error")
                 return redirect(url_for('productos'))
-        if (metodo == "put"):
-            idProducto = request.form['IdProductoActualizar']
-            descripcion = request.form['descripcionActualizar']
-            abreviacion = request.form['abreviacionActualizar']
-            idColor = request.form['idColorActualizar']
-            precio = request.form['precioActualizar']
-            idTalla = request.form['idTallaActualizar']
-            codigo = _texto_o_nulo(request.form.get('codigoActualizar'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanActualizar'))
+            n = _crear_variantes(creado[0]['id_producto'], combinaciones, datos['precio'])
+            flash(f"Producto creado exitosamente{f' con {n} variante' + ('s' if n != 1 else '') if n else ''}", "success")
+            return redirect(url_for('productos'))
+
+        id_producto = _entero_positivo(request.form.get('IdProductoActualizar') or request.form.get('idProductoBorrar')
+                                       or request.form.get('idProductoVariantes'))
+        actual = supabase.table("productos").select("id_producto, descripcion, precio") \
+            .eq("id_producto", id_producto).execute().data if id_producto else []
+        if metodo in ("put", "delete", "variantes") and not actual:
+            flash("El producto no existe", "error")
+            return redirect(url_for('productos'))
+
+        if metodo == "put":
+            datos, error = _leer_producto_formulario('Actualizar')
+            if error:
+                flash(error, "error")
+                return redirect(url_for('productos'))
             try:
-                response = (
-                    supabase.table("productos").update({"abreviacion": abreviacion, "descripcion": descripcion,
-                            "color": idColor, "precio": precio, "talla": idTalla,
-                            "codigo": codigo, "codigo_ean": codigoEan}).eq("id_producto", idProducto).select("id_producto").execute()
-                )
-            except APIError as error:
-                if error.code == "23503":
-                    mensaje = "El color o talla seleccionado no existe"
-                elif error.code == "22P02":
-                    mensaje = "El color o talla seleccionado no es válido"
-                elif error.code == "23505":
-                    mensaje = "Ya existe un producto con ese código de artículo"
-                elif error.code == "23514":
-                    mensaje = "El código EAN del producto solo puede tener números"
-                elif error.code == "P0001":
-                    mensaje = error.message
-                else:
-                    mensaje = "No se pudo actualizar el producto"
-                flash(mensaje, "error")
+                supabase.table("productos").update(datos).eq("id_producto", id_producto).execute()
+            except APIError as e:
+                flash(_mensaje_error_producto(e, 'actualizar'), "error")
                 return redirect(url_for('productos'))
-            if response.data:
-                flash("Producto actualizado exitosamente", "success")
+            flash("Producto actualizado exitosamente", "success")
+            return redirect(url_for('productos'))
+
+        if metodo == "variantes":
+            # Precio y estado de las variantes existentes, y combinaciones nuevas.
+            existentes = supabase.table('producto_variantes').select('id_variante') \
+                .eq('id_producto', id_producto).execute().data or []
+            cambios = []
+            for v in existentes:
+                precio = (request.form.get(f"precio_{v['id_variante']}") or '').strip()
+                if precio and not precio.isdigit():
+                    flash('El precio de cada variante debe ser un número entero mayor o igual a cero.', 'error')
+                    return redirect(url_for('productos'))
+                cambios.append((v['id_variante'], int(precio) if precio else None,
+                                request.form.get(f"activo_{v['id_variante']}") == 'on'))
+            try:
+                nuevas = _combinaciones_marcadas('nueva')
+            except ValueError as e:
+                flash(str(e), 'error')
                 return redirect(url_for('productos'))
-            else:
-                flash("Error actualizando producto", "error")
+            for id_variante, precio, activo in cambios:
+                valores = {'activo': activo}
+                if precio is not None:
+                    valores['precio_venta'] = precio
+                supabase.table('producto_variantes').update(valores).eq('id_variante', id_variante).execute()
+            _crear_variantes(id_producto, nuevas, actual[0].get('precio'))
+            desactivadas = sum(1 for _, _, activo in cambios if not activo)
+            flash(f"Variantes de {actual[0]['descripcion']} actualizadas: {len(nuevas)} nueva(s), "
+                  f"{desactivadas} desactivada(s)", "success")
+            return redirect(url_for('productos'))
+
+        if metodo == "delete":
+            # CU-13.4: no se elimina un producto con pedidos, inventario o cortes asociados.
+            variantes = [v['id_variante'] for v in supabase.table('producto_variantes').select('id_variante')
+                         .eq('id_producto', id_producto).execute().data or []]
+            en_uso = []
+            if variantes and supabase.table('detalle_pedidos').select('id_detalle_pedido') \
+                    .in_('id_variante', variantes).limit(1).execute().data:
+                en_uso.append('pedidos')
+            if variantes and supabase.table('inventario').select('id_inventario') \
+                    .in_('id_variante', variantes).limit(1).execute().data:
+                en_uso.append('inventario')
+            if supabase.table('cortes').select('id_corte').eq('producto_asociado', id_producto).limit(1).execute().data:
+                en_uso.append('cortes')
+            if en_uso:
+                flash(f"El producto {actual[0]['descripcion']} tiene {', '.join(en_uso)} asociados: no se puede "
+                      "eliminar. Desactiva sus variantes.", "error")
                 return redirect(url_for('productos'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idProductoBorrar']
-            response = (
-                supabase.table("productos").delete()
-                .eq("id_producto", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Producto borrado exitosamente", "success")
-                return redirect(url_for('productos'))
-            else:
-                flash("Error borrando producto", "error")
-                return redirect(url_for('productos'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarproductoid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('productos.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún producto con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarproductodescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('productos.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún producto con la descripción buscada"
-        if (metodo == "buscarAbreviacion"):
-            texto = request.form["abreviacionBuscar"]
-            response = supabase.rpc('buscarproductoabreviacion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('productos.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún producto con la abreviación buscada"
-    else:
-        response =(
-            supabase.table("productos").select("*").execute()
-        )
-        colores_response = supabase.table("colores").select("*").execute()
-        tallas_response = supabase.table("tallas").select("*").execute()
-            
-        return render_template(
-            'productos.html',
-            datos=response.data,
-            colores=colores_response.data,
-            tallas=tallas_response.data
-        )
+            if variantes:
+                supabase.table('producto_variantes').delete().eq('id_producto', id_producto).execute()
+            supabase.table("productos").delete().eq("id_producto", id_producto).execute()
+            flash(f"Producto {actual[0]['descripcion']} borrado exitosamente", "success")
+            return redirect(url_for('productos'))
+
+        # Búsquedas antiguas por función de la base (se mantienen por compatibilidad).
+        busquedas = {'buscarID': ('buscarproductoid', 'idBuscar'),
+                     'buscarDescripcion': ('buscarproductodescripcion', 'descripcionBuscar'),
+                     'buscarAbreviacion': ('buscarproductoabreviacion', 'abreviacionBuscar')}
+        if metodo in busquedas:
+            funcion, campo = busquedas[metodo]
+            texto = request.form.get(campo, '')
+            return redirect(url_for('productos', q=texto))
+        return redirect(url_for('productos'))
+
+    busqueda = request.args.get('q', '').strip()
+    datos = supabase.table("productos").select("*").order("descripcion").execute().data or []
+    if busqueda:
+        texto = busqueda.lower()
+        datos = [p for p in datos if texto in ' '.join(str(p.get(k) or '') for k in ('descripcion', 'abreviacion', 'codigo')).lower()]
+    colores = supabase.table("colores").select("*").order("descripcion").execute().data or []
+    tallas = supabase.table("tallas").select("*").order("talla").execute().data or []
+    nombre_color = {c['id_color']: c.get('descripcion') for c in colores}
+    nombre_talla = {t['id_talla']: t.get('nombre') or str(t.get('talla')) for t in tallas}
+    variantes = supabase.table('producto_variantes').select(
+        'id_variante, id_producto, id_color, id_talla, precio_venta, activo, codigo_ean'
+    ).execute().data or []
+    por_producto = {}
+    for v in sorted(variantes, key=lambda v: (str(nombre_color.get(v.get('id_color')) or ''), str(nombre_talla.get(v.get('id_talla')) or ''))):
+        por_producto.setdefault(v['id_producto'], []).append({
+            **v, 'color': nombre_color.get(v.get('id_color'), ''), 'talla': nombre_talla.get(v.get('id_talla'), ''),
+            'activo': v.get('activo') is not False})
+    for producto in datos:
+        producto['variantes'] = por_producto.get(producto['id_producto'], [])
+        producto['color_nombre'] = nombre_color.get(producto.get('color'), '')
+        producto['talla_nombre'] = nombre_talla.get(producto.get('talla'), '')
+    return render_template('productos.html', datos=datos, colores=colores, tallas=tallas, busqueda=busqueda)
+
 
 @app.route('/codigosEAN.html', methods=['GET', 'POST'])
 def codigosEAN():
