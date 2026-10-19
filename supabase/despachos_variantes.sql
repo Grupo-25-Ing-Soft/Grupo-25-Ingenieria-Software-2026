@@ -12,6 +12,9 @@
 -- despacho vuelve a 'pendiente'. Los mensajes de error nombran el producto y
 -- la bodega en vez de ids internos (RNF-006).
 --
+-- La factura opcional se valida con facturas.pedido_asociado (columna de
+-- facturas.sql que agrega incremento4_feedback.sql).
+--
 -- Se ejecuta completo en el SQL Editor; si algo falla, no se aplica nada.
 -- =====================================================================
 begin;
@@ -68,7 +71,7 @@ begin
 
   if p_id_factura is not null and not exists (
     select 1 from facturas
-    where id_factura = p_id_factura and id_pedido = p_id_pedido and estado <> 'anulada'
+    where id_factura = p_id_factura and pedido_asociado = p_id_pedido and estado <> 'anulada'
   ) then
     raise exception 'La factura % no corresponde al pedido % o está anulada', p_id_factura, v_pedido.numero_pedido;
   end if;

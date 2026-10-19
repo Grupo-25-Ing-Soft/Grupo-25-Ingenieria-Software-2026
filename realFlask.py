@@ -1066,7 +1066,11 @@ def despachos():
                     'p_observacion': _texto_o_nulo(request.form.get('observacion')),
                     'p_usuario': usuario,
                 }).execute().data
-                flash("Despacho registrado exitosamente", "success")
+                # El número de guía lo asigna la base (secuencia despachos_numero_guia_seq).
+                guia = supabase.table('despachos').select('numero_guia').eq('id_despacho', id_despacho) \
+                    .execute().data if id_despacho else []
+                flash(f"Despacho {guia[0]['numero_guia'] if guia else ''} registrado exitosamente".replace('  ', ' '),
+                      "success")
                 return redirect(url_for('despachos', ver=id_despacho))
 
             id_despacho = _entero_positivo(request.form.get('idDespacho'))
@@ -1085,7 +1089,7 @@ def despachos():
                     return redirect(url_for('despachos'))
                 id_factura = _entero_positivo(request.form.get('idFactura'))
                 if id_factura and not supabase.table('facturas').select('id_factura') \
-                        .eq('id_factura', id_factura).eq('id_pedido', despacho['id_pedido']) \
+                        .eq('id_factura', id_factura).eq('pedido_asociado', despacho['id_pedido']) \
                         .neq('estado', 'anulada').execute().data:
                     flash("La factura no corresponde al pedido del despacho o está anulada", "error")
                     return redirect(url_for('despachos'))
@@ -1112,8 +1116,8 @@ def despachos():
         return redirect(url_for('despachos'))
 
     bodegas = supabase.table('bodegas').select('id_bodega, descripcion').order('descripcion').execute().data or []
-    facturas = supabase.table('facturas').select('id_factura, numero_factura, id_pedido') \
-        .neq('estado', 'anulada').not_.is_('id_pedido', 'null').execute().data or []
+    facturas = supabase.table('facturas').select('id_factura, folio, pedido_asociado') \
+        .neq('estado', 'anulada').not_.is_('pedido_asociado', 'null').execute().data or []
 
     # Pedidos que todavía tienen unidades por despachar (para "Nuevo despacho").
     pendientes = supabase.table('v_pendientes_despacho').select(
@@ -1158,12 +1162,12 @@ def despachos():
                 'via_despacho': (cliente[0].get('via_despacho') if cliente else None) or '',
                 'lineas': lineas,
                 'stock': stock,
-                'facturas': [f for f in facturas if f['id_pedido'] == id_pedido_nuevo],
+                'facturas': [f for f in facturas if f['pedido_asociado'] == id_pedido_nuevo],
             }
 
     # Listado con filtros.
     query = supabase.table('despachos').select(
-        '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(numero_factura), '
+        '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(folio), '
         'detalle_despachos(cantidad)'
     )
     filtros = {campo: request.args.get(campo, '').strip() for campo in ('guia', 'pedido_numero', 'estado', 'desde', 'hasta')}
@@ -1186,7 +1190,7 @@ def despachos():
             'numero_pedido': pedido.get('numero_pedido'),
             'cliente': (pedido.get('clientes') or {}).get('nombre'),
             'bodega': (fila.get('bodegas') or {}).get('descripcion'),
-            'numero_factura': (fila.get('facturas') or {}).get('numero_factura'),
+            'folio_factura': (fila.get('facturas') or {}).get('folio'),
             'lineas': len(lineas),
             'unidades': sum(l.get('cantidad') or 0 for l in lineas),
         })
@@ -1198,14 +1202,14 @@ def despachos():
         despacho = next((d for d in datos if d['id_despacho'] == id_ver), None)
         if despacho is None:
             filas = supabase.table('despachos').select(
-                '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(numero_factura)'
+                '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(folio)'
             ).eq('id_despacho', id_ver).execute().data
             if filas:
                 pedido = filas[0].get('pedidos') or {}
                 despacho = {**filas[0], 'numero_pedido': pedido.get('numero_pedido'),
                             'cliente': (pedido.get('clientes') or {}).get('nombre'),
                             'bodega': (filas[0].get('bodegas') or {}).get('descripcion'),
-                            'numero_factura': (filas[0].get('facturas') or {}).get('numero_factura')}
+                            'folio_factura': (filas[0].get('facturas') or {}).get('folio')}
         if despacho:
             lineas = supabase.table('detalle_despachos').select(
                 'id_detalle_despacho, cantidad, precio_unitario, descuento_porcentaje, detalle_pedidos(id_variante)'

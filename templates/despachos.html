@@ -50,7 +50,7 @@
           <label class="form-label" for="idFactura">Factura (opcional)</label>
           <select class="form-select" id="idFactura" name="idFactura">
             <option value="">Sin factura</option>
-            {% for factura in nuevo.facturas %}<option value="{{ factura.id_factura }}">{{ factura.numero_factura }}</option>{% endfor %}
+            {% for factura in nuevo.facturas %}<option value="{{ factura.id_factura }}">Factura {{ factura.folio }}</option>{% endfor %}
           </select>
         </div>
         <div class="col-md-3">
@@ -102,7 +102,7 @@
       <dl class="row mb-3">
         <dt class="col-sm-2">Estado</dt><dd class="col-sm-4">{{ d.estado }}</dd>
         <dt class="col-sm-2">Bodega</dt><dd class="col-sm-4">{{ d.bodega or d.id_bodega }}</dd>
-        <dt class="col-sm-2">Factura</dt><dd class="col-sm-4">{{ d.numero_factura or 'Sin factura' }}</dd>
+        <dt class="col-sm-2">Factura</dt><dd class="col-sm-4">{{ d.folio_factura or 'Sin factura' }}</dd>
         <dt class="col-sm-2">Vía</dt><dd class="col-sm-4">{{ d.via_despacho or '—' }}</dd>
         <dt class="col-sm-2">Observación</dt><dd class="col-sm-4">{{ d.observacion or '—' }}</dd>
         <dt class="col-sm-2">Registrado por</dt><dd class="col-sm-4">{{ d.usuario_creacion }}</dd>
@@ -111,6 +111,7 @@
         <dt class="col-sm-2">Fecha anulación</dt><dd class="col-sm-4">{{ d.fecha_anulacion|fecha }}</dd>
         {% endif %}
       </dl>
+      {% if d.estado == 'emitido' %}<p class="text-muted small mb-2"><i class="bi bi-info-circle" aria-hidden="true"></i> Para cambiar cantidades, anula el despacho y crea uno nuevo.</p>{% endif %}
       {% if detalle.lineas %}
       <div class="data-table-wrap">
         <table class="table table-striped align-middle mb-0">
@@ -190,7 +191,7 @@
             <td>{{ d.numero_pedido or d.id_pedido }}</td>
             <td>{{ d.cliente or '' }}</td>
             <td>{{ d.bodega or d.id_bodega }}</td>
-            <td>{{ d.numero_factura or '' }}</td>
+            <td>{{ d.folio_factura or '' }}</td>
             <td>{{ d.via_despacho or '' }}</td>
             <td>{{ d.unidades }} <small class="text-muted">({{ d.lineas }} línea{{ '' if d.lineas == 1 else 's' }})</small></td>
             <td><span class="badge {{ 'text-bg-secondary' if d.estado == 'anulado' else 'text-bg-success' }}">{{ d.estado }}</span></td>
@@ -258,7 +259,7 @@
             <label class="form-label" for="editarFactura">Factura</label>
             <select class="form-select" id="editarFactura" name="idFactura">
               <option value="">Sin factura</option>
-              {% for factura in facturas %}<option value="{{ factura.id_factura }}" data-pedido="{{ factura.id_pedido }}">{{ factura.numero_factura }}</option>{% endfor %}
+              {% for factura in facturas %}<option value="{{ factura.id_factura }}" data-pedido="{{ factura.pedido_asociado }}">Factura {{ factura.folio }}</option>{% endfor %}
             </select>
           </div>
           <div class="mb-3">
@@ -269,7 +270,7 @@
             <label class="form-label" for="editarObservacion">Observación</label>
             <input type="text" class="form-control" id="editarObservacion" name="observacion">
           </div>
-          <small class="text-muted">Las cantidades no se editan: para corregirlas, anula el despacho y registra uno nuevo.</small>
+          <div class="alert alert-info py-2 mb-0"><i class="bi bi-info-circle" aria-hidden="true"></i> Para cambiar cantidades, anula el despacho y crea uno nuevo. Cada línea ya descontó stock de la bodega.</div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
