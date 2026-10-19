@@ -2352,12 +2352,17 @@ def cortes():
             else:
                 return "Error borrando corte", 500
         if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarcorteid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('cortes.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún corte con la ID buscada" 
+            # La función buscarcorteid de la base aplica to_tsvector a id_corte (bigint)
+            # y falla siempre; el ID es la clave, así que se busca directo con eq.
+            texto = (request.form.get("idBuscar") or '').strip()
+            if not texto.isdigit():
+                flash('Ingrese un ID de corte numérico.', 'error')
+                return redirect(url_for('cortes'))
+            datos = supabase.table('cortes').select('*').eq('id_corte', int(texto)).execute().data or []
+            if not datos:
+                flash(f'No se encontró ningún corte con el ID {texto}.', 'error')
+                return redirect(url_for('cortes'))
+            return render_template('cortes.html', datos=datos)
     else:
         response =(
             supabase.table("cortes").select("*").execute()
