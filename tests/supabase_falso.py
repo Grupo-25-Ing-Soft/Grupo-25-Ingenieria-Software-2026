@@ -235,6 +235,9 @@ class SupabaseFalso:
         metodo = getattr(self, 'rpc_' + nombre, None)
         return ConsultaRpc(metodo(**params) if metodo else None)
 
+    def rpc_fn_generar_ean(self, p_id_producto, p_id_color, p_id_talla):
+        return self.generar_ean(p_id_producto, p_id_color, p_id_talla)
+
     def rpc_obtener_variante(self, p_id_producto, p_id_color, p_id_talla):
         variantes = self.tablas.setdefault('producto_variantes', [])
         v = next((x for x in variantes if (x['id_producto'], x.get('id_color'), x.get('id_talla'))

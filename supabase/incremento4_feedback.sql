@@ -13,6 +13,7 @@
 --      sigan funcionando.
 --   3. Recalcula facturas.saldo_pendiente = monto_total - pagos aplicados
 --      vigentes - notas de crédito vigentes, y su estado.
+--   4. Crea índices únicos para los códigos EAN (variantes y maestros).
 --
 -- Es idempotente: se puede ejecutar más de una vez. Se ejecuta completo en el
 -- SQL Editor; si algo falla, no se aplica nada.
@@ -340,6 +341,32 @@ update public.facturas
                      when saldo_pendiente >= monto_total then 'vigente'
                      else 'parcialmente_pagada' end
  where estado <> 'anulada';
+
+-- =====================================================================
+-- 5. UNICIDAD DE LOS CÓDIGOS EAN (CU-15.5)
+--    incremento3_ean.sql no tenía índices únicos: dos colores (o tallas o
+--    productos) con el mismo código EAN daban el mismo EAN-13 a variantes
+--    distintas. Si ya hay repetidos, se avisa y no se crea ese índice.
+-- =====================================================================
+create or replace function pg_temp.indice_ean_unico(p_tabla text, p_indice text)
+returns void language plpgsql as $$
+declare
+  v_repetidos boolean;
+begin
+  execute format('select exists (select 1 from public.%I where codigo_ean is not null
+                                  group by codigo_ean having count(*) > 1)', p_tabla) into v_repetidos;
+  if v_repetidos then
+    raise notice '%: hay códigos EAN repetidos; corrígelos y vuelve a ejecutar para crear el índice único.', p_tabla;
+  else
+    execute format('create unique index if not exists %I on public.%I (codigo_ean) where codigo_ean is not null',
+                   p_indice, p_tabla);
+  end if;
+end $$;
+
+select pg_temp.indice_ean_unico('producto_variantes', 'producto_variantes_codigo_ean_uk');
+select pg_temp.indice_ean_unico('productos', 'productos_codigo_ean_uk');
+select pg_temp.indice_ean_unico('colores', 'colores_codigo_ean_uk');
+select pg_temp.indice_ean_unico('tallas', 'tallas_codigo_ean_uk');
 
 commit;
 

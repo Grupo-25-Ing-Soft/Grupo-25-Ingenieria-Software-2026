@@ -2747,7 +2747,7 @@ MAESTROS_SIMPLES = {
             {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre en la etiqueta', 'max': 16,
              'ayuda': 'Lo que se imprime en la etiqueta EAN (S, M, L, 38...)'},
             {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN de la talla', 'max': 3,
-             'numerico': True, 'ayuda': 'Solo números, hasta 3 dígitos (ej. 010)'},
+             'numerico': True, 'ean_parte': 'talla', 'ayuda': 'Solo números, hasta 3 dígitos (ej. 010); único'},
         ],
         'en_uso': [('producto_variantes', 'id_talla', 'variantes de producto'), ('productos', 'talla', 'productos'),
                    ('inventario', 'id_talla', 'inventario')],
@@ -2768,6 +2768,31 @@ MAESTROS_SIMPLES = {
 }
 
 
+def _digitos_ean(parte):
+    """Largo máximo del código EAN de un maestro ('producto', 'color' o 'talla'), según el
+    formato configurado en parametros_sistema (incremento3_ean.sql: 3, 4 y 3 por defecto)."""
+    defecto = {'producto': 3, 'color': 4, 'talla': 3}[parte]
+    try:
+        return int(obtener_parametros_sistema().get(f'ean_digitos_{parte}') or defecto)
+    except (APIError, TypeError, ValueError):
+        return defecto
+
+
+def _validar_codigo_ean_maestro(tabla, clave, parte, codigo, id_registro=None):
+    """Código EAN de producto, color o talla: solo números, largo del formato y único en su
+    maestro; si dos registros comparten código, sus variantes tendrían el mismo EAN (CU-15.5)."""
+    if not codigo.isdigit():
+        return 'El código EAN solo puede tener números.'
+    largo = _digitos_ean(parte)
+    if len(codigo) > largo:
+        return f'El código EAN del {parte} admite hasta {largo} dígitos.'
+    mismos = supabase.table(tabla).select(clave).eq('codigo_ean', codigo).execute().data or []
+    if any(str(f[clave]) != str(id_registro) for f in mismos):
+        otro = 'otra' if parte == 'talla' else 'otro'
+        return f'Ya hay {otro} {parte} con el código EAN {codigo}: sus variantes tendrían el mismo código de barras.'
+    return None
+
+
 def _leer_maestro_formulario(maestro, sufijo, id_registro=None):
     """Valida los campos de un maestro simple. Devuelve (datos, error)."""
     datos = {}
@@ -2778,6 +2803,12 @@ def _leer_maestro_formulario(maestro, sufijo, id_registro=None):
             if campo.get('obligatorio'):
                 return None, f'Complete el campo «{etiqueta}».'
             datos[campo['columna']] = None
+            continue
+        if campo.get('ean_parte'):
+            error = _validar_codigo_ean_maestro(maestro['tabla'], maestro['clave'], campo['ean_parte'], valor, id_registro)
+            if error:
+                return None, error
+            datos[campo['columna']] = valor
             continue
         if campo.get('max') and len(valor) > campo['max']:
             return None, f'«{etiqueta}» admite hasta {campo["max"]} caracteres.'
@@ -2884,7 +2915,12 @@ def _mensaje_error_producto(error, accion):
     }.get(error.code, error.message if error.code == "P0001" else f"No se pudo {accion} el producto")
 
 
-def _leer_producto_formulario(sufijo):
+def _leer_producto_formulario(sufijo, id_producto=None):
+    codigo_ean = _texto_o_nulo(request.form.get('codigoEan' + sufijo))
+    if codigo_ean:
+        error = _validar_codigo_ean_maestro('productos', 'id_producto', 'producto', codigo_ean, id_producto)
+        if error:
+            return None, error
     descripcion = (request.form.get('descripcion' + sufijo) or '').strip()
     if not descripcion:
         return None, 'La descripción del producto es obligatoria.'
@@ -2903,7 +2939,7 @@ def _leer_producto_formulario(sufijo):
         'talla': _entero_positivo(request.form.get('idTalla' + sufijo)),
         'precio': int(precio) if precio else None,
         'codigo': codigo,
-        'codigo_ean': _texto_o_nulo(request.form.get('codigoEan' + sufijo)),
+        'codigo_ean': codigo_ean,
     }, None
 
 
@@ -2972,7 +3008,7 @@ def productos():
             return redirect(url_for('productos'))
 
         if metodo == "put":
-            datos, error = _leer_producto_formulario('Actualizar')
+            datos, error = _leer_producto_formulario('Actualizar', id_producto)
             if error:
                 flash(error, "error")
                 return redirect(url_for('productos'))
@@ -3069,6 +3105,11 @@ def productos():
     return render_template('productos.html', datos=datos, colores=colores, tallas=tallas, busqueda=busqueda)
 
 
+def _ean_en_otra_variante(codigo, id_variante):
+    return any(str(v['id_variante']) != str(id_variante) for v in supabase.table('producto_variantes')
+               .select('id_variante').eq('codigo_ean', codigo).execute().data or [])
+
+
 @app.route('/codigosEAN.html', methods=['GET', 'POST'])
 def codigosEAN():
     # RF-015/016: el EAN de cada variante (producto + color + talla) lo arma la
@@ -3083,10 +3124,28 @@ def codigosEAN():
                 if len(codigo) != 13 or not codigo.isdigit():
                     flash("El código manual debe tener 13 dígitos", "error")
                     return redirect(url_for('codigosEAN'))
+                # CU-15.1 excepción 2: el dígito 13 debe ser el verificador EAN-13.
+                if ean13.digito_verificador(codigo[:12]) != codigo[12]:
+                    flash(f"El código {codigo} no es un EAN-13 válido: el dígito verificador debería ser "
+                          f"{ean13.digito_verificador(codigo[:12])}", "error")
+                    return redirect(url_for('codigosEAN'))
+                if _ean_en_otra_variante(codigo, idVariante):
+                    flash("Ese código EAN ya está asignado a otra variante", "error")
+                    return redirect(url_for('codigosEAN'))
                 supabase.table("producto_variantes").update({"ean_manual": True, "codigo_ean": codigo}) \
                     .eq("id_variante", idVariante).execute()
                 flash("Código manual guardado", "success")
             elif metodo == "automatico":
+                # CU-15.5: el código que generaría la base no puede estar ya en otra variante.
+                variante = supabase.table("producto_variantes").select("id_producto, id_color, id_talla") \
+                    .eq("id_variante", idVariante).execute().data
+                automatico = supabase.rpc('fn_generar_ean', {
+                    'p_id_producto': variante[0]['id_producto'], 'p_id_color': variante[0]['id_color'],
+                    'p_id_talla': variante[0]['id_talla']}).execute().data if variante else None
+                if automatico and _ean_en_otra_variante(automatico, idVariante):
+                    flash(f"El código automático {automatico} ya está asignado a otra variante: revisa los códigos "
+                          "EAN del producto, color y talla", "error")
+                    return redirect(url_for('codigosEAN'))
                 supabase.table("producto_variantes").update({"ean_manual": False}) \
                     .eq("id_variante", idVariante).execute()
                 flash("La variante vuelve a usar el código automático", "success")
