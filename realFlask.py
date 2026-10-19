@@ -463,145 +463,145 @@ def usuarios():
 
 # NOTA: las páginas html tienen que estar dentro de templates
 
+# Estados en que un pedido ya no se modifica (CU-22.3) ni se anula (CU-25).
+ESTADOS_PEDIDO_CERRADOS = ('despachado', 'anulado')
+
+
+def _pedido_o_none(id_pedido):
+    filas = supabase.table('pedidos').select('*').eq('id_pedido', id_pedido).execute().data if id_pedido else []
+    return filas[0] if filas else None
+
+
+def _nombre_pedido(pedido):
+    return pedido.get('numero_pedido') or f"#{pedido.get('id_pedido')}"
+
+
+def _leer_pedido_formulario(sufijo):
+    """Valida cliente, vendedor y fechas del modal de pedidos. Devuelve (datos, error)."""
+    cliente = _entero_positivo(request.form.get('IDCliente' + sufijo))
+    vendedor = _entero_positivo(request.form.get('IDVendedor' + sufijo))
+    if not cliente or not vendedor:
+        return None, 'Seleccione el cliente y el vendedor del pedido.'
+    fecha_pedido = (request.form.get('fechaPedido' + sufijo) or '').strip()
+    fecha_entrega = (request.form.get('fechaLimite' + sufijo) or '').strip() or None
+    if not fecha_pedido:
+        return None, 'Ingrese la fecha del pedido.'
+    if fecha_entrega and fecha_entrega < fecha_pedido:
+        return None, 'La fecha de entrega no puede ser anterior a la fecha del pedido.'
+    return {'cliente_asociado': cliente, 'vendedor_asociado': vendedor,
+            'fecha_pedido': fecha_pedido, 'fecha_entrega': fecha_entrega}, None
+
+
 @app.route('/pedidos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def pedidos():
-    clientes_response = supabase.table("clientes").select("id_cliente, nombre").execute()
-    vendedores_response = supabase.table("vendedores").select("id_vendedor, nombre").execute()
-    productos_response = supabase.table("producto_variantes").select("id_variante, descripcion").execute()
+    # RF-022/023/025/026 y CU-22.1 a CU-22.4, CU-25. Un pedido con despachos o
+    # facturas no se elimina: se anula (queda en la base como historial).
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            cliente = request.form['IDClienteCrear']
-            fechaPedido = request.form['fechaPedidoCrear']
-            fechaLimite = request.form['fechaLimiteCrear']
-            vendedor = request.form['IDVendedorCrear']
-
-            try:
-                cliente = int(cliente)
-                vendedor = int(vendedor)
-            except ValueError:
-                flash("El cliente o vendedor seleccionado no es válido", "error")
+        metodo = request.form.get('_method')
+        if metodo == 'post':
+            datos, error = _leer_pedido_formulario('Crear')
+            if error:
+                flash(error, 'error')
                 return redirect(url_for('pedidos'))
-
             try:
-                response = (
-                    supabase.table("pedidos").insert({"cliente_asociado": cliente, "fecha_pedido": fechaPedido,
-                            "fecha_entrega": fechaLimite, "vendedor_asociado": vendedor
-                            }).execute()
-                )
+                creado = supabase.table('pedidos').insert(datos).execute().data
             except APIError:
-                flash("No se pudo crear el pedido. Revisa el cliente y vendedor seleccionados", "error")
+                creado = None
+            if creado:
+                flash(f"Pedido {_nombre_pedido(creado[0])} creado. Agrega sus productos en el detalle.", 'success')
+                return redirect(url_for('crudDetallePedido', id_pedido=creado[0]['id_pedido']))
+            flash('No se pudo crear el pedido. Revisa el cliente y vendedor seleccionados', 'error')
+            return redirect(url_for('pedidos'))
+
+        pedido = _pedido_o_none(_entero_positivo(request.form.get('IdPedidoActualizar')
+                                                 or request.form.get('idPedidoBorrar')
+                                                 or request.form.get('idPedidoAnular')))
+        if pedido is None:
+            flash('El pedido no existe', 'error')
+            return redirect(url_for('pedidos'))
+        nombre = _nombre_pedido(pedido)
+
+        if metodo == 'put':
+            if pedido.get('estado') in ESTADOS_PEDIDO_CERRADOS:
+                flash(f"El pedido {nombre} está {pedido['estado']} y no se puede modificar", 'error')
                 return redirect(url_for('pedidos'))
-            if response.data:
-                flash("Pedido creado exitosamente", "success")
+            datos, error = _leer_pedido_formulario('Actualizar')
+            if error:
+                flash(error, 'error')
                 return redirect(url_for('pedidos'))
+            supabase.table('pedidos').update(datos).eq('id_pedido', pedido['id_pedido']).execute()
+            flash(f'Pedido {nombre} actualizado exitosamente', 'success')
+
+        elif metodo == 'anular':
+            motivo = (request.form.get('motivoAnulacion') or '').strip()
+            if pedido.get('estado') in ESTADOS_PEDIDO_CERRADOS:
+                flash(f"El pedido {nombre} ya está {pedido['estado']}: no se puede anular", 'error')
+            elif not motivo:
+                flash('Indique el motivo de la anulación', 'error')
+            elif supabase.table('despachos').select('id_despacho').eq('id_pedido', pedido['id_pedido']) \
+                    .eq('estado', 'emitido').limit(1).execute().data:
+                flash(f'El pedido {nombre} tiene despachos emitidos: anúlalos primero en Despachos', 'error')
             else:
-                flash("Error creando pedido", "error")
+                supabase.table('pedidos').update({
+                    'estado': 'anulado', 'motivo_anulacion': motivo,
+                    'fecha_anulacion': datetime.now(timezone.utc).isoformat(),
+                    'usuario_anulacion': g.usuario.get('nombre_usuario') or 'Admin',
+                }).eq('id_pedido', pedido['id_pedido']).execute()
+                facturado = supabase.table('facturas').select('id_factura').eq('pedido_asociado', pedido['id_pedido']) \
+                    .neq('estado', 'anulada').limit(1).execute().data
+                flash(f'Pedido {nombre} anulado' + ('. Tiene facturas vigentes: emite la nota de crédito '
+                                                     'correspondiente.' if facturado else ''), 'success')
+
+        elif metodo == 'delete':
+            asociados = [nombre_tabla for nombre_tabla, tabla, columna in (
+                ('despachos', 'despachos', 'id_pedido'), ('facturas', 'facturas', 'pedido_asociado'),
+                ('cortes', 'cortes', 'id_pedido'))
+                if supabase.table(tabla).select(columna).eq(columna, pedido['id_pedido']).limit(1).execute().data]
+            if asociados:
+                flash(f"El pedido {nombre} tiene {', '.join(asociados)} asociados: no se puede eliminar, solo anular",
+                      'error')
                 return redirect(url_for('pedidos'))
-        if (metodo == "put"):
-            idAACtualizar = request.form['IdPedidoActualizar']
-            cliente = request.form['IDClienteActualizar']
-            fechaPedido = request.form['fechaPedidoActualizar']
-            fechaLimite = request.form['fechaLimiteActualizar']
-            vendedor = request.form['IDVendedorActualizar']
-            try:
-                cliente = int(cliente)
-                vendedor = int(vendedor)
-            except ValueError:
-                flash("El cliente o vendedor seleccionado no es válido", "error")
-                return redirect(url_for('pedidos'))
-            response = (
-                
-                supabase.table("pedidos").update({"cliente_asociado": cliente, "fecha_pedido": fechaPedido,
-                        "fecha_entrega": fechaLimite, "vendedor_asociado": vendedor
-                        }).eq("id_pedido", idAACtualizar).select("id_pedido").execute()
-            )
-            if response.data:
-                flash("Pedido actualizado exitosamente", "success")
-                return redirect(url_for('pedidos'))
-            else:
-                flash("Error actualizando pedido", "error")
-                return redirect(url_for('pedidos'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idPedidoBorrar']
-            response = (
-                supabase.table("pedidos").delete()
-                .eq("id_pedido", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Pedido borrado exitosamente", "success")
-                return redirect(url_for('pedidos'))
-            else:
-                flash("Error borrando pedido", "error")
-                return redirect(url_for('pedidos'))
-        if (metodo == "buscarFechaPedido"):
-            texto = request.form["fechaPedidoBuscar"]
-            response = (supabase.table("pedidos").select("*").eq("fecha_pedido", texto).execute())
-            #response = supabase.rpc('buscarpedidoporfecha', { 'fechabusqueda': texto }).execute()
-            if response.data:
-                return render_template('pedidos.html', datos = response.data,clientes=clientes_response.data,
-                            vendedores=vendedores_response.data,
-                            productos=productos_response.data)
-            else:
-                return "No se ha encontrado ningún pedido con la fecha buscada"
-        if (metodo == "buscarFechaEntrega"):
-                    texto = request.form["fechaEntregaBuscar"]
-                    response = (supabase.table("pedidos").select("*").eq("fecha_entrega", texto).execute())
-                    #response = supabase.rpc('buscarpedidoporfechaentrega', { 'fechabusqueda': texto }).execute()
-                    if response.data:
-                        return render_template('pedidos.html', datos = response.data,clientes=clientes_response.data,
-                                    vendedores=vendedores_response.data,
-                                    productos=productos_response.data)
-                    else:
-                        return "No se ha encontrado ningún pedido con la fecha buscada"
-        if (metodo == "buscarProductos"):
-            texto = request.form["ProductoBuscarn"]
-            #aux = supabase.table("detalle_pedidos").select("id_pedido").eq("id_variante", texto)
-            #aux3 = supabase.table("pedidos").select("*").eq("id_pedido", aux)
-            response = (supabase.table("pedidos").select("*, detalle_pedidos!inner(id_variante)")
-                        .eq("detalle_pedidos.id_variante", texto)
-                        .execute())
-            #response = supabase.rpc('buscarpedidosporproducto', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('pedidos.html', datos = response.data,clientes=clientes_response.data,
-                            vendedores=vendedores_response.data,
-                            productos=productos_response.data)
-            else:
-                return "No se ha encontrado ningún pedido con el producto buscado"
-        if (metodo == "buscarClientes"):
-            texto = request.form["ClienteBuscarn"]
-            response = (supabase.table("pedidos").select("*").eq("cliente_asociado", texto).execute())
-            #response = supabase.rpc('buscarpedidoporcliente', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('pedidos.html', datos = response.data,clientes=clientes_response.data,
-                            vendedores=vendedores_response.data,
-                            productos=productos_response.data)
-            else:
-                return "No se ha encontrado ningún pedido con el cliente buscado"
-        if (metodo == "buscarVendedores"):
-            texto = request.form["VendedorBuscarn"]
-            response = (supabase.table("pedidos").select("*").eq("vendedor_asociado", texto).execute())
-            #response = supabase.rpc('buscarpedidoporvendedor', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('pedidos.html', datos = response.data,clientes=clientes_response.data,
-                            vendedores=vendedores_response.data,
-                            productos=productos_response.data)
-            else:
-                return "No se ha encontrado ningún pedido con el vendedor buscado"           
-    else:
-        response =(
-            supabase.table("pedidos").select("*").execute()
-        )
-        clientes_response = supabase.table("clientes").select("id_cliente, nombre").execute()
-        vendedores_response = supabase.table("vendedores").select("id_vendedor, nombre").execute()
-            
-        return render_template(
-            'pedidos.html',
-            datos=response.data,
-            clientes=clientes_response.data,
-            vendedores=vendedores_response.data
-        )
+            supabase.table('detalle_pedidos').delete().eq('id_pedido', pedido['id_pedido']).execute()
+            supabase.table('pedidos').delete().eq('id_pedido', pedido['id_pedido']).execute()
+            flash(f'Pedido {nombre} borrado exitosamente', 'success')
+        return redirect(url_for('pedidos'))
+
+    # select('*'): clientes.id_vendedor existe solo después de incremento4_campos_documento0.sql.
+    clientes = supabase.table('clientes').select('*').order('nombre').execute().data or []
+    vendedores = supabase.table('vendedores').select('id_vendedor, nombre').order('nombre').execute().data or []
+    nombre_cliente = {c['id_cliente']: c.get('nombre') for c in clientes}
+    nombre_vendedor = {v['id_vendedor']: v.get('nombre') for v in vendedores}
+
+    # RF-023: filtros por cliente y fecha (y estado).
+    filtros = {campo: request.args.get(campo, '').strip() for campo in ('cliente', 'desde', 'hasta', 'estado')}
+    query = supabase.table('pedidos').select('*')
+    if filtros['desde']:
+        query = query.gte('fecha_pedido', filtros['desde'])
+    if filtros['hasta']:
+        query = query.lte('fecha_pedido', filtros['hasta'])
+    if filtros['estado']:
+        query = query.eq('estado', filtros['estado'])
+    filas = query.order('id_pedido', desc=True).execute().data or []
+
+    # RF-026: monto total de cada pedido = suma de cantidad x precio de sus líneas.
+    lineas = supabase.table('detalle_pedidos').select('id_pedido, cantidad, cantidad_anulada, precio_unitario') \
+        .in_('id_pedido', [p['id_pedido'] for p in filas]).execute().data if filas else []
+    totales, unidades = {}, {}
+    for linea in lineas or []:
+        cantidad = int(linea.get('cantidad') or 0) - int(linea.get('cantidad_anulada') or 0)
+        totales[linea['id_pedido']] = totales.get(linea['id_pedido'], 0) + cantidad * int(linea.get('precio_unitario') or 0)
+        unidades[linea['id_pedido']] = unidades.get(linea['id_pedido'], 0) + cantidad
+
+    datos = []
+    for pedido in filas:
+        cliente = nombre_cliente.get(pedido.get('cliente_asociado'), 'Sin cliente')
+        if filtros['cliente'] and filtros['cliente'].lower() not in (cliente or '').lower():
+            continue
+        datos.append({**pedido, 'cliente': cliente, 'vendedor': nombre_vendedor.get(pedido.get('vendedor_asociado'), ''),
+                      'total': totales.get(pedido['id_pedido'], 0), 'unidades': unidades.get(pedido['id_pedido'], 0)})
+
+    return render_template('pedidos.html', datos=datos, filtros=filtros, clientes=clientes, vendedores=vendedores,
+                           estados_cerrados=ESTADOS_PEDIDO_CERRADOS)
 
 
 @app.route('/verDetalle.html', methods=['GET'])
@@ -684,72 +684,338 @@ def verDetalle():
     )
 
 
-def _datos_factura_formulario(sufijo):
-    # Lee los campos del modal de facturas ("Crear" o "Actualizar"); los opcionales vacíos quedan en NULL.
-    return {
-        "numero_factura": request.form['numeroFactura' + sufijo],
-        "fecha": request.form['fechaFactura' + sufijo],
-        "razon_social": request.form['razonSocial' + sufijo],
-        "rut": request.form['rut' + sufijo],
-        "direccion": _texto_o_nulo(request.form.get('direccion' + sufijo)),
-        "giro": _texto_o_nulo(request.form.get('giro' + sufijo)),
-        "detalle": _texto_o_nulo(request.form.get('detalle' + sufijo)),
-        "forma_pago": _texto_o_nulo(request.form.get('formaPago' + sufijo)),
-        "neto": request.form['neto' + sufijo],
-        "iva": request.form['iva' + sufijo],
-        "total": request.form['total' + sufijo],
-        "id_pedido": _texto_o_nulo(request.form.get('idPedido' + sufijo)),
-        "id_cliente": _texto_o_nulo(request.form.get('idCliente' + sufijo)),
+@app.template_filter('moneda')
+def formatear_moneda(valor):
+    """Monto en pesos con separador de miles: $12.500 (formato qqqq del Documento 0)."""
+    try:
+        return '$' + f'{float(valor or 0):,.0f}'.replace(',', '.')
+    except (TypeError, ValueError):
+        return valor
+
+
+def _numero_positivo(valor, permitir_cero=False):
+    """Monto escrito por el usuario (acepta coma decimal). None si no es válido."""
+    try:
+        numero = float(str(valor).strip().replace(',', '.'))
+    except (TypeError, ValueError):
+        return None
+    if numero < 0 or (numero == 0 and not permitir_cero):
+        return None
+    return round(numero, 2)
+
+
+def _descuentos_factura(id_factura):
+    """Lo que ya rebaja la factura: pagos vigentes aplicados y notas de crédito vigentes."""
+    aplicaciones = supabase.table('pago_facturas').select('id_pago, monto_aplicado') \
+        .eq('id_factura', id_factura).execute().data or []
+    ids_pago = {a['id_pago'] for a in aplicaciones}
+    vigentes = {p['id_pago'] for p in supabase.table('pagos').select('id_pago, estado')
+                .in_('id_pago', list(ids_pago)).execute().data or []
+                if (p.get('estado') or 'vigente') == 'vigente'} if ids_pago else set()
+    pagado = sum(float(a.get('monto_aplicado') or 0) for a in aplicaciones if a['id_pago'] in vigentes)
+    notas = sum(float(n.get('monto_total') or 0) for n in supabase.table('notas_credito')
+                .select('monto_total, estado').eq('factura_referencia', id_factura).execute().data or []
+                if (n.get('estado') or 'vigente') == 'vigente')
+    return pagado, notas
+
+
+def _recalcular_factura(id_factura):
+    """saldo_pendiente = monto_total - pagos aplicados - notas de crédito (mismo criterio
+    que supabase/incremento4_feedback.sql), y su estado con _estado_para_saldo()."""
+    filas = supabase.table('facturas').select('id_factura, monto_total, estado') \
+        .eq('id_factura', id_factura).execute().data
+    if not filas or filas[0].get('estado') == 'anulada':
+        return
+    pagado, notas = _descuentos_factura(id_factura)
+    saldo = max(round(float(filas[0].get('monto_total') or 0) - pagado - notas, 2), 0)
+    supabase.table('facturas').update({
+        'saldo_pendiente': saldo,
+        'estado': _estado_para_saldo(filas[0].get('monto_total'), saldo),
+    }).eq('id_factura', id_factura).execute()
+
+
+def _leer_factura_formulario(sufijo):
+    """Valida el modal de facturas ("Crear" o "Actualizar"). Devuelve (datos, error)."""
+    try:
+        folio = int(request.form.get('folio' + sufijo, ''))
+        if folio <= 0:
+            raise ValueError
+    except ValueError:
+        return None, 'El folio debe ser un número entero mayor que cero.'
+    id_pedido = _entero_positivo(request.form.get('pedido' + sufijo))
+    if not id_pedido:
+        return None, 'Seleccione el pedido asociado a la factura.'
+    pedido = supabase.table('pedidos').select('id_pedido, cliente_asociado, estado') \
+        .eq('id_pedido', id_pedido).execute().data
+    if not pedido:
+        return None, 'El pedido seleccionado no existe.'
+    if pedido[0].get('estado') == 'anulado':
+        return None, 'No se puede facturar un pedido anulado.'
+    fecha = (request.form.get('fechaEmision' + sufijo) or '').strip()
+    if not fecha:
+        return None, 'Ingrese la fecha de emisión.'
+    # RF-029: fecha límite de pago (opcional; no puede ser anterior a la emisión).
+    vencimiento = (request.form.get('fechaVencimiento' + sufijo) or '').strip()
+    if vencimiento and vencimiento < fecha:
+        return None, 'La fecha límite de pago no puede ser anterior a la fecha de emisión.'
+    neto = _numero_positivo(request.form.get('montoNeto' + sufijo), permitir_cero=True)
+    if neto is None:
+        return None, 'El monto neto debe ser un número mayor o igual a cero.'
+    # El impuesto sale del porcentaje configurado en Configuración (RF-056).
+    impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
+    datos = {
+        'folio': folio,
+        'pedido_asociado': id_pedido,
+        # El cliente es el del pedido, para que no puedan quedar distintos.
+        'cliente_asociado': pedido[0].get('cliente_asociado'),
+        'fecha_emision': fecha,
+        'monto_neto': neto,
+        'monto_impuesto': impuesto,
+        'monto_total': round(neto + impuesto, 2),
     }
+    if ('fechaVencimiento' + sufijo) in request.form:
+        datos['fecha_vencimiento'] = vencimiento or None
+    return datos, None
 
 
-@app.route('/facturas.html', methods=['GET', 'POST'])
+def _folio_repetido(tabla, clave, folio, id_actual=None):
+    filas = supabase.table(tabla).select(f'{clave}, folio').eq('folio', folio).execute().data or []
+    return any(str(f.get(clave)) != str(id_actual) for f in filas)
+
+
+@app.route('/facturas.html', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def facturas():
+    # RF-029/030. Esquema de supabase/facturas.sql. Una factura con pagos, notas de
+    # crédito o despachos no se elimina: se anula (estado 'anulada').
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            datos = _datos_factura_formulario('Crear')
+        metodo = request.form.get('_method')
+        if metodo == 'post':
+            datos, error = _leer_factura_formulario('Crear')
+            if not error and _folio_repetido('facturas', 'id_factura', datos['folio']):
+                error = f"Ya existe una factura con el folio {datos['folio']}."
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('facturas'))
             # Una factura nueva parte con todo su total pendiente de pago.
-            datos["saldo"] = datos["total"]
-            response = supabase.table("facturas").insert(datos).execute()
+            datos.update(saldo_pendiente=datos['monto_total'], estado='vigente',
+                         usuario_creacion=g.usuario.get('nombre_usuario') or 'Admin')
+            response = supabase.table('facturas').insert(datos).execute()
             if response.data:
-                return "Factura creada exitosamente"
+                flash(f"Factura {datos['folio']} creada exitosamente", 'success')
             else:
-                return "Error creando factura", 500
-        if (metodo == "put"):
-            idFactura = request.form['idFacturaActualizar']
-            response = (
-                supabase.table("facturas").update(_datos_factura_formulario('Actualizar'))
-                .eq("id_factura", idFactura).select("id_factura").execute()
-            )
-            if response.data:
-                return "Factura actualizada exitosamente"
+                flash('Error creando factura', 'error')
+            return redirect(url_for('facturas'))
+
+        id_factura = _entero_positivo(request.form.get('idFacturaActualizar')
+                                      or request.form.get('idFacturaBorrar')
+                                      or request.form.get('idFacturaAnular'))
+        actual = supabase.table('facturas').select('id_factura, folio, estado') \
+            .eq('id_factura', id_factura).execute().data if id_factura else []
+        if not actual:
+            flash('La factura no existe', 'error')
+            return redirect(url_for('facturas'))
+        actual = actual[0]
+
+        if metodo == 'put':
+            if actual.get('estado') == 'anulada':
+                flash(f"La factura {actual['folio']} está anulada y no se puede modificar", 'error')
+                return redirect(url_for('facturas'))
+            datos, error = _leer_factura_formulario('Actualizar')
+            if not error and _folio_repetido('facturas', 'id_factura', datos['folio'], id_factura):
+                error = f"Ya existe otra factura con el folio {datos['folio']}."
+            if not error:
+                pagado, notas = _descuentos_factura(id_factura)
+                if datos['monto_total'] < pagado + notas:
+                    error = ('El nuevo total es menor que lo ya pagado y abonado con notas de crédito '
+                             f'({formatear_moneda(pagado + notas)}).')
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('facturas'))
+            supabase.table('facturas').update(datos).eq('id_factura', id_factura).execute()
+            _recalcular_factura(id_factura)
+            flash(f"Factura {datos['folio']} actualizada exitosamente", 'success')
+
+        elif metodo == 'delete':
+            tiene_pagos = supabase.table('pago_facturas').select('id_pago_factura') \
+                .eq('id_factura', id_factura).limit(1).execute().data
+            tiene_notas = supabase.table('notas_credito').select('id_nota_credito') \
+                .eq('factura_referencia', id_factura).limit(1).execute().data
+            tiene_despachos = supabase.table('despachos').select('id_despacho') \
+                .eq('id_factura', id_factura).limit(1).execute().data
+            if tiene_pagos or tiene_notas or tiene_despachos:
+                asociados = ', '.join(nombre for nombre, hay in (
+                    ('pagos', tiene_pagos), ('notas de crédito', tiene_notas), ('despachos', tiene_despachos)) if hay)
+                flash(f"La factura {actual['folio']} tiene {asociados} asociados: no se puede eliminar, solo anular.",
+                      'error')
+                return redirect(url_for('facturas'))
+            supabase.table('facturas').delete().eq('id_factura', id_factura).execute()
+            flash(f"Factura {actual['folio']} borrada exitosamente", 'success')
+
+        elif metodo == 'anular':
+            if actual.get('estado') == 'anulada':
+                flash(f"La factura {actual['folio']} ya está anulada", 'error')
             else:
-                return "Error actualizando factura", 500
-        if (metodo == "delete"):
-            idABorrar = request.form['idFacturaBorrar']
-            response = (
-                supabase.table("facturas").delete()
-                .eq("id_factura", idABorrar)
-                .execute()
-            )
-            if response.data:
-                return "Factura borrada exitosamente"
-            else:
-                return "Error borrando factura", 500
+                supabase.table('facturas').update({'estado': 'anulada'}).eq('id_factura', id_factura).execute()
+                flash(f"Factura {actual['folio']} anulada", 'success')
         return redirect(url_for('facturas'))
-    response = supabase.table("facturas").select("*").order("id_factura").execute()
-    return render_template('facturas.html', datos=response.data)
+
+    clientes = _obtener_clientes_map()
+    pedidos = supabase.table('pedidos').select('id_pedido, numero_pedido, cliente_asociado, estado') \
+        .order('id_pedido').execute().data or []
+    numero_pedido = {p['id_pedido']: p.get('numero_pedido') or str(p['id_pedido']) for p in pedidos}
+
+    filtros = {campo: request.args.get(campo, '').strip() for campo in ('cliente', 'desde', 'hasta', 'estado')}
+    query = supabase.table('facturas').select('*')
+    if filtros['desde']:
+        query = query.gte('fecha_emision', filtros['desde'])
+    if filtros['hasta']:
+        query = query.lte('fecha_emision', filtros['hasta'])
+    if filtros['estado']:
+        query = query.eq('estado', filtros['estado'])
+    datos = []
+    for fila in query.order('folio', desc=True).execute().data or []:
+        cliente = clientes.get(fila.get('cliente_asociado'), 'Sin cliente') if fila.get('cliente_asociado') else 'Sin cliente'
+        if filtros['cliente'] and filtros['cliente'].lower() not in cliente.lower():
+            continue
+        datos.append({**fila, 'cliente': cliente, 'numero_pedido': numero_pedido.get(fila.get('pedido_asociado'), '')})
+
+    folios = [f.get('folio') or 0 for f in supabase.table('facturas').select('folio').execute().data or []]
+    return render_template('facturas.html', datos=datos, filtros=filtros,
+                           pedidos=[p for p in pedidos if p.get('estado') != 'anulado'],
+                           clientes=clientes, siguiente_folio=max(folios, default=0) + 1,
+                           porcentaje_impuesto=obtener_porcentaje_impuesto())
+
+
+def _leer_linea_formulario(sufijo):
+    """Cantidad, precio y observación de una línea de detalle (CU-24.1). Devuelve (datos, error)."""
+    cantidad = _entero_positivo(request.form.get('cantidad' + sufijo))
+    if cantidad is None:
+        return None, 'La cantidad debe ser un número entero mayor que cero.'
+    try:
+        precio = int(request.form.get('precioUnitario' + sufijo, ''))
+        if precio < 0:
+            raise ValueError
+    except ValueError:
+        return None, 'El precio unitario debe ser un número entero mayor o igual a cero.'
+    observacion = _texto_o_nulo(request.form.get('observacion' + sufijo))
+    if observacion and len(observacion) > 256:
+        return None, 'La observación admite hasta 256 caracteres.'
+    # Números, no texto: antes el subtotal multiplicaba los valores del formulario como cadenas.
+    return {'cantidad': cantidad, 'precio_unitario': precio, 'subtotal': cantidad * precio,
+            'observacion': observacion}, None
+
+
+def _precios_de_lista(lista):
+    """Precio mayor de cada variante en una lista de precios distinta de la 1."""
+    if lista <= 1:
+        return {}
+    try:
+        return {f['id_variante']: f['precio'] for f in supabase.table('variante_precios_lista').select('*')
+                .eq('lista_precios', lista).execute().data or []}
+    except APIError:
+        return {}  # incremento4_campos_documento0.sql todavía no se ejecuta
+
+
+def _precio_sugerido(variante, lista, precios_lista):
+    """CU-24.1 paso 5: precio según la lista de precios del cliente. Si la variante está
+    en liquidación se propone su precio de liquidación (CU-13.5); si no, el de la lista
+    del cliente y, si esa lista no tiene precio propio, el precio mayor (lista 1)."""
+    if variante.get('en_liquidacion') and variante.get('precio_liquidacion'):
+        return variante['precio_liquidacion']
+    return precios_lista.get(variante['id_variante'], variante.get('precio_venta') or 0)
 
 
 @app.route('/crudDetallePedido.html', methods=['GET', 'POST'])
 def crudDetallePedido():
+    # RF-024/026 y CU-24.1: líneas (producto + color + talla) de un pedido.
+    id_pedido = _entero_positivo(request.values.get('id_pedido'))
+    pedido = _pedido_o_none(id_pedido)
+    if pedido is None:
+        flash('Seleccione un pedido para ver su detalle', 'error')
+        return redirect(url_for('pedidos'))
+    nombre = _nombre_pedido(pedido)
+
     if request.method == 'POST':
-        # Los formularios de esta plantilla todavía son una copia de los de bodegas.
-        flash('La edición de detalles de pedido aún no está disponible desde esta pantalla.', 'error')
-        return redirect(url_for('crudDetallePedido'))
-    response = supabase.table("detalle_pedidos").select("*").order("id_detalle_pedido").execute()
-    return render_template('crudDetallePedido.html', datos=response.data)
+        metodo = request.form.get('_method')
+        if pedido.get('estado') in ESTADOS_PEDIDO_CERRADOS:
+            flash(f"El pedido {nombre} está {pedido['estado']}: su detalle no se puede modificar", 'error')
+            return redirect(url_for('crudDetallePedido', id_pedido=id_pedido))
+
+        if metodo == 'post':
+            id_variante = _entero_positivo(request.form.get('idVarianteCrear'))
+            variante = supabase.table('producto_variantes').select('id_variante, activo') \
+                .eq('id_variante', id_variante).execute().data if id_variante else []
+            datos, error = _leer_linea_formulario('Crear')
+            if not variante:
+                error = 'Seleccione el producto, color y talla de la línea.'
+            elif variante[0].get('activo') is False:
+                error = 'La variante seleccionada está desactivada.'
+            elif supabase.table('detalle_pedidos').select('id_detalle_pedido').eq('id_pedido', id_pedido) \
+                    .eq('id_variante', id_variante).execute().data:
+                error = 'Esa variante ya está en el pedido: edita su cantidad en la línea existente.'
+            if error:
+                flash(error, 'error')
+            else:
+                supabase.table('detalle_pedidos').insert({**datos, 'id_pedido': id_pedido, 'id_variante': id_variante,
+                                                          'cantidad_anulada': 0}).execute()
+                flash('Línea agregada al pedido', 'success')
+            return redirect(url_for('crudDetallePedido', id_pedido=id_pedido))
+
+        id_linea = _entero_positivo(request.form.get('idDetalleActualizar') or request.form.get('idDetalleBorrar'))
+        linea = supabase.table('detalle_pedidos').select('*').eq('id_detalle_pedido', id_linea) \
+            .eq('id_pedido', id_pedido).execute().data if id_linea else []
+        if not linea:
+            flash('La línea no existe en este pedido', 'error')
+            return redirect(url_for('crudDetallePedido', id_pedido=id_pedido))
+        linea = linea[0]
+        en_despachos = supabase.table('detalle_despachos').select('cantidad, id_despacho') \
+            .eq('id_detalle_pedido', id_linea).execute().data or []
+        emitidos = {d['id_despacho'] for d in supabase.table('despachos').select('id_despacho, estado')
+                    .in_('id_despacho', [d['id_despacho'] for d in en_despachos]).execute().data or []
+                    if d.get('estado') == 'emitido'} if en_despachos else set()
+        despachado = sum(int(d.get('cantidad') or 0) for d in en_despachos if d['id_despacho'] in emitidos)
+
+        if metodo == 'put':
+            datos, error = _leer_linea_formulario('Actualizar')
+            if not error and datos['cantidad'] < despachado + int(linea.get('cantidad_anulada') or 0):
+                error = f'Ya se despacharon {despachado} unidades de esta línea: la cantidad no puede ser menor.'
+            if error:
+                flash(error, 'error')
+            else:
+                supabase.table('detalle_pedidos').update(datos).eq('id_detalle_pedido', id_linea).execute()
+                flash('Línea actualizada', 'success')
+        elif metodo == 'delete':
+            # Aunque el despacho esté anulado, detalle_despachos referencia la línea.
+            if en_despachos:
+                flash('La línea tiene despachos registrados: no se puede quitar del pedido', 'error')
+            else:
+                # Columna correcta: id_detalle_pedido (antes se usaba id_detalle_pedidos).
+                supabase.table('detalle_pedidos').delete().eq('id_detalle_pedido', id_linea).execute()
+                flash('Línea quitada del pedido', 'success')
+        return redirect(url_for('crudDetallePedido', id_pedido=id_pedido))
+
+    lineas = supabase.table('detalle_pedidos').select('*').eq('id_pedido', id_pedido) \
+        .order('id_detalle_pedido').execute().data or []
+    variantes_activas = supabase.table('producto_variantes').select('*').execute().data or []
+    cliente_pedido = supabase.table('clientes').select('*').eq('id_cliente', pedido.get('cliente_asociado')) \
+        .execute().data or [{}]
+    lista_cliente = int(cliente_pedido[0].get('lista_precios') or 1)
+    descripcion = _variantes_por_id({v['id_variante'] for v in variantes_activas} | {l['id_variante'] for l in lineas})
+    for linea in lineas:
+        linea.update(descripcion.get(linea['id_variante'], {}))
+        linea['subtotal'] = int(linea.get('cantidad') or 0) * int(linea.get('precio_unitario') or 0)
+    precios_lista = _precios_de_lista(lista_cliente)
+    opciones = sorted(
+        ({'id_variante': v['id_variante'], 'precio_venta': _precio_sugerido(v, lista_cliente, precios_lista),
+          'en_liquidacion': bool(v.get('en_liquidacion')),
+          **descripcion.get(v['id_variante'], {})} for v in variantes_activas if v.get('activo') is not False),
+        key=lambda v: (str(v.get('producto') or ''), str(v.get('color') or ''), str(v.get('talla') or '')))
+    clientes = _obtener_clientes_map()
+    return render_template('crudDetallePedido.html', pedido=pedido, nombre=nombre,
+                           cliente=clientes.get(pedido.get('cliente_asociado'), 'Sin cliente'),
+                           lineas=lineas, variantes=opciones, lista_cliente=lista_cliente,
+                           total=sum(l['subtotal'] for l in lineas),
+                           editable=pedido.get('estado') not in ESTADOS_PEDIDO_CERRADOS)
 
 
 # Estados de pedido del glosario del Documento 0 (tt) en los que ya no se despacha.
@@ -832,7 +1098,11 @@ def despachos():
                     'p_observacion': _texto_o_nulo(request.form.get('observacion')),
                     'p_usuario': usuario,
                 }).execute().data
-                flash("Despacho registrado exitosamente", "success")
+                # El número de guía lo asigna la base (secuencia despachos_numero_guia_seq).
+                guia = supabase.table('despachos').select('numero_guia').eq('id_despacho', id_despacho) \
+                    .execute().data if id_despacho else []
+                flash(f"Despacho {guia[0]['numero_guia'] if guia else ''} registrado exitosamente".replace('  ', ' '),
+                      "success")
                 return redirect(url_for('despachos', ver=id_despacho))
 
             id_despacho = _entero_positivo(request.form.get('idDespacho'))
@@ -851,7 +1121,7 @@ def despachos():
                     return redirect(url_for('despachos'))
                 id_factura = _entero_positivo(request.form.get('idFactura'))
                 if id_factura and not supabase.table('facturas').select('id_factura') \
-                        .eq('id_factura', id_factura).eq('id_pedido', despacho['id_pedido']) \
+                        .eq('id_factura', id_factura).eq('pedido_asociado', despacho['id_pedido']) \
                         .neq('estado', 'anulada').execute().data:
                     flash("La factura no corresponde al pedido del despacho o está anulada", "error")
                     return redirect(url_for('despachos'))
@@ -878,8 +1148,8 @@ def despachos():
         return redirect(url_for('despachos'))
 
     bodegas = supabase.table('bodegas').select('id_bodega, descripcion').order('descripcion').execute().data or []
-    facturas = supabase.table('facturas').select('id_factura, numero_factura, id_pedido') \
-        .neq('estado', 'anulada').not_.is_('id_pedido', 'null').execute().data or []
+    facturas = supabase.table('facturas').select('id_factura, folio, pedido_asociado') \
+        .neq('estado', 'anulada').not_.is_('pedido_asociado', 'null').execute().data or []
 
     # Pedidos que todavía tienen unidades por despachar (para "Nuevo despacho").
     pendientes = supabase.table('v_pendientes_despacho').select(
@@ -924,12 +1194,12 @@ def despachos():
                 'via_despacho': (cliente[0].get('via_despacho') if cliente else None) or '',
                 'lineas': lineas,
                 'stock': stock,
-                'facturas': [f for f in facturas if f['id_pedido'] == id_pedido_nuevo],
+                'facturas': [f for f in facturas if f['pedido_asociado'] == id_pedido_nuevo],
             }
 
     # Listado con filtros.
     query = supabase.table('despachos').select(
-        '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(numero_factura), '
+        '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(folio), '
         'detalle_despachos(cantidad)'
     )
     filtros = {campo: request.args.get(campo, '').strip() for campo in ('guia', 'pedido_numero', 'estado', 'desde', 'hasta')}
@@ -952,7 +1222,7 @@ def despachos():
             'numero_pedido': pedido.get('numero_pedido'),
             'cliente': (pedido.get('clientes') or {}).get('nombre'),
             'bodega': (fila.get('bodegas') or {}).get('descripcion'),
-            'numero_factura': (fila.get('facturas') or {}).get('numero_factura'),
+            'folio_factura': (fila.get('facturas') or {}).get('folio'),
             'lineas': len(lineas),
             'unidades': sum(l.get('cantidad') or 0 for l in lineas),
         })
@@ -964,14 +1234,14 @@ def despachos():
         despacho = next((d for d in datos if d['id_despacho'] == id_ver), None)
         if despacho is None:
             filas = supabase.table('despachos').select(
-                '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(numero_factura)'
+                '*, pedidos(numero_pedido, clientes(nombre)), bodegas(descripcion), facturas(folio)'
             ).eq('id_despacho', id_ver).execute().data
             if filas:
                 pedido = filas[0].get('pedidos') or {}
                 despacho = {**filas[0], 'numero_pedido': pedido.get('numero_pedido'),
                             'cliente': (pedido.get('clientes') or {}).get('nombre'),
                             'bodega': (filas[0].get('bodegas') or {}).get('descripcion'),
-                            'numero_factura': (filas[0].get('facturas') or {}).get('numero_factura')}
+                            'folio_factura': (filas[0].get('facturas') or {}).get('folio')}
         if despacho:
             lineas = supabase.table('detalle_despachos').select(
                 'id_detalle_despacho, cantidad, precio_unitario, descuento_porcentaje, detalle_pedidos(id_variante)'
@@ -991,8 +1261,109 @@ def despachos():
                            nuevo=nuevo, detalle=detalle)
 
 
-@app.route('/notasCredito.html', methods=['GET'])
+def _leer_nota_formulario(sufijo, id_nota=None):
+    """Valida el modal de notas de crédito. Devuelve (datos, error).
+
+    La nota rebaja el saldo de su factura (glosario oo: "rectificar la factura y
+    ajustar su saldo"), igual que un pago, así que no puede superar lo que queda
+    por cobrar de la factura (sin contar lo que esta misma nota ya rebajaba)."""
+    try:
+        folio = int(request.form.get('folio' + sufijo, ''))
+        if folio <= 0:
+            raise ValueError
+    except ValueError:
+        return None, 'El folio debe ser un número entero mayor que cero.'
+    if _folio_repetido('notas_credito', 'id_nota_credito', folio, id_nota):
+        return None, f'Ya existe una nota de crédito con el folio {folio}.'
+    id_factura = _entero_positivo(request.form.get('factura' + sufijo))
+    factura = supabase.table('facturas').select('id_factura, folio, cliente_asociado, saldo_pendiente, estado') \
+        .eq('id_factura', id_factura).execute().data if id_factura else []
+    if not factura:
+        return None, 'Seleccione la factura de referencia.'
+    factura = factura[0]
+    if factura.get('estado') == 'anulada':
+        return None, f"La factura {factura['folio']} está anulada: no admite notas de crédito."
+    fecha = (request.form.get('fecha' + sufijo) or '').strip()
+    if not fecha:
+        return None, 'Ingrese la fecha de emisión de la nota.'
+    neto = _numero_positivo(request.form.get('montoNeto' + sufijo))
+    if neto is None:
+        return None, 'El monto neto debe ser un número mayor que cero.'
+    motivo = (request.form.get('motivo' + sufijo) or '').strip()
+    if not motivo:
+        return None, 'Indique el motivo de la nota de crédito (devolución o ajuste).'
+    impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
+    total = round(neto + impuesto, 2)
+
+    disponible = float(factura.get('saldo_pendiente') or 0)
+    if id_nota:
+        anterior = supabase.table('notas_credito').select('factura_referencia, monto_total, estado') \
+            .eq('id_nota_credito', id_nota).execute().data or []
+        if anterior and str(anterior[0].get('factura_referencia')) == str(id_factura) \
+                and anterior[0].get('estado') == 'vigente':
+            disponible += float(anterior[0].get('monto_total') or 0)
+    if total > disponible + 0.005:
+        return None, (f"La nota ({formatear_moneda(total)}) supera el saldo pendiente de la factura "
+                      f"{factura['folio']} ({formatear_moneda(disponible)}).")
+    return {
+        'folio': folio, 'factura_referencia': id_factura, 'cliente_asociado': factura.get('cliente_asociado'),
+        'fecha': fecha, 'monto_neto': neto, 'monto_impuesto': impuesto, 'monto_total': total, 'motivo': motivo,
+    }, None
+
+
+@app.route('/notasCredito.html', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def notasCredito():
+    # RF-035/036. Esquema de supabase/notas_credito.sql.
+    if request.method == 'POST':
+        metodo = request.form.get('_method')
+        if metodo == 'post':
+            datos, error = _leer_nota_formulario('Crear')
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('notasCredito'))
+            datos.update(estado='vigente', usuario_creacion=g.usuario.get('nombre_usuario') or 'Admin')
+            if supabase.table('notas_credito').insert(datos).execute().data:
+                _recalcular_factura(datos['factura_referencia'])
+                flash(f"Nota de crédito {datos['folio']} creada exitosamente", 'success')
+            else:
+                flash('Error creando nota de crédito', 'error')
+            return redirect(url_for('notasCredito'))
+
+        id_nota = _entero_positivo(request.form.get('idNotaActualizar') or request.form.get('idNotaBorrar')
+                                   or request.form.get('idNotaAnular'))
+        actual = supabase.table('notas_credito').select('id_nota_credito, folio, factura_referencia, estado') \
+            .eq('id_nota_credito', id_nota).execute().data if id_nota else []
+        if not actual:
+            flash('La nota de crédito no existe', 'error')
+            return redirect(url_for('notasCredito'))
+        actual = actual[0]
+
+        if metodo == 'put':
+            if actual.get('estado') != 'vigente':
+                flash(f"La nota de crédito {actual['folio']} está {actual.get('estado')} y no se puede modificar", 'error')
+                return redirect(url_for('notasCredito'))
+            datos, error = _leer_nota_formulario('Actualizar', id_nota)
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('notasCredito'))
+            supabase.table('notas_credito').update(datos).eq('id_nota_credito', id_nota).execute()
+            # Si cambió la factura, se recalculan la anterior y la nueva.
+            for id_factura in {actual.get('factura_referencia'), datos['factura_referencia']}:
+                _recalcular_factura(id_factura)
+            flash(f"Nota de crédito {datos['folio']} actualizada exitosamente", 'success')
+        elif metodo == 'anular':
+            if actual.get('estado') == 'anulada':
+                flash(f"La nota de crédito {actual['folio']} ya está anulada", 'error')
+            else:
+                supabase.table('notas_credito').update({'estado': 'anulada'}).eq('id_nota_credito', id_nota).execute()
+                _recalcular_factura(actual.get('factura_referencia'))
+                flash(f"Nota de crédito {actual['folio']} anulada: su monto vuelve al saldo de la factura", 'success')
+        elif metodo == 'delete':
+            supabase.table('notas_credito').delete().eq('id_nota_credito', id_nota).execute()
+            _recalcular_factura(actual.get('factura_referencia'))
+            flash(f"Nota de crédito {actual['folio']} borrada exitosamente", 'success')
+        return redirect(url_for('notasCredito'))
+
     allowed_sort = {
         'folio': lambda item: item.get('folio') or '',
         'fecha': lambda item: item.get('fecha') or '0000-00-00',
@@ -1010,30 +1381,29 @@ def notasCredito():
         sort_dir = 'desc'
 
     try:
-        query = supabase.table('notas_credito').select(
-            '*, facturas(numero_factura, razon_social)'
-        ).execute()
-        rows = query.data or []
+        rows = supabase.table('notas_credito').select('*').execute().data or []
+        facturas_rows = supabase.table('facturas').select(
+            'id_factura, folio, cliente_asociado, saldo_pendiente, estado').execute().data or []
     except Exception:
         flash("No se pudo cargar el listado de notas de crédito. Intenta nuevamente.", "error")
-        rows = []
+        rows, facturas_rows = [], []
+    clientes_map = _obtener_clientes_map()
+    folio_factura = {f['id_factura']: f.get('folio') for f in facturas_rows}
 
     normalized = []
     for row in rows:
-        factura_row = row.get('facturas') or {}
-        factura_numero = factura_row.get('numero_factura') if isinstance(factura_row, dict) else None
-        cliente_nombre = factura_row.get('razon_social') if isinstance(factura_row, dict) else ''
+        cliente_id = row.get('cliente_asociado')
         normalized.append({
-            'id_nota_credito': row.get('id_nota'),
-            'folio': row.get('numero_nota'),
-            'factura_referencia': row.get('id_factura'),
-            'factura_referencia_folio': factura_numero,
-            'cliente_asociado': row.get('id_cliente'),
-            'cliente': cliente_nombre,
+            'id_nota_credito': row.get('id_nota_credito'),
+            'folio': row.get('folio'),
+            'factura_referencia': row.get('factura_referencia'),
+            'factura_referencia_folio': folio_factura.get(row.get('factura_referencia')),
+            'cliente_asociado': cliente_id,
+            'cliente': clientes_map.get(cliente_id, 'Sin cliente') if cliente_id is not None else 'Sin cliente',
             'fecha': row.get('fecha'),
-            'monto_neto': row.get('total_neto', 0),
-            'monto_impuesto': row.get('total_iva', 0),
-            'monto_total': row.get('total_nota', 0),
+            'monto_neto': row.get('monto_neto', 0),
+            'monto_impuesto': row.get('monto_impuesto', 0),
+            'monto_total': row.get('monto_total', 0),
             'motivo': row.get('motivo'),
             'estado': row.get('estado'),
         })
@@ -1062,7 +1432,15 @@ def notasCredito():
     reverse = sort_dir == 'desc'
     normalized = sorted(normalized, key=allowed_sort.get(sort_field, allowed_sort['fecha']), reverse=reverse)
 
-    return render_template('notasCredito.html', datos=normalized)
+    folios = [n.get('folio') or 0 for n in rows]
+    facturas_disponibles = [
+        {**f, 'cliente': clientes_map.get(f.get('cliente_asociado'), 'Sin cliente')}
+        for f in sorted(facturas_rows, key=lambda f: f.get('folio') or 0)
+        if f.get('estado') != 'anulada'
+    ]
+    return render_template('notasCredito.html', datos=normalized, facturas=facturas_disponibles,
+                           siguiente_folio=max(folios, default=0) + 1,
+                           porcentaje_impuesto=obtener_porcentaje_impuesto())
 
 
 def _obtener_clientes_map():
@@ -1074,26 +1452,20 @@ def _obtener_clientes_map():
     return {int(row.get('id_cliente')): (row.get('nombre') or 'Sin cliente') for row in rows if row.get('id_cliente') is not None}
 
 
-def _obtener_facturas_pendientes(cliente_id):
+def _facturas_pendientes(cliente_id=None):
+    """Facturas no anuladas con saldo por cobrar (de un cliente o de todos), por fecha y folio."""
+    query = supabase.table('facturas').select(
+        'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado')
+    if cliente_id is not None:
+        query = query.eq('cliente_asociado', cliente_id)
     try:
-        response = supabase.table('facturas').select(
-            'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado'
-        ).eq('cliente_asociado', cliente_id).execute()
-        rows = response.data or []
+        rows = query.execute().data or []
     except Exception:
         rows = []
-    pendientes = []
-    for row in rows:
-        saldo = float(row.get('saldo_pendiente') or 0)
-        if saldo > 0:
-            pendientes.append({
-                'id_factura': row.get('id_factura'),
-                'folio': row.get('folio'),
-                'fecha_emision': row.get('fecha_emision'),
-                'monto_total': float(row.get('monto_total') or 0),
-                'saldo_pendiente': saldo,
-                'estado': row.get('estado') or 'vigente',
-            })
+    pendientes = [{**row, 'monto_total': float(row.get('monto_total') or 0),
+                   'saldo_pendiente': float(row.get('saldo_pendiente') or 0)}
+                  for row in rows
+                  if float(row.get('saldo_pendiente') or 0) > 0 and row.get('estado') != 'anulada']
     pendientes.sort(key=lambda item: (item.get('fecha_emision') or '9999-12-31', item.get('folio') or 0))
     return pendientes
 
@@ -1116,289 +1488,141 @@ def _pago_facturas_disponible():
         return False
 
 
-def _obtener_detalle_pago(pago_id):
-    if not _pago_facturas_disponible():
-        return []
-    try:
-        response = supabase.table('pago_facturas').select(
-            '*, facturas(id_factura, folio, saldo_pendiente)'
-        ).eq('id_pago', pago_id).execute()
-        return response.data or []
-    except Exception:
-        return []
+def _leer_pago_formulario(sufijo):
+    """Campos del modal de pagos. sufijo '' para crear y '_actualizar' para editar.
+    Devuelve (datos, ids de facturas elegidas, error)."""
+    cliente_id = _entero_positivo(request.form.get('cliente' + sufijo))
+    monto = (request.form.get('monto' + sufijo) or '').strip()
+    fecha_pago = (request.form.get('fecha_pago' + sufijo) or '').strip()
+    medio_pago = (request.form.get('medio_pago' + sufijo) or '').strip()
+    if not cliente_id or not monto or not fecha_pago or not medio_pago:
+        return None, [], 'Faltan campos obligatorios: cliente, monto, fecha y medio de pago.'
+    monto_valor = _numero_positivo(monto)
+    if monto_valor is None:
+        return None, [], 'El monto del pago debe ser un número mayor a cero.'
+    ids = [int(i) for i in request.form.getlist('facturas' + sufijo) if str(i).isdigit()]
+    if not ids:
+        return None, [], 'Debes seleccionar al menos una factura pendiente para aplicar el pago.'
+    return {'cliente_asociado': cliente_id, 'fecha_pago': fecha_pago, 'monto': monto_valor,
+            'medio_pago': medio_pago, 'referencia': _texto_o_nulo(request.form.get('referencia' + sufijo))}, ids, None
+
+
+def _aplicar_pago(pago_id, cliente_id, monto, ids_facturas):
+    """Reparte el monto entre las facturas elegidas (en ese orden, hasta su saldo),
+    guarda pago_facturas y recalcula cada factura. Devuelve el saldo a favor que sobra.
+    Lanza ValueError si alguna factura no es del cliente o no tiene saldo."""
+    facturas = {f['id_factura']: f for f in _facturas_pendientes(cliente_id)}
+    elegidas = [facturas[i] for i in ids_facturas if i in facturas]
+    if len(elegidas) != len(ids_facturas):
+        raise ValueError('Las facturas elegidas deben ser del cliente del pago y tener saldo pendiente.')
+    restante = monto
+    for factura in elegidas:
+        asignado = round(min(factura['saldo_pendiente'], restante), 2)
+        if asignado <= 0:
+            continue
+        supabase.table('pago_facturas').insert({'id_pago': pago_id, 'id_factura': factura['id_factura'],
+                                                'monto_aplicado': asignado}).execute()
+        _recalcular_factura(factura['id_factura'])
+        restante = round(restante - asignado, 2)
+    return restante
+
+
+def _facturas_del_pago(pago_id):
+    return supabase.table('pago_facturas').select('id_factura, monto_aplicado').eq('id_pago', pago_id).execute().data or []
 
 
 @app.route('/pagos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def pagos():
+    # RF-032/033/034. Esquema de supabase/pagos.sql: el folio es identity (lo asigna la
+    # base) y cada pago se reparte entre facturas en pago_facturas. Al registrar,
+    # editar o anular, las facturas tocadas se recalculan con _recalcular_factura()
+    # (saldo_pendiente y estado vía _estado_para_saldo()).
     if request.method == 'POST':
         metodo = request.form.get('_method')
+        if not _pago_facturas_disponible():
+            flash('La tabla de detalle de pagos (pago_facturas) aún no está creada en la base de datos.', 'error')
+            return redirect(url_for('pagos'))
+
         if metodo == 'post':
-            if not _pago_facturas_disponible():
-                flash('La tabla de detalle de pagos aún no está creada en la base de datos. Activa el esquema de pagos para registrar movimientos.', 'error')
+            datos, ids, error = _leer_pago_formulario('')
+            if error:
+                flash(error, 'error')
                 return redirect(url_for('pagos'))
-            cliente_id = request.form.get('cliente')
-            monto = request.form.get('monto', '').strip()
-            fecha_pago = request.form.get('fecha_pago', '').strip()
-            medio_pago = request.form.get('medio_pago', '').strip()
-            referencia = request.form.get('referencia', '').strip()
-            facturas_seleccionadas = request.form.getlist('facturas')
-
-            if not cliente_id or not monto or not fecha_pago or not medio_pago:
-                flash('Faltan campos obligatorios para registrar el pago.', 'error')
+            pendientes = {f['id_factura'] for f in _facturas_pendientes(datos['cliente_asociado'])}
+            if not pendientes:
+                flash('El cliente no tiene facturas con saldo pendiente.', 'error')
                 return redirect(url_for('pagos'))
-
+            # Se valida antes de insertar para no gastar un folio (identity) en un pago rechazado.
+            if not set(ids) <= pendientes:
+                flash('Las facturas elegidas deben ser del cliente del pago y tener saldo pendiente.', 'error')
+                return redirect(url_for('pagos'))
             try:
-                monto_valor = float(monto)
-            except ValueError:
-                flash('El monto del pago debe ser numérico.', 'error')
-                return redirect(url_for('pagos'))
-
-            if monto_valor <= 0:
-                flash('El monto del pago debe ser mayor a cero.', 'error')
-                return redirect(url_for('pagos'))
-
-            if not facturas_seleccionadas:
-                flash('Debes seleccionar al menos una factura pendiente para aplicar el pago.', 'error')
-                return redirect(url_for('pagos'))
-
-            facturas = []
-            for factura_id in facturas_seleccionadas:
-                factura_row = supabase.table('facturas').select(
-                    'id_factura, folio, saldo_pendiente, monto_total'
-                ).eq('id_factura', factura_id).execute()
-                if not factura_row.data:
-                    continue
-                factura_data = factura_row.data[0]
-                saldo = float(factura_data.get('saldo_pendiente') or 0)
-                if saldo <= 0:
-                    continue
-                facturas.append(factura_data)
-
-            if not facturas:
-                flash('Las facturas seleccionadas no tienen saldo pendiente.', 'error')
-                return redirect(url_for('pagos'))
-
-            total_saldos = sum(float(factura.get('saldo_pendiente') or 0) for factura in facturas)
-            asignaciones = []
-            monto_restante = monto_valor
-            for factura in facturas:
-                factura_id = factura.get('id_factura')
-                saldo = float(factura.get('saldo_pendiente') or 0)
-                if saldo <= 0:
-                    continue
-                asignado = min(saldo, monto_restante) if monto_restante > 0 else 0
-                asignaciones.append((factura_id, asignado))
-                monto_restante -= asignado
-
-            if monto_restante > 0:
-                flash(f'Se registró el pago con un saldo a favor de $ {monto_restante:,.2f} para el cliente.', 'warning')
-
-            try:
-                pago_response = supabase.table('pagos').insert({
-                    'cliente_asociado': int(cliente_id),
-                    'fecha_pago': fecha_pago,
-                    'monto': monto_valor,
-                    'medio_pago': medio_pago,
-                    'referencia': referencia or None,
-                    'estado': 'vigente',
-                    'usuario_creacion': 'Admin',
-                }).execute()
-            except Exception:
+                creado = supabase.table('pagos').insert({
+                    **datos, 'estado': 'vigente', 'usuario_creacion': g.usuario.get('nombre_usuario') or 'Admin',
+                }).execute().data
+            except APIError:
+                creado = None
+            if not creado:
                 flash('No se pudo registrar el pago.', 'error')
                 return redirect(url_for('pagos'))
-
-            if not pago_response.data:
-                flash('No se pudo registrar el pago.', 'error')
+            pago = creado[0]
+            try:
+                sobrante = _aplicar_pago(pago['id_pago'], datos['cliente_asociado'], datos['monto'], ids)
+            except ValueError as error:
+                supabase.table('pagos').delete().eq('id_pago', pago['id_pago']).execute()
+                flash(str(error), 'error')
                 return redirect(url_for('pagos'))
+            flash(f"Pago N° {pago.get('folio') or pago['id_pago']} registrado exitosamente.", 'success')
+            if sobrante > 0:
+                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)}.', 'warning')
+            return redirect(url_for('pagos'))
 
-            pago_id = pago_response.data[0].get('id_pago')
-            for factura_id, asignado in asignaciones:
-                if asignado <= 0:
-                    continue
-                try:
-                    factura_row = supabase.table('facturas').select(
-                        'id_factura, saldo_pendiente, monto_total'
-                    ).eq('id_factura', factura_id).execute().data or []
-                    if not factura_row:
-                        continue
-                    factura_data = factura_row[0]
-                    saldo_actual = float(factura_data.get('saldo_pendiente') or 0)
-                    nuevo_saldo = max(saldo_actual - asignado, 0)
-                    supabase.table('pago_facturas').insert({
-                        'id_pago': pago_id,
-                        'id_factura': factura_id,
-                        'monto_aplicado': asignado,
-                    }).execute()
-                    supabase.table('facturas').update({
-                        'saldo_pendiente': nuevo_saldo,
-                        'estado': _estado_para_saldo(factura_data.get('monto_total'), nuevo_saldo),
-                    }).eq('id_factura', factura_id).execute()
-                except Exception:
-                    continue
-
-            flash('Pago registrado exitosamente.', 'success')
+        pago_id = _entero_positivo(request.form.get('id_pago_actualizar') or request.form.get('id_pago_anular'))
+        actual = supabase.table('pagos').select('*').eq('id_pago', pago_id).execute().data if pago_id else []
+        if not actual:
+            flash('No existe el pago seleccionado.', 'error')
+            return redirect(url_for('pagos'))
+        actual = actual[0]
+        numero = actual.get('folio') or actual['id_pago']
+        if (actual.get('estado') or '').lower() == 'anulada':
+            flash(f'El pago N° {numero} está anulado y no se puede modificar.', 'error')
             return redirect(url_for('pagos'))
 
         if metodo == 'put':
-            if not _pago_facturas_disponible():
-                flash('La tabla de detalle de pagos aún no está creada en la base de datos. Activa el esquema de pagos para actualizar movimientos.', 'error')
+            datos, ids, error = _leer_pago_formulario('_actualizar')
+            if error:
+                flash(error, 'error')
                 return redirect(url_for('pagos'))
-            pago_id = request.form.get('id_pago_actualizar')
-            cliente_id = request.form.get('cliente_actualizar')
-            monto = request.form.get('monto_actualizar', '').strip()
-            fecha_pago = request.form.get('fecha_pago_actualizar', '').strip()
-            medio_pago = request.form.get('medio_pago_actualizar', '').strip()
-            referencia = request.form.get('referencia_actualizar', '').strip()
-            facturas_seleccionadas = request.form.getlist('facturas_actualizar')
-
-            if not pago_id or not cliente_id or not monto or not fecha_pago or not medio_pago:
-                flash('Faltan campos obligatorios para actualizar el pago.', 'error')
-                return redirect(url_for('pagos'))
-
-            try:
-                pago_actual = supabase.table('pagos').select('*').eq('id_pago', pago_id).execute().data or []
-                if not pago_actual:
-                    flash('No existe el pago que intentas actualizar.', 'error')
-                    return redirect(url_for('pagos'))
-                pago_data = pago_actual[0]
-                if (pago_data.get('estado') or '').lower() == 'anulada':
-                    flash('No se puede modificar un pago anulado.', 'error')
-                    return redirect(url_for('pagos'))
-                monto_valor = float(monto)
-            except ValueError:
-                flash('El monto del pago debe ser numérico.', 'error')
-                return redirect(url_for('pagos'))
-
-            if monto_valor <= 0:
-                flash('El monto del pago debe ser mayor a cero.', 'error')
-                return redirect(url_for('pagos'))
-
-            asignaciones = []
-            if facturas_seleccionadas:
-                for factura_id in facturas_seleccionadas:
-                    factura_row = supabase.table('facturas').select('id_factura, folio, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                    if not factura_row:
-                        continue
-                    factura_data = factura_row[0]
-                    saldo = float(factura_data.get('saldo_pendiente') or 0)
-                    if saldo <= 0:
-                        continue
-                    asignaciones.append(factura_id)
-                if not asignaciones:
-                    flash('Las facturas seleccionadas no tienen saldo pendiente.', 'error')
-                    return redirect(url_for('pagos'))
-
-            pagos_facturas_actuales = supabase.table('pago_facturas').select('*').eq('id_pago', pago_id).execute().data or []
-            for detalle in pagos_facturas_actuales:
-                factura_id = detalle.get('id_factura')
-                monto_aplicado = float(detalle.get('monto_aplicado') or 0)
-                factura_row = supabase.table('facturas').select('id_factura, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                if not factura_row:
-                    continue
-                factura_data = factura_row[0]
-                nuevo_saldo = float(factura_data.get('saldo_pendiente') or 0) + monto_aplicado
-                supabase.table('facturas').update({
-                    'saldo_pendiente': nuevo_saldo,
-                    'estado': _estado_para_saldo(factura_data.get('monto_total'), nuevo_saldo),
-                }).eq('id_factura', factura_id).execute()
-
+            anteriores = _facturas_del_pago(pago_id)
+            # Se quita la aplicación anterior, se recalculan esas facturas y se vuelve a repartir.
             supabase.table('pago_facturas').delete().eq('id_pago', pago_id).execute()
-
-            monto_restante = monto_valor
-            nueva_asignacion = []
-            if facturas_seleccionadas:
-                for factura_id in facturas_seleccionadas:
-                    factura_row = supabase.table('facturas').select('id_factura, folio, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                    if not factura_row:
-                        continue
-                    factura_data = factura_row[0]
-                    saldo = float(factura_data.get('saldo_pendiente') or 0)
-                    if saldo <= 0:
-                        continue
-                    asignado = min(saldo, monto_restante) if monto_restante > 0 else 0
-                    nueva_asignacion.append((factura_id, asignado))
-                    monto_restante -= asignado
-
-            if monto_restante > 0:
-                flash(f'Se actualizó el pago con un saldo a favor de $ {monto_restante:,.2f} para el cliente.', 'warning')
-
+            for detalle in anteriores:
+                _recalcular_factura(detalle['id_factura'])
             try:
-                supabase.table('pagos').update({
-                    'cliente_asociado': int(cliente_id),
-                    'fecha_pago': fecha_pago,
-                    'monto': monto_valor,
-                    'medio_pago': medio_pago,
-                    'referencia': referencia or None,
-                }).eq('id_pago', pago_id).execute()
-            except Exception:
-                flash('No se pudo actualizar el pago.', 'error')
+                sobrante = _aplicar_pago(pago_id, datos['cliente_asociado'], datos['monto'], ids)
+            except ValueError as error:
+                for detalle in anteriores:  # se restaura la aplicación anterior
+                    supabase.table('pago_facturas').insert({'id_pago': pago_id, **detalle}).execute()
+                    _recalcular_factura(detalle['id_factura'])
+                flash(str(error), 'error')
                 return redirect(url_for('pagos'))
+            supabase.table('pagos').update(datos).eq('id_pago', pago_id).execute()
+            flash(f'Pago N° {numero} actualizado exitosamente.', 'success')
+            if sobrante > 0:
+                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)}.', 'warning')
 
-            for factura_id, asignado in nueva_asignacion:
-                if asignado <= 0:
-                    continue
-                factura_data = supabase.table('facturas').select('id_factura, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                if not factura_data:
-                    continue
-                factura_row = factura_data[0]
-                saldo_actual = float(factura_row.get('saldo_pendiente') or 0)
-                nuevo_saldo = max(saldo_actual - asignado, 0)
-                supabase.table('pago_facturas').insert({
-                    'id_pago': pago_id,
-                    'id_factura': factura_id,
-                    'monto_aplicado': asignado,
-                }).execute()
-                supabase.table('facturas').update({
-                    'saldo_pendiente': nuevo_saldo,
-                    'estado': _estado_para_saldo(factura_row.get('monto_total'), nuevo_saldo),
-                }).eq('id_factura', factura_id).execute()
-
-            flash('Pago actualizado exitosamente.', 'success')
-            return redirect(url_for('pagos'))
-
-        if metodo == 'delete':
-            if not _pago_facturas_disponible():
-                flash('La tabla de detalle de pagos aún no está creada en la base de datos. Activa el esquema de pagos para anular movimientos.', 'error')
-                return redirect(url_for('pagos'))
-            pago_id = request.form.get('id_pago_anular')
-            motivo = request.form.get('motivo_anulacion', '').strip()
-            if not pago_id:
-                flash('Debes seleccionar un pago para anular.', 'error')
-                return redirect(url_for('pagos'))
+        elif metodo == 'delete':
+            motivo = (request.form.get('motivo_anulacion') or '').strip()
             if not motivo:
                 flash('Debes indicar el motivo de anulación.', 'error')
                 return redirect(url_for('pagos'))
-
-            pago_response = supabase.table('pagos').select('*').eq('id_pago', pago_id).execute().data or []
-            if not pago_response:
-                flash('No existe el pago que intentas anular.', 'error')
-                return redirect(url_for('pagos'))
-            pago_data = pago_response[0]
-            if (pago_data.get('estado') or '').lower() == 'anulada':
-                flash('El pago ya está anulado.', 'error')
-                return redirect(url_for('pagos'))
-
-            detalles = supabase.table('pago_facturas').select('*').eq('id_pago', pago_id).execute().data or []
-            for detalle in detalles:
-                factura_id = detalle.get('id_factura')
-                monto_aplicado = float(detalle.get('monto_aplicado') or 0)
-                factura_rows = supabase.table('facturas').select('id_factura, saldo_pendiente, monto_total').eq('id_factura', factura_id).execute().data or []
-                if not factura_rows:
-                    continue
-                factura_data = factura_rows[0]
-                nuevo_saldo = float(factura_data.get('saldo_pendiente') or 0) + monto_aplicado
-                supabase.table('facturas').update({
-                    'saldo_pendiente': nuevo_saldo,
-                    'estado': _estado_para_saldo(factura_data.get('monto_total'), nuevo_saldo),
-                }).eq('id_factura', factura_id).execute()
-
-            supabase.table('pagos').update({
-                'estado': 'anulada',
-                'motivo_anulacion': motivo,
-            }).eq('id_pago', pago_id).execute()
-            supabase.table('pago_facturas').delete().eq('id_pago', pago_id).execute()
-            flash('Pago anulado correctamente.', 'success')
-            return redirect(url_for('pagos'))
+            supabase.table('pagos').update({'estado': 'anulada', 'motivo_anulacion': motivo}) \
+                .eq('id_pago', pago_id).execute()
+            # Las filas de pago_facturas quedan como historial; un pago anulado ya no cuenta en el saldo.
+            for detalle in _facturas_del_pago(pago_id):
+                _recalcular_factura(detalle['id_factura'])
+            flash(f'Pago N° {numero} anulado: su monto volvió al saldo de las facturas.', 'success')
+        return redirect(url_for('pagos'))
 
     cliente_filter = (request.args.get('cliente') or '').strip()
     fecha_desde = (request.args.get('fecha_desde') or '').strip()
@@ -1406,16 +1630,24 @@ def pagos():
     referencia_filter = (request.args.get('referencia') or '').strip()
 
     try:
-        response = supabase.table('pagos').select('*').execute()
-        pagos_rows = response.data or []
+        pagos_rows = supabase.table('pagos').select('*').execute().data or []
     except Exception:
         flash('No se pudo cargar el listado de pagos.', 'error')
         pagos_rows = []
 
     clientes_map = _obtener_clientes_map()
+    facturas_rows = supabase.table('facturas').select('id_factura, folio, saldo_pendiente').execute().data or []
+    folio_factura = {f['id_factura']: f.get('folio') for f in facturas_rows}
+    aplicaciones = supabase.table('pago_facturas').select('id_pago, id_factura, monto_aplicado').execute().data \
+        if _pago_facturas_disponible() else []
+    por_pago = {}
+    for aplicacion in aplicaciones or []:
+        por_pago.setdefault(aplicacion['id_pago'], []).append({
+            'id_factura': aplicacion['id_factura'], 'folio': folio_factura.get(aplicacion['id_factura']),
+            'monto_aplicado': float(aplicacion.get('monto_aplicado') or 0)})
+
     datos = []
     for pago in pagos_rows:
-        pago_id = pago.get('id_pago')
         cliente_id = pago.get('cliente_asociado')
         cliente_nombre = clientes_map.get(int(cliente_id), 'Sin cliente') if cliente_id is not None else 'Sin cliente'
         fecha_pago = pago.get('fecha_pago') or ''
@@ -1425,51 +1657,27 @@ def pagos():
             continue
         if fecha_hasta and fecha_pago > fecha_hasta:
             continue
-        if referencia_filter and (pago.get('referencia') or '').lower() not in referencia_filter.lower():
+        if referencia_filter and referencia_filter.lower() not in (pago.get('referencia') or '').lower():
             continue
-
-        detalle_rows = _obtener_detalle_pago(pago_id)
-        facturas = []
-        for detalle in detalle_rows:
-            factura = detalle.get('facturas') or {}
-            if isinstance(factura, dict):
-                facturas.append({
-                    'id_factura': factura.get('id_factura'),
-                    'folio': factura.get('folio'),
-                    'monto_aplicado': detalle.get('monto_aplicado'),
-                    'saldo_pendiente': factura.get('saldo_pendiente'),
-                })
-
         datos.append({
-            'id_pago': pago_id,
-            'folio': pago.get('folio'),
-            'cliente': cliente_nombre,
-            'cliente_id': cliente_id,
-            'fecha_pago': fecha_pago,
-            'monto': float(pago.get('monto') or 0),
-            'medio_pago': pago.get('medio_pago'),
-            'referencia': pago.get('referencia'),
-            'estado': pago.get('estado') or 'vigente',
-            'motivo_anulacion': pago.get('motivo_anulacion'),
-            'detalle_facturas': facturas,
+            'id_pago': pago.get('id_pago'), 'folio': pago.get('folio'), 'cliente': cliente_nombre,
+            'cliente_id': cliente_id, 'fecha_pago': fecha_pago, 'monto': float(pago.get('monto') or 0),
+            'medio_pago': pago.get('medio_pago'), 'referencia': pago.get('referencia'),
+            'estado': pago.get('estado') or 'vigente', 'motivo_anulacion': pago.get('motivo_anulacion'),
+            'detalle_facturas': por_pago.get(pago.get('id_pago'), []),
         })
+    datos.sort(key=lambda p: p.get('folio') or 0, reverse=True)
 
-    if request.args:
-        if not datos:
-            flash('No se encontraron pagos para los filtros aplicados.', 'warning')
+    if request.args and not datos:
+        flash('No se encontraron pagos para los filtros aplicados.', 'warning')
 
-    clientes = supabase.table('clientes').select('id_cliente, nombre').execute().data or []
-    facturas = []
-    if request.args.get('cliente'):
-        cliente_id = next((item.get('id_cliente') for item in clientes if str(item.get('id_cliente')) == str(request.args.get('cliente'))), None)
-        if cliente_id is not None:
-            facturas = _obtener_facturas_pendientes(cliente_id)
-
+    clientes = supabase.table('clientes').select('id_cliente, nombre').order('nombre').execute().data or []
     return render_template(
         'pagos.html',
         datos=datos,
         clientes=clientes,
-        facturas=facturas,
+        # Todas las facturas con saldo; el modal muestra solo las del cliente elegido.
+        facturas=_facturas_pendientes(),
         cliente_filter=cliente_filter,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
@@ -1477,7 +1685,13 @@ def pagos():
     )
 
 
+
 def obtener_informe_cobranza(request_args):
+    """RF-031 / CU-31: facturas con saldo pendiente, con el esquema de facturas.sql y pagos.sql.
+
+    Pagos aplicados = pago_facturas.monto_aplicado de pagos no anulados; notas = notas de
+    crédito vigentes. El saldo es facturas.saldo_pendiente, que la app recalcula en cada
+    pago o nota (monto_total - pagos - notas)."""
     cliente_filter = (request_args.get('cliente') or '').strip()
     fecha_desde = (request_args.get('fecha_desde') or '').strip()
     fecha_hasta = (request_args.get('fecha_hasta') or '').strip()
@@ -1488,58 +1702,72 @@ def obtener_informe_cobranza(request_args):
     except ValueError:
         dias_min = None
 
-    try:
-        facturas_response = supabase.table('facturas').select('*').gt('saldo', 0).execute()
-        facturas = facturas_response.data or []
-    except Exception:
-        facturas = []
+    # select('*'): fecha_vencimiento existe solo después de incremento4_campos_documento0.sql.
+    facturas = supabase.table('facturas').select('*').gt('saldo_pendiente', 0).neq('estado', 'anulada').execute().data or []
+    clientes = _obtener_clientes_map()
 
-    pagos_response = supabase.table('pagos').select('id_factura, monto').execute()
-    pagos = pagos_response.data or []
+    ids_factura = [f['id_factura'] for f in facturas]
+    aplicaciones = supabase.table('pago_facturas').select('id_pago, id_factura, monto_aplicado') \
+        .in_('id_factura', ids_factura).execute().data if ids_factura else []
+    ids_pago = list({a['id_pago'] for a in aplicaciones or []})
+    pagos_vigentes = {p['id_pago'] for p in supabase.table('pagos').select('id_pago, estado')
+                      .in_('id_pago', ids_pago).execute().data or []
+                      if (p.get('estado') or 'vigente') != 'anulada'} if ids_pago else set()
     pagos_por_factura = {}
-    for pago in pagos:
-        factura_id = pago.get('id_factura')
-        if factura_id is None:
-            continue
-        monto = float(pago.get('monto') or 0)
-        pagos_por_factura[factura_id] = pagos_por_factura.get(factura_id, 0.0) + monto
+    for aplicacion in aplicaciones or []:
+        if aplicacion['id_pago'] in pagos_vigentes:
+            pagos_por_factura[aplicacion['id_factura']] = (pagos_por_factura.get(aplicacion['id_factura'], 0.0)
+                                                          + float(aplicacion.get('monto_aplicado') or 0))
+    notas_por_factura = {}
+    for nota in (supabase.table('notas_credito').select('factura_referencia, monto_total, estado')
+                 .in_('factura_referencia', ids_factura).execute().data if ids_factura else []) or []:
+        if (nota.get('estado') or 'vigente') == 'vigente':
+            notas_por_factura[nota['factura_referencia']] = (notas_por_factura.get(nota['factura_referencia'], 0.0)
+                                                            + float(nota.get('monto_total') or 0))
 
     rows = []
+    hoy = datetime.now(timezone.utc).date()
     for factura in facturas:
-        cliente_nombre = (factura.get('razon_social') or '').strip()
+        cliente_id = factura.get('cliente_asociado')
+        cliente_nombre = clientes.get(cliente_id, 'Sin cliente') if cliente_id is not None else 'Sin cliente'
         if cliente_filter and cliente_filter.lower() not in cliente_nombre.lower():
             continue
 
-        fecha_factura = (factura.get('fecha') or '').strip()
+        fecha_factura = (factura.get('fecha_emision') or '').strip()
         if fecha_desde and fecha_factura < fecha_desde:
             continue
         if fecha_hasta and fecha_factura > fecha_hasta:
             continue
 
+        # RF-029: la mora se cuenta desde la fecha límite de pago; si la factura no
+        # la tiene, desde la emisión (como antes). Antes del vencimiento es 0.
+        vencimiento = (factura.get('fecha_vencimiento') or '').strip()
         dias_morosidad = 0
-        if fecha_factura:
+        if vencimiento or fecha_factura:
             try:
-                dias_morosidad = (datetime.utcnow().date() - datetime.strptime(fecha_factura, '%Y-%m-%d').date()).days
+                desde = datetime.strptime((vencimiento or fecha_factura)[:10], '%Y-%m-%d').date()
+                dias_morosidad = max((hoy - desde).days, 0)
             except ValueError:
                 dias_morosidad = 0
-
         if dias_min is not None and dias_morosidad < dias_min:
             continue
 
         factura_id = factura.get('id_factura')
-        pagos_aplicados = pagos_por_factura.get(factura_id, 0.0)
         rows.append({
             'id_factura': factura_id,
-            'cliente': cliente_nombre or 'Sin cliente',
-            'folio': factura.get('numero_factura'),
+            'cliente': cliente_nombre,
+            'folio': factura.get('folio'),
             'fecha': fecha_factura,
-            'monto': float(factura.get('total') or 0),
-            'pagos_aplicados': pagos_aplicados,
-            'saldo': float(factura.get('saldo') or 0),
+            'vencimiento': vencimiento,
+            'monto': float(factura.get('monto_total') or 0),
+            'pagos_aplicados': pagos_por_factura.get(factura_id, 0.0),
+            'notas_credito': notas_por_factura.get(factura_id, 0.0),
+            'saldo': float(factura.get('saldo_pendiente') or 0),
             'dias_morosidad': dias_morosidad,
         })
 
-    return sorted(rows, key=lambda item: (item.get('cliente') or '').lower())
+    return sorted(rows, key=lambda item: ((item.get('cliente') or '').lower(), -item['dias_morosidad']))
+
 
 @app.route('/informeProductosDespachados.html', methods=['GET', 'POST'])
 def informeProductosDespachados():
@@ -2021,21 +2249,26 @@ def informeCobranzaPDF():
         )
         styles = getSampleStyleSheet()
         title = Paragraph('Informe de cobranza', styles['Title'])
-        generated = Paragraph(f'Generado: {datetime.utcnow().strftime("%d-%m-%Y %H:%M:%S UTC")}', styles['BodyText'])
+        generated = Paragraph(f'Generado: {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S UTC")}', styles['BodyText'])
 
         table_data = [[
-            'Cliente', 'Folio', 'Fecha emisión', 'Monto', 'Pagos aplicados', 'Saldo', 'Días transcurridos'
+            'Cliente', 'Folio', 'Fecha emisión', 'Vencimiento', 'Monto', 'Pagos aplicados', 'Notas de crédito',
+            'Saldo', 'Días de mora'
         ]]
         for row in rows:
             table_data.append([
                 row.get('cliente') or 'Sin cliente',
-                row.get('folio') or '',
-                row.get('fecha') or '',
-                f"${row.get('monto', 0):,.2f}",
-                f"${row.get('pagos_aplicados', 0):,.2f}",
-                f"${row.get('saldo', 0):,.2f}",
+                str(row.get('folio') or ''),
+                formatear_fecha(row.get('fecha')),
+                formatear_fecha(row.get('vencimiento')) if row.get('vencimiento') else '-',
+                formatear_moneda(row.get('monto', 0)),
+                formatear_moneda(row.get('pagos_aplicados', 0)),
+                formatear_moneda(row.get('notas_credito', 0)),
+                formatear_moneda(row.get('saldo', 0)),
                 str(row.get('dias_morosidad', 0)),
             ])
+        table_data.append(['Total', '', '', '', '', '', '',
+                           formatear_moneda(sum(r.get('saldo', 0) for r in rows)), ''])
 
         table = Table(table_data, repeatRows=1)
         table.setStyle(TableStyle([
@@ -2044,6 +2277,7 @@ def informeCobranzaPDF():
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('GRID', (0, 0), (-1, -1), 0.7, colors.grey),
             ('ALIGN', (3, 1), (-1, -1), 'RIGHT'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
@@ -2118,12 +2352,17 @@ def cortes():
             else:
                 return "Error borrando corte", 500
         if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarcorteid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('cortes.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún corte con la ID buscada" 
+            # La función buscarcorteid de la base aplica to_tsvector a id_corte (bigint)
+            # y falla siempre; el ID es la clave, así que se busca directo con eq.
+            texto = (request.form.get("idBuscar") or '').strip()
+            if not texto.isdigit():
+                flash('Ingrese un ID de corte numérico.', 'error')
+                return redirect(url_for('cortes'))
+            datos = supabase.table('cortes').select('*').eq('id_corte', int(texto)).execute().data or []
+            if not datos:
+                flash(f'No se encontró ningún corte con el ID {texto}.', 'error')
+                return redirect(url_for('cortes'))
+            return render_template('cortes.html', datos=datos)
     else:
         response =(
             supabase.table("cortes").select("*").execute()
@@ -2131,680 +2370,725 @@ def cortes():
             
         return render_template('cortes.html', datos = response.data)
 
+def digito_verificador_rut(numero):
+    """Dígito verificador de un RUT chileno (módulo 11): '0'-'9' o 'K'."""
+    suma, factor = 0, 2
+    for digito in reversed(str(numero)):
+        suma += int(digito) * factor
+        factor = 2 if factor == 7 else factor + 1
+    resto = 11 - suma % 11
+    return {11: '0', 10: 'K'}.get(resto, str(resto))
+
+
+def _porcentaje(valor, nombre, obligatorio=False):
+    """Porcentaje 0-100 con dos decimales (formato llll/mmmm/nnnn del Documento 0)."""
+    texto = (valor or '').strip().replace(',', '.')
+    if not texto:
+        return (0 if obligatorio else None), None
+    try:
+        numero = round(float(texto), 2)
+    except ValueError:
+        return None, f'{nombre} debe ser un número entre 0 y 100.'
+    if not 0 <= numero <= 100:
+        return None, f'{nombre} debe estar entre 0 y 100.'
+    return numero, None
+
+
+def _leer_cliente_formulario(sufijo, id_cliente=None):
+    """Valida el modal de clientes (RF-001, CU-01.1 y CU-01.5). Devuelve (datos, error)."""
+    form = lambda campo: request.form.get(campo + sufijo)
+    nombre = (form('nombre') or '').strip()
+    if not nombre:
+        return None, 'El nombre del cliente es obligatorio.'
+    rut = re.sub(r'[.\s-]', '', form('rut') or '')
+    dv = (form('digVer') or '').strip().upper()
+    if not rut.isdigit():
+        return None, 'El RUT debe tener solo números (sin puntos ni dígito verificador).'
+    if not re.fullmatch(r'[0-9K]', dv):
+        return None, 'El dígito verificador debe ser un número del 0 al 9 o la letra K.'
+    if digito_verificador_rut(rut) != dv:
+        return None, f'El RUT {rut}-{dv} no es válido: el dígito verificador no coincide.'
+    repetidos = supabase.table('clientes').select('id_cliente').eq('rut', rut).execute().data or []
+    if any(str(c['id_cliente']) != str(id_cliente) for c in repetidos):
+        return None, f'Ya existe un cliente con el RUT {rut}-{dv}.'
+    codigo = _texto_o_nulo(form('codigo'))
+    if codigo:
+        mismos = supabase.table('clientes').select('id_cliente').eq('codigo', codigo).execute().data or []
+        if any(str(c['id_cliente']) != str(id_cliente) for c in mismos):
+            return None, f'Ya existe un cliente con el código {codigo}.'
+    datos = {
+        'codigo': codigo, 'rut': rut, 'digito_verificador': dv, 'nombre': nombre,
+        'abreviacion': _texto_o_nulo(form('abreviacion')), 'correo': _texto_o_nulo(form('correo')),
+        'telefono': _texto_o_nulo(form('telefono')), 'direccion': _texto_o_nulo(form('direccion')),
+        'comuna': _texto_o_nulo(form('comuna')), 'ciudad': _texto_o_nulo(form('ciudad')),
+        'condiciones_venta': _texto_o_nulo(form('condicionesVenta')),
+        'via_despacho': _texto_o_nulo(form('viaDespacho')),
+        'observaciones': _texto_o_nulo(form('observaciones')),
+        'id_zona_venta': _entero_positivo(form('idZonaVenta')),
+        'giro': _texto_o_nulo(form('giro')),
+        'telefono_2': _texto_o_nulo(form('telefono2')),
+        'id_vendedor': _entero_positivo(form('idVendedor')),
+    }
+    if datos['observaciones'] and len(datos['observaciones']) > 256:
+        return None, 'Las observaciones admiten hasta 256 caracteres.'
+    lista = (form('listaPrecios') or '1').strip()
+    if not lista.isdigit() or int(lista) < 1:
+        return None, 'El número de lista de precios debe ser un entero mayor o igual a 1.'
+    datos['lista_precios'] = int(lista)
+    # CU-01.1 excepción 4: el vendedor asociado debe existir.
+    if datos['id_vendedor'] and not supabase.table('vendedores').select('id_vendedor') \
+            .eq('id_vendedor', datos['id_vendedor']).execute().data:
+        return None, 'El vendedor seleccionado no está registrado.'
+    for campo, etiqueta, columna, obligatorio in (
+            ('descuento1', 'El descuento 1', 'descuento_1', True),
+            ('descuento2', 'El descuento 2', 'descuento_2', True),
+            ('descuento3', 'El descuento 3', 'descuento_3', True),
+            ('porComision', 'El porcentaje de comisión', 'porcentaje_comision', False),
+            ('porCobranza', 'El porcentaje de cobranza', 'porcentaje_cobranza', False)):
+        valor, error = _porcentaje(form(campo), etiqueta, obligatorio)
+        if error:
+            return None, error
+        datos[columna] = valor
+    return datos, None
+
+
 @app.route('/clientes.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def clientes():
-    zonaVenta_response = supabase.table("zona_venta").select("id_zona_venta, descripcion").execute()
+    # RF-001/002, CU-01.1 a CU-01.5 y CU-02. Mismo patrón que colores: _method
+    # post/put/delete, modales crear/actualizar/borrar y avisos con flash.
+    zonas = supabase.table("zona_venta").select("id_zona_venta, nombre, descripcion").execute().data or []
+    vendedores = supabase.table("vendedores").select("id_vendedor, nombre, codigo").order("nombre").execute().data or []
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            codigo = request.form['codigo']
-            rut = request.form['rut']
-            nom = request.form['nombre']
-            correo = request.form['correo']
-            tf = request.form['telefono']
-            direccion = request.form['direccion']
-            digVer = request.form['digVer']
-            abreviacion = request.form['abreviacion']
-            ciudad = request.form['ciudad']
-            comuna = request.form['comuna']
-            condVenta = request.form['condicionesVenta']
-            viaDes = request.form['viaDespacho']
-            porComi = request.form['porComision']
-            porCobra = request.form['porCobranza']
-            obs = request.form['observaciones']
-            idZona = request.form.get('idZonaVentaForm')
-            desc1 = request.form['descuento1']
-            desc2 = request.form['descuento2']
-            desc3 = request.form['descuento3']
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
-
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("clientes").insert({"rut": rut, "nombre": nom,
-                        "correo": correo, "telefono": tf, "direccion": direccion, 
-                        "digito_verificador": digVer,
-                        "abreviacion": abreviacion,"ciudad": ciudad,
-                        "comuna": comuna, "condiciones_venta": condVenta,
-                        "via_despacho": viaDes,"porcentaje_comision": porComi,
-                        "porcentaje_cobranza": porCobra,"observaciones": obs,
-                        "id_zona_venta": idZona, "descuento_1": desc1,
-                        "descuento_2": desc2, "descuento_3": desc3,
-                        "codigo": codigo
-                        }).execute()
-            )
-            if response.data:
-                flash("Cliente creado exitosamente", "success")
-                return redirect(url_for('clientes'))
+        metodo = request.form.get('_method')
+        if metodo == "post":
+            datos, error = _leer_cliente_formulario('Crear')
+            if error:
+                flash(error, "error")
+            elif supabase.table("clientes").insert(datos).execute().data:
+                flash(f"Cliente {datos['nombre']} creado exitosamente", "success")
             else:
                 flash("Error creando cliente", "error")
+            return redirect(url_for('clientes'))
+        if metodo in ("put", "delete"):
+            id_cliente = _entero_positivo(request.form.get('idClienteActualizar') or request.form.get('idClienteBorrar'))
+            actual = supabase.table("clientes").select("id_cliente, nombre").eq("id_cliente", id_cliente) \
+                .execute().data if id_cliente else []
+            if not actual:
+                flash("El cliente no existe", "error")
                 return redirect(url_for('clientes'))
-        if (metodo == "put"):
-            codigoAActualizar = request.form['codigoActualizar']
-            codigoNuevo = request.form['codigoActualizarNuevo']
-            rut = request.form['rutActualizar']
-            nom = request.form['nombreActualizar']
-            correo = request.form['correoActualizar']
-            tf = request.form['telefonoActualizar']
-            direccion = request.form['direccionActualizar']
-            digVer = request.form['digVerActualizar']
-            abreviacion = request.form['abreviacionActualizar']
-            ciudad = request.form['ciudadActualizar']
-            comuna = request.form['comunaActualizar']
-            condVenta = request.form['condicionesVentaActualizar']
-            viaDes = request.form['viaDespachoActualizar']
-            porComi = request.form['porComisionActualizar']
-            porCobra = request.form['porCobranzaActualizar']
-            obs = request.form['observacionesActualizar']
-            idZona = request.form.get('idZonaVentaActualizar')
-            desc1 = request.form['descuento1Actualizar']
-            desc2 = request.form['descuento2Actualizar']
-            desc3 = request.form['descuento3Actualizar']  
-            response = (
-                
-                supabase.table("clientes").update({"rut": rut, "nombre": nom,
-                        "correo": correo, "telefono": tf, "direccion": direccion, 
-                        "digito_verificador": digVer,
-                        "abreviacion": abreviacion,"ciudad": ciudad,
-                        "comuna": comuna, "condiciones_venta": condVenta,
-                        "via_despacho": viaDes,"porcentaje_comision": porComi,
-                        "porcentaje_cobranza": porCobra,"observaciones": obs,
-                        "id_zona_venta": idZona, "descuento_1": desc1,
-                        "descuento_2": desc2, "descuento_3": desc3,
-                        "codigo": codigoNuevo
-                        }).eq("codigo", codigoAActualizar).select("id_cliente").execute()
-            )
-            if response.data:
-                flash("Cliente actualizado exitosamente", "success")
-                return redirect(url_for('clientes'))
+            if metodo == "put":
+                datos, error = _leer_cliente_formulario('Actualizar', id_cliente)
+                if error:
+                    flash(error, "error")
+                else:
+                    supabase.table("clientes").update(datos).eq("id_cliente", id_cliente).execute()
+                    flash(f"Cliente {datos['nombre']} actualizado exitosamente", "success")
             else:
-                flash("Error actualizando cliente", "error")
-                return redirect(url_for('clientes'))
-        if (metodo == "delete"):
-            codigoABorrar = request.form['codigoClienteBorrar']
-            response = (
-                supabase.table("clientes").delete()
-                .eq("codigo", codigoABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Cliente borrado exitosamente", "success")
-                return redirect(url_for('clientes'))
-            else:
-                flash("Error borrando cliente", "error")
-                return redirect(url_for('clientes'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarclienteid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
-            else:
-                return "No se ha encontrado ningún cliente con la id buscada"
-        if (metodo == "buscarNombre"):
-            texto = request.form["nombreBuscar"]
-            response = supabase.rpc('buscarclientenombre', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
-            else:
-                return "No se ha encontrado ningún cliente con el nombre buscado"
-        if (metodo == "buscarAbreviacion"):
-            texto = request.form["abreviacionBuscar"]
-            response = supabase.rpc('buscarclienteabreviacion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
-            else:
-                return "No se ha encontrado ningún cliente con la abreviacion buscada" 
-        if (metodo == "buscarCodigo"):
-            texto = request.form["codigoBuscar"]
-            #TODO
-    else:
-        response =(
-            supabase.table("clientes").select("*").execute()
-        )
-            
-        return render_template('clientes.html', datos = response.data, zonasVenta = zonaVenta_response.data)
+                # CU-01.4 excepción 2: no se elimina un cliente con pedidos, facturas o pagos.
+                asociados = [texto for texto, tabla, columna in (
+                    ('pedidos', 'pedidos', 'cliente_asociado'), ('facturas', 'facturas', 'cliente_asociado'),
+                    ('pagos', 'pagos', 'cliente_asociado'))
+                    if supabase.table(tabla).select(columna).eq(columna, id_cliente).limit(1).execute().data]
+                if asociados:
+                    flash(f"El cliente {actual[0]['nombre']} tiene {', '.join(asociados)} asociados y no se puede eliminar",
+                          "error")
+                else:
+                    supabase.table("clientes").delete().eq("id_cliente", id_cliente).execute()
+                    flash(f"Cliente {actual[0]['nombre']} borrado exitosamente", "success")
+            return redirect(url_for('clientes'))
+        # Búsquedas antiguas por función de la base (se mantienen por compatibilidad).
+        busquedas = {'buscarID': ('buscarclienteid', 'idBuscar'), 'buscarNombre': ('buscarclientenombre', 'nombreBuscar'),
+                     'buscarAbreviacion': ('buscarclienteabreviacion', 'abreviacionBuscar')}
+        if metodo in busquedas:
+            funcion, campo = busquedas[metodo]
+            datos = supabase.rpc(funcion, {'textobusqueda': request.form.get(campo, '')}).execute().data or []
+            if not datos:
+                flash("No se encontraron clientes con ese criterio", "warning")
+            return render_template('clientes.html', datos=datos, zonasVenta=zonas, vendedores=vendedores, busqueda='')
+        return redirect(url_for('clientes'))
+
+    # RF-002 / CU-02: barra de búsqueda por nombre (también busca en RUT y abreviación).
+    busqueda = request.args.get('q', '').strip()
+    datos = supabase.table("clientes").select("*").order("nombre").execute().data or []
+    if busqueda:
+        texto = busqueda.lower()
+        datos = [c for c in datos if texto in ' '.join(str(c.get(k) or '') for k in ('nombre', 'rut', 'abreviacion', 'codigo')).lower()]
+    return render_template('clientes.html', datos=datos, zonasVenta=zonas, vendedores=vendedores, busqueda=busqueda)
+
 
 @app.route('/colores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def colores():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            codigo = request.form['codigoCrear']
-            descripcion = request.form['descripcionCrear']
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanCrear'))
+    # RF-003/004, CU-03.1 a CU-03.4.
+    return _crud_maestro('colores')
 
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
 
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
+def _cantidad_inventario(valor, etiqueta):
+    texto = (valor or '').strip()
+    if not texto:
+        return 0, None
+    if not texto.isdigit():
+        return None, f'{etiqueta} debe ser un número entero mayor o igual a cero.'
+    return int(texto), None
 
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("colores").insert({"codigo_color": codigo, "descripcion": descripcion,
-                        "codigo_ean": codigoEan
-                        }).execute()
-            )
-            if response.data:
-                return "Color creado exitosamente"
-            else:
-                return "Error creando color", 500
-        if (metodo == "put"):
-            idColor = request.form['idColorActualizar']
-            codigo = request.form['codigoActualizar']
-            descripcion = request.form['descripcionActualizar']
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanActualizar'))
-            response = (
 
-                supabase.table("colores").update({"codigo_color": codigo, "descripcion": descripcion,
-                        "codigo_ean": codigoEan
-                        }).eq("id_color", idColor).select("id_color").execute()
-            )
-            if response.data:
-                return "Color actualizado exitosamente"
-            else:
-                return "Error actualizando color", 500
-        if (metodo == "delete"):
-            idABorrar = request.form['idColorBorrar']
-            response = (
-                supabase.table("colores").delete()
-                .eq("id_color", idABorrar)
-                .execute()
-            )
-            if response.data:
-                return "Color borrado exitosamente"
-            else:
-                return "Error borrando color", 500
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarcolorid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('colores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún color con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarcolordescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('colores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún color con la descrpición buscada"
-        if (metodo == "buscarCodigo"):
-            texto = request.form["codigoBuscar"]
-            response = supabase.rpc('buscarcolorcodigo', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('colores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún color con el código buscado"
-    else:
-        response =(
-            supabase.table("colores").select("*").execute()
-        )
-            
-        return render_template('colores.html', datos = response.data)
-    
+def _inventario_de_bodega(bodegas):
+    """Existencias de la bodega elegida (?bodega=, por defecto la primera) con nombres
+    de producto, talla y color. Talla y color salen de las columnas de inventario."""
+    id_bodega = _entero_positivo(request.args.get('bodega'))
+    if id_bodega is None and bodegas:
+        id_bodega = bodegas[0]['id_bodega']
+    try:
+        filas = supabase.table('inventario').select('*').eq('id_bodega', id_bodega).execute().data or [] \
+            if id_bodega else []
+        disponible = True
+    except APIError as error:
+        if 'PGRST205' not in str(error):
+            raise
+        filas, disponible = [], False
+    tallas = {t['id_talla']: t.get('nombre') or str(t.get('talla'))
+              for t in supabase.table('tallas').select('id_talla, talla, nombre').execute().data or []}
+    colores = {c['id_color']: c.get('descripcion')
+               for c in supabase.table('colores').select('id_color, descripcion').execute().data or []}
+    variantes = supabase.table('producto_variantes').select('id_variante, activo').execute().data or []
+    descripcion = _variantes_por_id({v['id_variante'] for v in variantes} | {f.get('id_variante') for f in filas} - {None})
+    for fila in filas:
+        fila['producto'] = descripcion.get(fila.get('id_variante'), {}).get('producto') or f"Variante {fila.get('id_variante')}"
+        fila['talla'] = tallas.get(fila.get('id_talla'), '')
+        fila['color'] = colores.get(fila.get('id_color'), '')
+    filas.sort(key=lambda f: (str(f['producto']), str(f['color']), str(f['talla'])))
+    opciones = sorted(({'id_variante': v['id_variante'], **descripcion.get(v['id_variante'], {})}
+                       for v in variantes if v.get('activo') is not False),
+                      key=lambda v: (str(v.get('producto') or ''), str(v.get('color') or ''), str(v.get('talla') or '')))
+    return {'inventario': filas, 'inventario_disponible': disponible, 'bodega_actual': id_bodega,
+            'variantes': opciones,
+            'total_unidades': sum(int(f.get('cantidad') or 0) for f in filas),
+            'total_defectuosas': sum(int(f.get('cantidad_defectuosa') or 0) for f in filas)}
+
+
 @app.route('/bodegas.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def bodegas():
-    if request.method == 'POST':
+    # RF-005/006 (CU-05.1 a 05.4) con el CRUD de maestros simples, y RF-037: inventario
+    # de la bodega elegida (tabla inventario: id_bodega, id_variante, id_talla, id_color,
+    # cantidad, cantidad_defectuosa).
+    if request.method == 'POST' and (request.form.get('_method') or '').startswith('inventario_'):
         metodo = request.form['_method']
-        if metodo == "inventario_post":
-            response = supabase.table("inventario").insert({
-                "id_bodega": request.form['idBodegaInventario'],
-                "id_producto": request.form['idProductoInventario'],
-                "id_talla": request.form['idTallaInventario'],
-                "id_color": request.form['idColorInventario'],
-                "cantidad": request.form['cantidadInventario']
+        usuario = g.usuario.get('nombre_usuario') or 'Admin'
+        id_bodega = _entero_positivo(request.form.get('idBodegaInventario'))
+        volver = redirect(url_for('bodegas', bodega=id_bodega) if id_bodega else url_for('bodegas'))
+        cantidad, error = _cantidad_inventario(request.form.get('cantidadInventario'), 'La cantidad')
+        defectuosa, error_def = _cantidad_inventario(request.form.get('cantidadDefectuosaInventario'),
+                                                     'La cantidad defectuosa')
+        if metodo == 'inventario_post':
+            id_variante = _entero_positivo(request.form.get('idVarianteInventario'))
+            variante = supabase.table('producto_variantes').select('id_variante, id_talla, id_color') \
+                .eq('id_variante', id_variante).execute().data if id_variante else []
+            if not id_bodega or not variante:
+                error = 'Seleccione la bodega y el producto (color y talla).'
+            elif supabase.table('inventario').select('id_inventario').eq('id_bodega', id_bodega) \
+                    .eq('id_variante', id_variante).execute().data:
+                error = 'Ese producto ya tiene existencias en la bodega: edita su fila.'
+            if error or error_def:
+                flash(error or error_def, 'error')
+                return volver
+            # Talla y color se toman de la variante, para que coincidan con ella.
+            supabase.table('inventario').insert({
+                'id_bodega': id_bodega, 'id_variante': id_variante, 'id_talla': variante[0].get('id_talla'),
+                'id_color': variante[0].get('id_color'), 'cantidad': cantidad, 'cantidad_defectuosa': defectuosa,
+                'usuario_actualizacion': usuario,
             }).execute()
-            if response.data:
-                return redirect(url_for('bodegas'))
-            return "Error creando registro de inventario", 500
-        if metodo == "inventario_put":
-            idInventario = request.form['idInventarioActualizar']
-            response = supabase.table("inventario").update({
-                "id_bodega": request.form['idBodegaInventarioActualizar'],
-                "id_producto": request.form['idProductoInventarioActualizar'],
-                "id_talla": request.form['idTallaInventarioActualizar'],
-                "id_color": request.form['idColorInventarioActualizar'],
-                "cantidad": request.form['cantidadInventarioActualizar']
-            }).eq("id_inventario", idInventario).select("id_inventario").execute()
-            if response.data:
-                return redirect(url_for('bodegas'))
-            return "Error actualizando registro de inventario", 500
-        if metodo == "inventario_delete":
-            response = supabase.table("inventario").delete().eq(
-                "id_inventario", request.form['idInventarioBorrar']
-            ).execute()
-            if response.data:
-                return redirect(url_for('bodegas'))
-            return "Error borrando registro de inventario", 500
-        if (metodo == "post"):
-            descripcion = request.form['descripcionCrear']
+            flash('Existencias registradas en la bodega', 'success')
+            return volver
+        id_inventario = _entero_positivo(request.form.get('idInventario'))
+        fila = supabase.table('inventario').select('id_inventario, id_bodega').eq('id_inventario', id_inventario) \
+            .execute().data if id_inventario else []
+        if not fila:
+            flash('El registro de inventario no existe', 'error')
+            return volver
+        volver = redirect(url_for('bodegas', bodega=fila[0]['id_bodega']))
+        if metodo == 'inventario_put':
+            if error or error_def:
+                flash(error or error_def, 'error')
+                return volver
+            supabase.table('inventario').update({'cantidad': cantidad, 'cantidad_defectuosa': defectuosa,
+                                                 'usuario_actualizacion': usuario}) \
+                .eq('id_inventario', id_inventario).execute()
+            flash('Existencias actualizadas', 'success')
+        elif metodo == 'inventario_delete':
+            supabase.table('inventario').delete().eq('id_inventario', id_inventario).execute()
+            flash('Registro de inventario borrado', 'success')
+        return volver
+    return _crud_maestro('bodegas', contexto=_inventario_de_bodega)
 
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("bodegas").insert({"descripcion": descripcion
-                        }).execute()
-            )
-            if response.data:
-                flash("Bodega creada exitosamente", "success")
-                return redirect(url_for('bodegas'))
-            else:
-                flash("Error creando bodega", "error")
-                return redirect(url_for('bodegas'))
-        if (metodo == "put"):
-            idBodega = request.form['IdBodegaActualizar']
-            descripcion = request.form['descripcionActualizar'] 
-            response = (
-                
-                supabase.table("bodegas").update({"descripcion": descripcion
-                        }).eq("id_bodega", idBodega).select("id_bodega").execute()
-            )
-            if response.data:
-                flash("Bodega actualizada exitosamente", "success")
-                return redirect(url_for('bodegas'))
-            else:
-                flash("Error actualizando bodega", "error")
-                return redirect(url_for('bodegas'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idBodegaBorrar']
-            response = (
-                supabase.table("bodegas").delete()
-                .eq("id_bodega", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Bodega borrada exitosamente", "success")
-                return redirect(url_for('bodegas'))
-            else:
-                flash("Error borrando bodega", "error")
-                return redirect(url_for('bodegas'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarbodegaid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('bodegas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna bodega con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarbodegadescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('bodegas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna bodega con la descrpición buscada"
-    else:
-        bodegas_response = supabase.table("bodegas").select("*").execute()
-        inventario_disponible = True
-        try:
-            inventario_response = supabase.table("inventario").select("*").execute()
-        except APIError as error:
-            if "PGRST205" not in str(error):
-                raise
-            inventario_data = []
-            inventario_disponible = False
-        else:
-            inventario_data = inventario_response.data
-        productos_response = supabase.table("productos").select("*").execute()
-        tallas_response = supabase.table("tallas").select("*").execute()
-        colores_response = supabase.table("colores").select("*").execute()
-
-        return render_template(
-            'bodegas.html',
-            datos=bodegas_response.data,
-            inventario=inventario_data,
-            inventario_disponible=inventario_disponible,
-            productos=productos_response.data,
-            tallas=tallas_response.data,
-            colores=colores_response.data
-        )
 
 @app.route('/vendedores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def vendedores():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            nombre = request.form['nombreCrear']
-            rut = request.form['rutCrear']
-            digVer = request.form['digVerCrear']
-            porComi = request.form['porComiCrear']
-            response = (
+    # RF-007/008, CU-07.1 a CU-07.4.
+    return _crud_maestro('vendedores')
 
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("vendedores").insert({"rut": rut, "nombre": nombre,
-                        "digito_verificador": digVer, "porcentaje_comision": porComi
-                        }).execute()
-            )
-            if response.data:
-                flash("Vendedor creado exitosamente", "success")
-                return redirect(url_for('vendedores'))
+
+def _validar_rut_vendedor(datos):
+    # CU-07.1 excepción 1: RUT con dígito verificador correcto (módulo 11).
+    if datos.get('digito_verificador') and digito_verificador_rut(datos['rut']) != datos['digito_verificador']:
+        return f"El RUT {datos['rut']}-{datos['digito_verificador']} no es válido: el dígito verificador no coincide."
+    return None
+
+
+MAESTROS_SIMPLES = {
+    'colores': {
+        'tabla': 'colores', 'clave': 'id_color', 'endpoint': 'colores', 'modulo': 'colores',
+        'plantilla': 'colores.html', 'singular': 'color', 'plural': 'colores', 'articulo': 'el',
+        'id_form': 'idColor', 'principal': 'descripcion',
+        'campos': [
+            {'columna': 'descripcion', 'form': 'descripcion', 'etiqueta': 'Descripción', 'obligatorio': True, 'max': 32},
+            {'columna': 'codigo_color', 'form': 'codigo', 'etiqueta': 'Código de color', 'max': 8, 'unico': True,
+             'ayuda': 'Hasta 8 caracteres (glosario dddd)'},
+            {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN del color', 'max': 4,
+             'numerico': True, 'ean_parte': 'color', 'ayuda': 'Solo números, hasta 4 dígitos (ej. 0001); único'},
+        ],
+        'en_uso': [('producto_variantes', 'id_color', 'variantes de producto'), ('productos', 'color', 'productos'),
+                   ('inventario', 'id_color', 'inventario')],
+    },
+    'vendedores': {
+        'tabla': 'vendedores', 'clave': 'id_vendedor', 'endpoint': 'vendedores', 'modulo': 'vendedores',
+        'plantilla': 'vendedores.html', 'singular': 'vendedor', 'plural': 'vendedores', 'articulo': 'el',
+        'id_form': 'idVendedor', 'principal': 'nombre', 'validar': _validar_rut_vendedor,
+        'campos': [
+            {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre', 'obligatorio': True, 'max': 64},
+            {'columna': 'codigo', 'form': 'codigo', 'etiqueta': 'Código de vendedor', 'max': 3, 'unico': True,
+             'ayuda': 'Hasta 3 caracteres (glosario ffff)'},
+            {'columna': 'rut', 'form': 'rut', 'etiqueta': 'RUT', 'obligatorio': True, 'max': 9, 'numerico': True,
+             'rut': True, 'unico': True, 'ayuda': 'Sin puntos ni dígito verificador'},
+            {'columna': 'digito_verificador', 'form': 'digVer', 'etiqueta': 'Dígito verificador', 'obligatorio': True,
+             'max': 1, 'mayusculas': True},
+            {'columna': 'porcentaje_comision', 'form': 'porComi', 'etiqueta': 'Comisión', 'porcentaje': True},
+        ],
+        'en_uso': [('pedidos', 'vendedor_asociado', 'pedidos')],
+    },
+    'tallas': {
+        'tabla': 'tallas', 'clave': 'id_talla', 'endpoint': 'tallas', 'modulo': 'tallas',
+        'plantilla': 'tallas.html', 'singular': 'talla', 'plural': 'tallas', 'articulo': 'la',
+        'id_form': 'idTalla', 'principal': 'talla',
+        'campos': [
+            {'columna': 'talla', 'form': 'talla', 'etiqueta': 'Código de talla', 'obligatorio': True, 'max': 2,
+             'unico': True, 'ayuda': 'Hasta 2 caracteres, por ejemplo S, M, 38'},
+            {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre en la etiqueta', 'max': 16,
+             'ayuda': 'Lo que se imprime en la etiqueta EAN (S, M, L, 38...)'},
+            {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN de la talla', 'max': 3,
+             'numerico': True, 'ean_parte': 'talla', 'ayuda': 'Solo números, hasta 3 dígitos (ej. 010); único'},
+        ],
+        'en_uso': [('producto_variantes', 'id_talla', 'variantes de producto'), ('productos', 'talla', 'productos'),
+                   ('inventario', 'id_talla', 'inventario')],
+    },
+    'zonas_venta': {
+        'tabla': 'zona_venta', 'clave': 'id_zona_venta', 'endpoint': 'zonasVenta', 'modulo': 'zonas_venta',
+        'plantilla': 'zonasVenta.html', 'singular': 'zona de venta', 'plural': 'zonas de venta', 'articulo': 'la',
+        'id_form': 'idZonaVenta', 'principal': 'nombre',
+        'campos': [
+            {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre', 'obligatorio': True, 'max': 64},
+            {'columna': 'codigo', 'form': 'codigo', 'etiqueta': 'Código', 'max': 3, 'unico': True,
+             'ayuda': 'Hasta 3 caracteres (glosario gggg)'},
+            {'columna': 'descripcion', 'form': 'descripcion', 'etiqueta': 'Descripción', 'obligatorio': True, 'max': 64,
+             'ayuda': 'Regiones o comunas que abarca'},
+        ],
+        'en_uso': [('clientes', 'id_zona_venta', 'clientes')],
+    },
+    'bodegas': {
+        'tabla': 'bodegas', 'clave': 'id_bodega', 'endpoint': 'bodegas', 'modulo': 'bodegas',
+        'plantilla': 'bodegas.html', 'singular': 'bodega', 'plural': 'bodegas', 'articulo': 'la',
+        'id_form': 'idBodega', 'principal': 'descripcion',
+        'campos': [
+            {'columna': 'descripcion', 'form': 'descripcion', 'etiqueta': 'Descripción', 'obligatorio': True, 'max': 64},
+            {'columna': 'codigo', 'form': 'codigo', 'etiqueta': 'Código de bodega', 'max': 16, 'unico': True},
+        ],
+        # CU-05.4 excepción 1: no se elimina una bodega con stock (ni con despachos).
+        'en_uso': [('inventario', 'id_bodega', 'inventario'), ('despachos', 'id_bodega', 'despachos')],
+    },
+}
+
+
+def _digitos_ean(parte):
+    """Largo máximo del código EAN de un maestro ('producto', 'color' o 'talla'), según el
+    formato configurado en parametros_sistema (incremento3_ean.sql: 3, 4 y 3 por defecto)."""
+    defecto = {'producto': 3, 'color': 4, 'talla': 3}[parte]
+    try:
+        return int(obtener_parametros_sistema().get(f'ean_digitos_{parte}') or defecto)
+    except (APIError, TypeError, ValueError):
+        return defecto
+
+
+def _validar_codigo_ean_maestro(tabla, clave, parte, codigo, id_registro=None):
+    """Código EAN de producto, color o talla: solo números, largo del formato y único en su
+    maestro; si dos registros comparten código, sus variantes tendrían el mismo EAN (CU-15.5)."""
+    if not codigo.isdigit():
+        return 'El código EAN solo puede tener números.'
+    largo = _digitos_ean(parte)
+    if len(codigo) > largo:
+        return f'El código EAN del {parte} admite hasta {largo} dígitos.'
+    mismos = supabase.table(tabla).select(clave).eq('codigo_ean', codigo).execute().data or []
+    if any(str(f[clave]) != str(id_registro) for f in mismos):
+        otro = 'otra' if parte == 'talla' else 'otro'
+        return f'Ya hay {otro} {parte} con el código EAN {codigo}: sus variantes tendrían el mismo código de barras.'
+    return None
+
+
+def _leer_maestro_formulario(maestro, sufijo, id_registro=None):
+    """Valida los campos de un maestro simple. Devuelve (datos, error)."""
+    datos = {}
+    for campo in maestro['campos']:
+        valor = (request.form.get(campo['form'] + sufijo) or '').strip()
+        if campo.get('rut'):
+            valor = re.sub(r'[.\s-]', '', valor)
+        if campo.get('mayusculas'):
+            valor = valor.upper()
+        etiqueta = campo['etiqueta']
+        if not valor:
+            if campo.get('obligatorio'):
+                return None, f'Complete el campo «{etiqueta}».'
+            datos[campo['columna']] = None
+            continue
+        if campo.get('ean_parte'):
+            error = _validar_codigo_ean_maestro(maestro['tabla'], maestro['clave'], campo['ean_parte'], valor, id_registro)
+            if error:
+                return None, error
+            datos[campo['columna']] = valor
+            continue
+        if campo.get('max') and len(valor) > campo['max']:
+            return None, f'«{etiqueta}» admite hasta {campo["max"]} caracteres.'
+        if campo.get('numerico') and not valor.isdigit():
+            return None, f'«{etiqueta}» solo puede tener números.'
+        if campo.get('porcentaje'):
+            valor, error = _porcentaje(valor, f'«{etiqueta}»')
+            if error:
+                return None, error
+        if campo.get('unico'):
+            mismos = supabase.table(maestro['tabla']).select(maestro['clave']) \
+                .eq(campo['columna'], valor).execute().data or []
+            if any(str(f[maestro['clave']]) != str(id_registro) for f in mismos):
+                return None, f'Ya existe {maestro["articulo"]} {maestro["singular"]} con {etiqueta.lower()} {valor}.'
+        datos[campo['columna']] = valor
+    if maestro.get('validar'):
+        error = maestro['validar'](datos)
+        if error:
+            return None, error
+    return datos, None
+
+
+def _mensaje_error_maestro(maestro, error):
+    if error.code == '23505':
+        return f'Ya existe {maestro["articulo"]} {maestro["singular"]} con esos datos.'
+    if error.code == '23514':
+        return 'Hay un campo con un formato no permitido (los códigos EAN solo admiten números).'
+    if error.code == '23503':
+        return f'{maestro["articulo"].capitalize()} {maestro["singular"]} está en uso y no se puede eliminar.'
+    return error.message or 'No se pudo guardar el registro.'
+
+
+def _crud_maestro(nombre, contexto=None):
+    maestro = MAESTROS_SIMPLES[nombre]
+    tabla, clave, singular = maestro['tabla'], maestro['clave'], maestro['singular']
+    sufijo = 'a' if maestro['articulo'] == 'la' else 'o'  # creada / creado
+    if request.method == 'POST':
+        metodo = request.form.get('_method', '')
+        if metodo.startswith('buscar'):
+            # Las búsquedas antiguas por POST pasan a la barra de búsqueda (GET ?q=).
+            texto = next((v for k, v in request.form.items() if k.endswith('Buscar')), '')
+            return redirect(url_for(maestro['endpoint'], q=texto))
+        try:
+            if metodo == 'post':
+                datos, error = _leer_maestro_formulario(maestro, 'Crear')
+                if error:
+                    flash(error, 'error')
+                elif supabase.table(tabla).insert(datos).execute().data:
+                    flash(f'{singular.capitalize()} {datos[maestro["principal"]]} cread{sufijo} exitosamente', 'success')
+                else:
+                    flash(f'Error creando {singular}', 'error')
+                return redirect(url_for(maestro['endpoint']))
+            id_registro = _entero_positivo(request.form.get(maestro['id_form'] + 'Actualizar')
+                                           or request.form.get(maestro['id_form'] + 'Borrar'))
+            actual = supabase.table(tabla).select('*').eq(clave, id_registro).execute().data if id_registro else []
+            if metodo not in ('put', 'delete'):
+                return redirect(url_for(maestro['endpoint']))
+            if not actual:
+                flash(f'{maestro["articulo"].capitalize()} {singular} no existe', 'error')
+                return redirect(url_for(maestro['endpoint']))
+            nombre_registro = actual[0].get(maestro['principal'])
+            if metodo == 'put':
+                datos, error = _leer_maestro_formulario(maestro, 'Actualizar', id_registro)
+                if error:
+                    flash(error, 'error')
+                else:
+                    supabase.table(tabla).update(datos).eq(clave, id_registro).execute()
+                    flash(f'{singular.capitalize()} {datos[maestro["principal"]]} actualizad{sufijo} exitosamente', 'success')
             else:
-                flash("Error creando vendedor", "error")
-                return redirect(url_for('vendedores'))
-        if (metodo == "put"):
-            idVendedor = request.form['IdVendedorActualizar']
-            nombre = request.form['nombreActualizar']
-            rut = request.form['rutActualizar']
-            digVer = request.form['digVerActualizar']
-            porComi = request.form['porComiActualizar']
-            response = (
-                
-                supabase.table("vendedores").update({"rut": rut, "nombre": nombre,
-                        "digito_verificador": digVer, "porcentaje_comision": porComi
-                        }).eq("id_vendedor", idVendedor).select("id_vendedor").execute()
-            )
-            if response.data:
-                flash("Vendedor actualizado exitosamente", "success")
-                return redirect(url_for('vendedores'))
-            else:
-                flash("Error actualizando vendedor", "error")
-                return redirect(url_for('vendedores'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idVendedorBorrar']
-            response = (
-                supabase.table("vendedores").delete()
-                .eq("id_vendedor", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Vendedor borrado exitosamente", "success")
-                return redirect(url_for('vendedores'))
-            else:
-                flash("Error borrando vendedor", "error")
-                return redirect(url_for('vendedores'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarvendedorid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('vendedores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún vendedor con la id buscada"
-        if (metodo == "buscarNombre"):
-            texto = request.form["nombreBuscar"]
-            response = supabase.rpc('buscarvendedornombre', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('vendedores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún vendedor con el nombre buscado"
-    else:
-        response =(
-            supabase.table("vendedores").select("*").execute()
-        )
-            
-        return render_template('vendedores.html', datos = response.data)
+                en_uso = [texto for t, columna, texto in maestro['en_uso']
+                          if supabase.table(t).select(columna).eq(columna, id_registro).limit(1).execute().data]
+                if en_uso:
+                    flash(f'{maestro["articulo"].capitalize()} {singular} {nombre_registro} está en uso en '
+                          f'{", ".join(en_uso)} y no se puede eliminar', 'error')
+                else:
+                    supabase.table(tabla).delete().eq(clave, id_registro).execute()
+                    flash(f'{singular.capitalize()} {nombre_registro} borrad{sufijo} exitosamente', 'success')
+        except APIError as error:
+            flash(_mensaje_error_maestro(maestro, error), 'error')
+        return redirect(url_for(maestro['endpoint']))
+
+    busqueda = request.args.get('q', '').strip()
+    datos = supabase.table(tabla).select('*').order(maestro['principal']).execute().data or []
+    if busqueda:
+        texto = busqueda.lower()
+        datos = [f for f in datos if any(texto in str(f.get(c['columna']) or '').lower() for c in maestro['campos'])]
+    return render_template(maestro['plantilla'], datos=datos, maestro=maestro, busqueda=busqueda,
+                           **(contexto(datos) if contexto else {}))
+
 
 @app.route('/zonasVenta.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def zonasVenta():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            nombre = request.form['nombreCrear'].strip()
-            descripcion = request.form['descripcionCrear']
-            codigo = request.form['codigoCrear']
+    # RF-009/010, CU-09.1 a CU-09.4. La columna nombre se muestra primero.
+    return _crud_maestro('zonas_venta')
 
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
-
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("zona_venta").insert({"nombre": nombre,
-                        "descripcion": descripcion, "codigo": codigo
-                        }).execute()
-            )
-            if response.data:
-                flash("Zona de venta creada exitosamente", "success")
-                return redirect(url_for('zonasVenta'))
-            else:
-                flash("Error creando zona de venta", "error")
-                return redirect(url_for('zonasVenta'))
-        if (metodo == "put"):
-            idZonaVenta = request.form['IdZonaVentaActualizar']
-            nombre = request.form['nombreActualizar'].strip()
-            descripcion = request.form['descripcionActualizar']
-            codigo = request.form['codigoActualizar']
-            response = (
-
-                supabase.table("zona_venta").update({"nombre": nombre,
-                        "descripcion": descripcion, "codigo": codigo
-                        }).eq("id_zona_venta", idZonaVenta).select("id_zona_venta").execute()
-            )
-            if response.data:
-                flash("Zona de venta actualizada exitosamente", "success")
-                return redirect(url_for('zonasVenta'))
-            else:
-                flash("Error actualizando zona de venta", "error")
-                return redirect(url_for('zonasVenta'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idZonaVentaBorrar']
-            response = (
-                supabase.table("zona_venta").delete()
-                .eq("id_zona_venta", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Zona de venta borrada exitosamente", "success")
-                return redirect(url_for('zonasVenta'))
-            else:
-                flash("Error borrando zona de venta", "error")
-                return redirect(url_for('zonasVenta'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarzonaventaid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('zonasVenta.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna zona de venta con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarzonaventadescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('zonasVenta.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna zona de venta con la descripción buscada"
-        if (metodo == "buscarCodigo"):
-            texto = request.form["codigoBuscar"]
-            #TODO
-    else:
-        response =(
-            supabase.table("zona_venta").select("*").execute()
-        )
-            
-        return render_template('zonasVenta.html', datos = response.data)
 
 @app.route('/tallas.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def tallas():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            talla = request.form['tallaCrear']
-            nombre = _texto_o_nulo(request.form.get('nombreCrear'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanCrear'))
+    # RF-011/012, CU-11.1 a CU-11.4.
+    return _crud_maestro('tallas')
 
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
 
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
+def _mensaje_error_producto(error, accion):
+    return {
+        "23503": "El color o talla seleccionado no existe",
+        "22P02": "El color o talla seleccionado no es válido",
+        "23505": "Ya existe un producto con ese código de artículo",
+        "23514": "El código EAN del producto solo puede tener números",
+    }.get(error.code, error.message if error.code == "P0001" else f"No se pudo {accion} el producto")
 
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("tallas").insert({"talla": talla, "nombre": nombre, "codigo_ean": codigoEan
-                        }).execute()
-            )
-            if response.data:
-                return "Talla creada exitosamente"
-            else:
-                return "Error creando talla", 500
-        if (metodo == "put"):
-            idTalla = request.form['IdTallaActualizar']
-            talla = request.form['tallaActualizar']
-            nombre = _texto_o_nulo(request.form.get('nombreActualizar'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanActualizar'))
-            response = (
 
-                supabase.table("tallas").update({"talla": talla, "nombre": nombre, "codigo_ean": codigoEan
-                        }).eq("id_talla", idTalla).select("id_talla").execute()
-            )
-            if response.data:
-                return "Talla actualizada exitosamente"
-            else:
-                return "Error actualizando talla", 500
-        if (metodo == "delete"):
-            idABorrar = request.form['idTallaBorrar']
-            response = (
-                supabase.table("tallas").delete()
-                .eq("id_talla", idABorrar)
-                .execute()
-            )
-            if response.data:
-                return "Talla borrada exitosamente"
-            else:
-                return "Error borrando talla", 500
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscartallaid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('tallas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna talla con la id buscada"
-        if (metodo == "buscarNTalla"):
-            texto = request.form["nTallaBuscar"]
-            response = supabase.rpc('buscartallanumerotalla', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('tallas.html', datos = response.data)
-            else:
-                return "No se ha encontrado ninguna talla con el número de talla buscado"
-    else:
-        response =(
-            supabase.table("tallas").select("*").execute()
-        )
-            
-        return render_template('tallas.html', datos = response.data)
+def _leer_producto_formulario(sufijo, id_producto=None):
+    codigo_ean = _texto_o_nulo(request.form.get('codigoEan' + sufijo))
+    if codigo_ean:
+        error = _validar_codigo_ean_maestro('productos', 'id_producto', 'producto', codigo_ean, id_producto)
+        if error:
+            return None, error
+    descripcion = (request.form.get('descripcion' + sufijo) or '').strip()
+    if not descripcion:
+        return None, 'La descripción del producto es obligatoria.'
+    if len(descripcion) > 64:
+        return None, 'La descripción admite hasta 64 caracteres.'
+    precio = (request.form.get('precio' + sufijo) or '').strip()
+    if precio and (not precio.isdigit()):
+        return None, 'El precio debe ser un número entero mayor o igual a cero.'
+    codigo = _texto_o_nulo(request.form.get('codigo' + sufijo))
+    if codigo and len(codigo) > 16:
+        return None, 'El código de producto admite hasta 16 caracteres.'
+    return {
+        'descripcion': descripcion,
+        'abreviacion': _texto_o_nulo(request.form.get('abreviacion' + sufijo)),
+        'color': _entero_positivo(request.form.get('idColor' + sufijo)),
+        'talla': _entero_positivo(request.form.get('idTalla' + sufijo)),
+        'precio': int(precio) if precio else None,
+        'codigo': codigo,
+        'codigo_ean': codigo_ean,
+    }, None
+
+
+def _combinaciones_marcadas(prefijo):
+    """Combinaciones color-talla marcadas en la grilla (checkbox prefijo con valor
+    'idColor-idTalla') con su precio (campo 'precio' + prefijo + '_idColor-idTalla')."""
+    combinaciones = []
+    for valor in request.form.getlist(prefijo):
+        partes = valor.split('-')
+        if len(partes) != 2 or not all(p.isdigit() for p in partes):
+            continue
+        precio = (request.form.get(f'precio{prefijo.capitalize()}_{valor}') or '').strip()
+        if precio and not precio.isdigit():
+            raise ValueError('El precio de cada variante debe ser un número entero mayor o igual a cero.')
+        combinaciones.append((int(partes[0]), int(partes[1]), int(precio) if precio else None))
+    return combinaciones
+
+
+def _crear_variantes(id_producto, combinaciones, precio_base):
+    """Crea (o reactiva) cada variante con obtener_variante(), que es la que le asigna
+    el código EAN (trigger fn_variante_ean / fn_generar_ean, incremento3_ean.sql)."""
+    for id_color, id_talla, precio in combinaciones:
+        variante = supabase.rpc('obtener_variante', {
+            'p_id_producto': id_producto, 'p_id_color': id_color, 'p_id_talla': id_talla,
+        }).execute().data or []
+        if variante:
+            supabase.table('producto_variantes').update({
+                'precio_venta': precio if precio is not None else (precio_base or 0), 'activo': True,
+            }).eq('id_variante', variante[0]['id_variante']).execute()
+    return len(combinaciones)
+
 
 @app.route('/productos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def productos():
+    # RF-013/014 y CU-13.1 a CU-13.5. Cada combinación talla/color con su precio es
+    # una fila de producto_variantes; las variantes no se borran, se desactivan.
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            descripcion = request.form['descripcionCrear']
-            abreviacion = request.form['abreviacionCrear']
-            idColor = request.form['idColorCrear']
-            precio = request.form['precioCrear']
-            idTalla = request.form['idTallaCrear']
-            codigo = _texto_o_nulo(request.form.get('codigoCrear'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanCrear'))
-
+        metodo = request.form.get('_method')
+        if metodo == "post":
+            datos, error = _leer_producto_formulario('Crear')
             try:
-                response = (
-                    supabase.table("productos").insert({"abreviacion": abreviacion, "descripcion": descripcion,
-                            "color": idColor, "precio": precio, "talla": idTalla,
-                            "codigo": codigo, "codigo_ean": codigoEan
-                            }).execute()
-                )
-            except APIError as error:
-                if error.code == "23503":
-                    mensaje = "El color o talla seleccionado no existe"
-                elif error.code == "22P02":
-                    mensaje = "El color o talla seleccionado no es válido"
-                elif error.code == "23505":
-                    mensaje = "Ya existe un producto con ese código de artículo"
-                elif error.code == "23514":
-                    mensaje = "El código EAN del producto solo puede tener números"
-                else:
-                    mensaje = "No se pudo crear el producto"
-                flash(mensaje, "error")
+                combinaciones = _combinaciones_marcadas('variante')
+            except ValueError as e:
+                error = error or str(e)
+            if error:
+                flash(error, "error")
                 return redirect(url_for('productos'))
-            if response.data:
-                flash("Producto creado exitosamente", "success")
+            try:
+                creado = supabase.table("productos").insert(datos).execute().data
+            except APIError as e:
+                flash(_mensaje_error_producto(e, 'crear'), "error")
                 return redirect(url_for('productos'))
-            else:
+            if not creado:
                 flash("Error creando producto", "error")
                 return redirect(url_for('productos'))
-        if (metodo == "put"):
-            idProducto = request.form['IdProductoActualizar']
-            descripcion = request.form['descripcionActualizar']
-            abreviacion = request.form['abreviacionActualizar']
-            idColor = request.form['idColorActualizar']
-            precio = request.form['precioActualizar']
-            idTalla = request.form['idTallaActualizar']
-            codigo = _texto_o_nulo(request.form.get('codigoActualizar'))
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanActualizar'))
+            n = _crear_variantes(creado[0]['id_producto'], combinaciones, datos['precio'])
+            flash(f"Producto creado exitosamente{f' con {n} variante' + ('s' if n != 1 else '') if n else ''}", "success")
+            return redirect(url_for('productos'))
+
+        id_producto = _entero_positivo(request.form.get('IdProductoActualizar') or request.form.get('idProductoBorrar')
+                                       or request.form.get('idProductoVariantes'))
+        actual = supabase.table("productos").select("id_producto, descripcion, precio") \
+            .eq("id_producto", id_producto).execute().data if id_producto else []
+        if metodo in ("put", "delete", "variantes") and not actual:
+            flash("El producto no existe", "error")
+            return redirect(url_for('productos'))
+
+        if metodo == "put":
+            datos, error = _leer_producto_formulario('Actualizar', id_producto)
+            if error:
+                flash(error, "error")
+                return redirect(url_for('productos'))
             try:
-                response = (
-                    supabase.table("productos").update({"abreviacion": abreviacion, "descripcion": descripcion,
-                            "color": idColor, "precio": precio, "talla": idTalla,
-                            "codigo": codigo, "codigo_ean": codigoEan}).eq("id_producto", idProducto).select("id_producto").execute()
-                )
-            except APIError as error:
-                if error.code == "23503":
-                    mensaje = "El color o talla seleccionado no existe"
-                elif error.code == "22P02":
-                    mensaje = "El color o talla seleccionado no es válido"
-                elif error.code == "23505":
-                    mensaje = "Ya existe un producto con ese código de artículo"
-                elif error.code == "23514":
-                    mensaje = "El código EAN del producto solo puede tener números"
-                elif error.code == "P0001":
-                    mensaje = error.message
-                else:
-                    mensaje = "No se pudo actualizar el producto"
-                flash(mensaje, "error")
+                supabase.table("productos").update(datos).eq("id_producto", id_producto).execute()
+            except APIError as e:
+                flash(_mensaje_error_producto(e, 'actualizar'), "error")
                 return redirect(url_for('productos'))
-            if response.data:
-                flash("Producto actualizado exitosamente", "success")
+            flash("Producto actualizado exitosamente", "success")
+            return redirect(url_for('productos'))
+
+        if metodo == "variantes":
+            # CU-13.5: precios de cada variante (talla y color) y estado, más combinaciones nuevas.
+            # precio_<id> es el precio mayor de la lista 1 (precio_venta); costo, detalle y
+            # liquidación son los otros tipos de precio (RNF-004). La "lista adicional" guarda
+            # el precio mayor de otra lista de precios para todas las variantes a la vez.
+            existentes = supabase.table('producto_variantes').select('id_variante') \
+                .eq('id_producto', id_producto).execute().data or []
+            lista_extra = (request.form.get('listaExtra') or '').strip()
+            if lista_extra and (not lista_extra.isdigit() or int(lista_extra) < 2):
+                flash('La lista de precios adicional debe ser un número entero desde 2 (la lista 1 es el precio mayor).',
+                      'error')
                 return redirect(url_for('productos'))
-            else:
-                flash("Error actualizando producto", "error")
+            cambios = []
+            for v in existentes:
+                id_v = v['id_variante']
+                valores = {'activo': request.form.get(f'activo_{id_v}') == 'on',
+                           'en_liquidacion': request.form.get(f'enLiquidacion_{id_v}') == 'on'}
+                for campo, columna in (('precio', 'precio_venta'), ('costo', 'precio_costo'),
+                                       ('detalle', 'precio_detalle'), ('liquidacion', 'precio_liquidacion')):
+                    texto = (request.form.get(f'{campo}_{id_v}') or '').strip()
+                    if texto and not texto.isdigit():
+                        flash('Los precios deben ser números enteros mayores o iguales a cero.', 'error')
+                        return redirect(url_for('productos'))
+                    if texto:
+                        valores[columna] = int(texto)
+                precio_lista = (request.form.get(f'precioLista_{id_v}') or '').strip()
+                if precio_lista and not precio_lista.isdigit():
+                    flash('Los precios de la lista adicional deben ser números enteros.', 'error')
+                    return redirect(url_for('productos'))
+                cambios.append((id_v, valores, int(precio_lista) if precio_lista else None))
+            try:
+                nuevas = _combinaciones_marcadas('nueva')
+            except ValueError as e:
+                flash(str(e), 'error')
                 return redirect(url_for('productos'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idProductoBorrar']
-            response = (
-                supabase.table("productos").delete()
-                .eq("id_producto", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Producto borrado exitosamente", "success")
+            for id_variante, valores, precio_lista in cambios:
+                supabase.table('producto_variantes').update(valores).eq('id_variante', id_variante).execute()
+                if lista_extra:
+                    # Vacío = esa variante no tiene precio propio en la lista (usa el precio mayor).
+                    supabase.table('variante_precios_lista').delete().eq('id_variante', id_variante) \
+                        .eq('lista_precios', int(lista_extra)).execute()
+                    if precio_lista is not None:
+                        supabase.table('variante_precios_lista').insert({
+                            'id_variante': id_variante, 'lista_precios': int(lista_extra), 'precio': precio_lista,
+                        }).execute()
+            _crear_variantes(id_producto, nuevas, actual[0].get('precio'))
+            desactivadas = sum(1 for _, valores, _ in cambios if not valores['activo'])
+            flash(f"Variantes de {actual[0]['descripcion']} actualizadas: {len(nuevas)} nueva(s), "
+                  f"{desactivadas} desactivada(s)" + (f", precios de la lista {lista_extra} guardados" if lista_extra else ''),
+                  "success")
+            return redirect(url_for('productos'))
+
+        if metodo == "delete":
+            # CU-13.4: no se elimina un producto con pedidos, inventario o cortes asociados.
+            variantes = [v['id_variante'] for v in supabase.table('producto_variantes').select('id_variante')
+                         .eq('id_producto', id_producto).execute().data or []]
+            en_uso = []
+            if variantes and supabase.table('detalle_pedidos').select('id_detalle_pedido') \
+                    .in_('id_variante', variantes).limit(1).execute().data:
+                en_uso.append('pedidos')
+            if variantes and supabase.table('inventario').select('id_inventario') \
+                    .in_('id_variante', variantes).limit(1).execute().data:
+                en_uso.append('inventario')
+            if supabase.table('cortes').select('id_corte').eq('producto_asociado', id_producto).limit(1).execute().data:
+                en_uso.append('cortes')
+            if en_uso:
+                flash(f"El producto {actual[0]['descripcion']} tiene {', '.join(en_uso)} asociados: no se puede "
+                      "eliminar. Desactiva sus variantes.", "error")
                 return redirect(url_for('productos'))
-            else:
-                flash("Error borrando producto", "error")
-                return redirect(url_for('productos'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarproductoid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('productos.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún producto con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarproductodescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('productos.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún producto con la descripción buscada"
-        if (metodo == "buscarAbreviacion"):
-            texto = request.form["abreviacionBuscar"]
-            response = supabase.rpc('buscarproductoabreviacion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('productos.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún producto con la abreviación buscada"
-    else:
-        response =(
-            supabase.table("productos").select("*").execute()
-        )
-        colores_response = supabase.table("colores").select("*").execute()
-        tallas_response = supabase.table("tallas").select("*").execute()
-            
-        return render_template(
-            'productos.html',
-            datos=response.data,
-            colores=colores_response.data,
-            tallas=tallas_response.data
-        )
+            if variantes:
+                supabase.table('producto_variantes').delete().eq('id_producto', id_producto).execute()
+            supabase.table("productos").delete().eq("id_producto", id_producto).execute()
+            flash(f"Producto {actual[0]['descripcion']} borrado exitosamente", "success")
+            return redirect(url_for('productos'))
+
+        # Búsquedas antiguas por función de la base (se mantienen por compatibilidad).
+        busquedas = {'buscarID': ('buscarproductoid', 'idBuscar'),
+                     'buscarDescripcion': ('buscarproductodescripcion', 'descripcionBuscar'),
+                     'buscarAbreviacion': ('buscarproductoabreviacion', 'abreviacionBuscar')}
+        if metodo in busquedas:
+            funcion, campo = busquedas[metodo]
+            texto = request.form.get(campo, '')
+            return redirect(url_for('productos', q=texto))
+        return redirect(url_for('productos'))
+
+    busqueda = request.args.get('q', '').strip()
+    datos = supabase.table("productos").select("*").order("descripcion").execute().data or []
+    if busqueda:
+        texto = busqueda.lower()
+        datos = [p for p in datos if texto in ' '.join(str(p.get(k) or '') for k in ('descripcion', 'abreviacion', 'codigo')).lower()]
+    colores = supabase.table("colores").select("*").order("descripcion").execute().data or []
+    tallas = supabase.table("tallas").select("*").order("talla").execute().data or []
+    nombre_color = {c['id_color']: c.get('descripcion') for c in colores}
+    nombre_talla = {t['id_talla']: t.get('nombre') or str(t.get('talla')) for t in tallas}
+    variantes = supabase.table('producto_variantes').select('*').execute().data or []
+    listas = {}
+    try:
+        for fila in supabase.table('variante_precios_lista').select('*').execute().data or []:
+            listas.setdefault(fila['id_variante'], {})[str(fila['lista_precios'])] = fila['precio']
+    except APIError:
+        pass  # incremento4_campos_documento0.sql todavía no se ejecuta
+    por_producto = {}
+    for v in sorted(variantes, key=lambda v: (str(nombre_color.get(v.get('id_color')) or ''), str(nombre_talla.get(v.get('id_talla')) or ''))):
+        por_producto.setdefault(v['id_producto'], []).append({
+            'id_variante': v['id_variante'], 'id_color': v.get('id_color'), 'id_talla': v.get('id_talla'),
+            'codigo_ean': v.get('codigo_ean'), 'precio_venta': v.get('precio_venta') or 0,
+            'precio_costo': v.get('precio_costo') or 0, 'precio_detalle': v.get('precio_detalle') or 0,
+            'precio_liquidacion': v.get('precio_liquidacion') or 0, 'en_liquidacion': bool(v.get('en_liquidacion')),
+            'listas': listas.get(v['id_variante'], {}),
+            'color': nombre_color.get(v.get('id_color'), ''), 'talla': nombre_talla.get(v.get('id_talla'), ''),
+            'activo': v.get('activo') is not False})
+    for producto in datos:
+        producto['variantes'] = por_producto.get(producto['id_producto'], [])
+        producto['color_nombre'] = nombre_color.get(producto.get('color'), '')
+        producto['talla_nombre'] = nombre_talla.get(producto.get('talla'), '')
+    return render_template('productos.html', datos=datos, colores=colores, tallas=tallas, busqueda=busqueda)
+
+
+def _ean_en_otra_variante(codigo, id_variante):
+    return any(str(v['id_variante']) != str(id_variante) for v in supabase.table('producto_variantes')
+               .select('id_variante').eq('codigo_ean', codigo).execute().data or [])
+
 
 @app.route('/codigosEAN.html', methods=['GET', 'POST'])
 def codigosEAN():
@@ -2820,10 +3104,28 @@ def codigosEAN():
                 if len(codigo) != 13 or not codigo.isdigit():
                     flash("El código manual debe tener 13 dígitos", "error")
                     return redirect(url_for('codigosEAN'))
+                # CU-15.1 excepción 2: el dígito 13 debe ser el verificador EAN-13.
+                if ean13.digito_verificador(codigo[:12]) != codigo[12]:
+                    flash(f"El código {codigo} no es un EAN-13 válido: el dígito verificador debería ser "
+                          f"{ean13.digito_verificador(codigo[:12])}", "error")
+                    return redirect(url_for('codigosEAN'))
+                if _ean_en_otra_variante(codigo, idVariante):
+                    flash("Ese código EAN ya está asignado a otra variante", "error")
+                    return redirect(url_for('codigosEAN'))
                 supabase.table("producto_variantes").update({"ean_manual": True, "codigo_ean": codigo}) \
                     .eq("id_variante", idVariante).execute()
                 flash("Código manual guardado", "success")
             elif metodo == "automatico":
+                # CU-15.5: el código que generaría la base no puede estar ya en otra variante.
+                variante = supabase.table("producto_variantes").select("id_producto, id_color, id_talla") \
+                    .eq("id_variante", idVariante).execute().data
+                automatico = supabase.rpc('fn_generar_ean', {
+                    'p_id_producto': variante[0]['id_producto'], 'p_id_color': variante[0]['id_color'],
+                    'p_id_talla': variante[0]['id_talla']}).execute().data if variante else None
+                if automatico and _ean_en_otra_variante(automatico, idVariante):
+                    flash(f"El código automático {automatico} ya está asignado a otra variante: revisa los códigos "
+                          "EAN del producto, color y talla", "error")
+                    return redirect(url_for('codigosEAN'))
                 supabase.table("producto_variantes").update({"ean_manual": False}) \
                     .eq("id_variante", idVariante).execute()
                 flash("La variante vuelve a usar el código automático", "success")

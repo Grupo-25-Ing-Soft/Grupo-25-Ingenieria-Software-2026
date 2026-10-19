@@ -108,8 +108,8 @@ def test_listado_de_codigos(admin, db):
 def test_codigo_manual_y_volver_a_automatico(admin, db):
     p, c, s = ids(db, '414', 'BLANCO', 'S')
     v = db.rpc_obtener_variante(p, c, s)[0]
-    admin.post('/codigosEAN.html', data={'_method': 'manual', 'idVariante': v['id_variante'], 'codigoManual': '9900525927233'})
-    assert db.tablas['producto_variantes'][0]['codigo_ean'] == '9900525927233'
+    admin.post('/codigosEAN.html', data={'_method': 'manual', 'idVariante': v['id_variante'], 'codigoManual': '9900525927237'})
+    assert db.tablas['producto_variantes'][0]['codigo_ean'] == '9900525927237'
 
     r = admin.post('/codigosEAN.html', data={'_method': 'manual', 'idVariante': v['id_variante'], 'codigoManual': '123'},
                    follow_redirects=True)
@@ -141,3 +141,28 @@ def test_codigo_ean_con_letras_se_rechaza(admin, db):
                                             'idColorCrear': '1', 'precioCrear': '1', 'idTallaCrear': '1',
                                             'codigoEanCrear': '41A'}, follow_redirects=True)
     assert 'solo puede tener números' in r.get_data(as_text=True)
+
+
+def test_codigo_manual_valida_verificador_y_duplicados(admin, db):
+    p, c, s = ids(db, '414', 'BLANCO', 'S')
+    _, _, m = ids(db, '414', 'BLANCO', 'M')
+    v1 = db.rpc_obtener_variante(p, c, s)[0]
+    v2 = db.rpc_obtener_variante(p, c, m)[0]
+    r = admin.post('/codigosEAN.html', data={'_method': 'manual', 'idVariante': v1['id_variante'],
+                                             'codigoManual': '9900525927233'}, follow_redirects=True)
+    assert 'no es un EAN-13 válido: el dígito verificador debería ser 7' in r.get_data(as_text=True)
+    # El código automático de otra variante no se puede reutilizar como manual.
+    r = admin.post('/codigosEAN.html', data={'_method': 'manual', 'idVariante': v1['id_variante'],
+                                             'codigoManual': v2['codigo_ean']}, follow_redirects=True)
+    assert 'ya está asignado a otra variante' in r.get_data(as_text=True)
+    assert db.tablas['producto_variantes'][0]['codigo_ean'] == '9941400010101'
+
+
+@pytest.mark.parametrize('url,datos,mensaje', [
+    ('/tallas.html', {'_method': 'post', 'tallaCrear': 'XS', 'codigoEanCrear': '010'}, 'Ya hay otra talla con el código EAN 010'),
+    ('/tallas.html', {'_method': 'post', 'tallaCrear': 'XS', 'codigoEanCrear': '0100'}, 'admite hasta 3 dígitos'),
+    ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoEanCrear': '414'}, 'Ya hay otro producto con el código EAN 414'),
+    ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoEanCrear': '4140'}, 'admite hasta 3 dígitos'),
+])
+def test_codigos_ean_de_los_maestros_son_unicos_y_del_largo_del_formato(admin, db, url, datos, mensaje):
+    assert mensaje in admin.post(url, data=datos, follow_redirects=True).get_data(as_text=True)

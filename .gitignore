@@ -1,0 +1,9 @@
+# Credenciales: nunca se versionan. Copiar env.example a .env y completar.
+.env
+env.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/

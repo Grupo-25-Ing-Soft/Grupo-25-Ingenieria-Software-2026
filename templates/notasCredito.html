@@ -6,21 +6,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
 <body>
 {% include '_flash_toast.html' %}
 {% include '_sidebar.html' %}
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('notas_credito', 'editar') %}
 
 <div class="container-fluid">
   <div class="page-heading">
     <div>
       <div class="eyebrow">Ventas / Notas de crédito</div>
       <h1>Notas de crédito</h1>
-      <p>Consulta y filtra el historial de notas de crédito asociadas a facturas.</p>
+      <p>Registra las devoluciones y ajustes sobre facturas. Cada nota vigente rebaja el saldo pendiente de su factura.</p>
     </div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nueva nota de crédito</span></button>
+    </div>
+    {% endif %}
   </div>
 
   <div class="data-card mb-4">
@@ -82,18 +89,32 @@
                   <a href="{{ url_for('notasCredito', **final_params) }}" class="text-decoration-none" style="color: inherit;">{{ label }}{% if sort_field == key %}<span class="ms-1">{{ '↑' if sort_dir == 'asc' else '↓' }}</span>{% endif %}</a>
                 </th>
               {% endfor %}
+              <th class="text-end">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {% for nota in datos %}
-            <tr style="cursor:pointer;" data-bs-toggle="modal" data-bs-target="#detalleNotaModal" data-id="{{ nota.id_nota_credito }}" data-folio="{{ nota.folio }}" data-cliente="{{ nota.cliente }}" data-factura="{{ nota.factura_referencia_folio or nota.factura_referencia }}" data-fecha="{{ nota.fecha }}" data-monto="{{ nota.monto_total }}" data-motivo="{{ nota.motivo }}" data-estado="{{ nota.estado }}">
+            <tr>
               <td>{{ nota.folio }}</td>
-              <td>{{ nota.fecha }}</td>
+              <td>{{ nota.fecha|fecha }}</td>
               <td>{{ nota.cliente or 'Sin cliente' }}</td>
               <td>{{ nota.factura_referencia_folio or nota.factura_referencia }}</td>
-              <td>${{ '%.2f'|format(nota.monto_total|float) }}</td>
+              <td>{{ nota.monto_total|moneda }}</td>
               <td>{{ nota.motivo }}</td>
-              <td>{{ nota.estado }}</td>
+              <td><span class="badge {{ 'text-bg-secondary' if nota.estado == 'anulada' else 'text-bg-success' }}">{{ nota.estado }}</span></td>
+              <td class="text-end text-nowrap">
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="Ver detalle" data-bs-toggle="modal" data-bs-target="#detalleNotaModal" data-folio="{{ nota.folio }}" data-cliente="{{ nota.cliente }}" data-factura="{{ nota.factura_referencia_folio or nota.factura_referencia }}" data-fecha="{{ nota.fecha|fecha }}" data-monto="{{ nota.monto_total|moneda }}" data-motivo="{{ nota.motivo }}" data-estado="{{ nota.estado }}"><i class="bi bi-eye" aria-hidden="true"></i></button>
+                {% if puede_editar %}
+                {% if nota.estado == 'vigente' %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="Nota de crédito {{ nota.folio }}"
+                        data-valores='{{ {"idNotaActualizar": nota.id_nota_credito, "folioActualizar": nota.folio, "facturaActualizar": nota.factura_referencia, "fechaActualizar": nota.fecha, "montoNetoActualizar": nota.monto_neto, "motivoActualizar": nota.motivo} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-warning" title="Anular" data-modal="#anularModal" data-registro="Nota de crédito {{ nota.folio }}"
+                        data-valores='{{ {"idNotaAnular": nota.id_nota_credito} | tojson }}'><i class="bi bi-x-octagon" aria-hidden="true"></i></button>
+                {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="Nota de crédito {{ nota.folio }}"
+                        data-valores='{{ {"idNotaBorrar": nota.id_nota_credito} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -130,7 +151,128 @@
   </div>
 </div>
 
+{% macro campos_nota(sufijo, folio='') %}
+<div class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label" for="folio{{ sufijo }}">Folio</label>
+    <input type="number" class="form-control" id="folio{{ sufijo }}" name="folio{{ sufijo }}" min="1" value="{{ folio }}" required>
+    <small class="text-muted">Se propone el siguiente número; debe ser único.</small>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="fecha{{ sufijo }}">Fecha de emisión</label>
+    <input type="date" class="form-control" id="fecha{{ sufijo }}" name="fecha{{ sufijo }}" required>
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="factura{{ sufijo }}">Factura de referencia</label>
+    <select class="form-select" id="factura{{ sufijo }}" name="factura{{ sufijo }}" required>
+      <option value="" selected disabled>Seleccione una factura</option>
+      {% for f in facturas %}<option value="{{ f.id_factura }}">Factura {{ f.folio }} · {{ f.cliente }} · saldo {{ f.saldo_pendiente|moneda }}</option>{% endfor %}
+    </select>
+    <small class="text-muted">El cliente de la nota es el de la factura.</small>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="montoNeto{{ sufijo }}">Monto neto</label>
+    <input type="number" class="form-control monto-neto" id="montoNeto{{ sufijo }}" name="montoNeto{{ sufijo }}" min="1" step="1" required data-sufijo="{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">Impuesto ({{ porcentaje_impuesto|round(2) }}%)</label>
+    <input type="text" class="form-control" id="impuesto{{ sufijo }}" readonly tabindex="-1">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">Total de la nota</label>
+    <input type="text" class="form-control" id="total{{ sufijo }}" readonly tabindex="-1">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="motivo{{ sufijo }}">Motivo</label>
+    <input type="text" class="form-control" id="motivo{{ sufijo }}" name="motivo{{ sufijo }}" maxlength="256" placeholder="Ej.: devolución de 10 unidades por defecto" required>
+  </div>
+</div>
+{% endmacro %}
+
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Nueva nota de crédito</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('notasCredito') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="post">
+        {{ campos_nota('Crear', siguiente_folio) }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('notasCredito') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="idNotaActualizar">
+        {{ campos_nota('Actualizar') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="anularModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Anular <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('notasCredito') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="anular">
+        <input type="hidden" name="idNotaAnular">
+        <p>La nota queda en estado <strong>anulada</strong> y su monto vuelve al saldo pendiente de la factura. El registro se conserva como historial.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-warning">Anular nota</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('notasCredito') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idNotaBorrar">
+        <p>¿Seguro que quieres eliminar la <strong data-registro></strong>? Si está vigente, su monto vuelve al saldo de la factura. Esta acción no se puede deshacer; para conservar el historial, anúlala.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
 <script>
+  // Impuesto y total en vivo, con el mismo porcentaje que usa el servidor.
+  const PORCENTAJE_IMPUESTO = {{ porcentaje_impuesto | tojson }};
+  function formatoPesos(valor) { return '$' + Math.round(valor).toLocaleString('es-CL'); }
+  function recalcularTotal(campo) {
+    const neto = parseFloat(campo.value) || 0;
+    const impuesto = Math.round(neto * PORCENTAJE_IMPUESTO) / 100;
+    document.getElementById('impuesto' + campo.dataset.sufijo).value = formatoPesos(impuesto);
+    document.getElementById('total' + campo.dataset.sufijo).value = formatoPesos(neto + impuesto);
+  }
+  document.querySelectorAll('.monto-neto').forEach(function (campo) {
+    campo.addEventListener('input', function () { recalcularTotal(campo); });
+  });
+  document.getElementById('actualizarModal').addEventListener('shown.bs.modal', function () {
+    recalcularTotal(document.getElementById('montoNetoActualizar'));
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('detalleNotaModal');
     if (!modal) return;
@@ -141,7 +283,7 @@
       document.getElementById('detalle-cliente').textContent = row.dataset.cliente || '';
       document.getElementById('detalle-factura').textContent = row.dataset.factura || '';
       document.getElementById('detalle-fecha').textContent = row.dataset.fecha || '';
-      document.getElementById('detalle-monto').textContent = row.dataset.monto ? '$' + Number(row.dataset.monto).toFixed(2) : '';
+      document.getElementById('detalle-monto').textContent = row.dataset.monto || '';
       document.getElementById('detalle-motivo').textContent = row.dataset.motivo || '';
       document.getElementById('detalle-estado').textContent = row.dataset.estado || '';
     });

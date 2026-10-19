@@ -440,6 +440,22 @@ body .modal-footer {
   border-color: var(--line);
 }
 
+/* Modales largos: el <form> envuelve cuerpo y botones, y Bootstrap solo hace scroll
+   cuando .modal-body es hijo directo de .modal-content. Así el formulario ocupa el
+   alto disponible y el cuerpo tiene su propia barra de scroll; título y botones
+   quedan siempre a la vista. */
+body .modal-dialog-scrollable .modal-content > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body .modal-dialog-scrollable .modal-content > form > .modal-body {
+  overflow-y: auto;
+}
+
 body .modal-title { font-size: 1.05rem; font-weight: 800; }
 body .form-label { color: #526059; font-size: .76rem; font-weight: 700; }
 body .form-control,

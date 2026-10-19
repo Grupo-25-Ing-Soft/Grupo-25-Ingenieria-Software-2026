@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body>
@@ -17,9 +17,9 @@
 <div class="container-fluid">
   <div class="page-heading">
     <div>
-      <div class="eyebrow">Ventas / Cobranza</div>
+      <div class="eyebrow"><a href="{{ url_for('reportes') }}">Reportes</a> / Cobranza</div>
       <h1>Informe de cobranza</h1>
-      <p>Facturas con saldo pendiente, agrupadas por cliente y ordenadas por morosidad.</p>
+      <p>Facturas con saldo pendiente, agrupadas por cliente y ordenadas por morosidad. El saldo baja con cada pago aplicado y nota de crédito.</p>
     </div>
   </div>
 
@@ -70,10 +70,12 @@
               <th>Cliente</th>
               <th>Folio</th>
               <th>Fecha emisión</th>
-              <th>Monto</th>
-              <th>Pagos aplicados</th>
-              <th>Saldo</th>
-              <th>Días transcurridos</th>
+              <th>Vencimiento</th>
+              <th class="text-end">Monto</th>
+              <th class="text-end">Pagos aplicados</th>
+              <th class="text-end">Notas de crédito</th>
+              <th class="text-end">Saldo</th>
+              <th>Días de mora</th>
             </tr>
           </thead>
           <tbody>
@@ -81,22 +83,22 @@
             <tr>
               <td>{{ fila.cliente }}</td>
               <td>{{ fila.folio }}</td>
-              <td>{{ fila.fecha }}</td>
-              <td>${{ '%.2f'|format(fila.monto|float) }}</td>
-              <td>${{ '%.2f'|format(fila.pagos_aplicados|float) }}</td>
-              <td>${{ '%.2f'|format(fila.saldo|float) }}</td>
+              <td>{{ fila.fecha|fecha }}</td>
+              <td>{{ fila.vencimiento|fecha if fila.vencimiento else '-' }}</td>
+              <td class="text-end">{{ fila.monto|moneda }}</td>
+              <td class="text-end">{{ fila.pagos_aplicados|moneda }}</td>
+              <td class="text-end">{{ fila.notas_credito|moneda }}</td>
+              <td class="text-end">{{ fila.saldo|moneda }}</td>
               <td>{{ fila.dias_morosidad }}</td>
             </tr>
             {% endfor %}
           </tbody>
+          <tfoot><tr><th colspan="7" class="text-end">Total por cobrar</th><th class="text-end">{{ datos|sum(attribute='saldo')|moneda }}</th><th></th></tr></tfoot>
         </table>
       </div>
     {% endif %}
   </div>
 </div>
 
-<script>
-  // TODO: exportación real a PDF/Excel (CU-31 excepción 2)
-</script>
 </body>
 </html>

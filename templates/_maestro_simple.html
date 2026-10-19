@@ -1,0 +1,154 @@
+{#- Página de un archivo maestro simple (colores, tallas, zonas de venta, vendedores, bodegas).
+    La arma _crud_maestro() en realFlask.py con la configuración de MAESTROS_SIMPLES:
+    tabla con búsqueda, botones Editar/Eliminar por fila y modales crear/actualizar/borrar
+    con los mismos nombres de campo que el CRUD de colores (<campo>Crear / <campo>Actualizar). -#}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>{% block titulo %}{{ maestro.plural|capitalize }}{% endblock %} - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede(maestro.modulo, 'editar') %}
+{% set id_form = maestro.id_form %}
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">{% block eyebrow %}Archivos maestros{% endblock %}</div><h1>{{ self.titulo() }}</h1><p>{% block descripcion %}{% endblock %}</p></div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>{% block boton_nuevo %}Nuevo registro{% endblock %}</span></button>
+    </div>
+    {% endif %}
+  </div>
+  <div class="data-card">
+    <div class="data-card-header">
+      <div><h2>{{ maestro.plural|capitalize }} registrad{{ 'as' if maestro.articulo == 'la' else 'os' }}</h2><span>{{ datos|length }} resultado{{ '' if datos|length == 1 else 's' }}</span></div>
+      <form method="GET" action="{{ url_for(maestro.endpoint) }}" class="d-flex gap-2" role="search">
+        <input type="search" class="form-control form-control-sm" name="q" value="{{ busqueda }}" placeholder="Buscar" aria-label="Buscar {{ maestro.singular }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
+        {% if busqueda %}<a href="{{ url_for(maestro.endpoint) }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>{% endif %}
+      </form>
+    </div>
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr>
+          {% for campo in maestro.campos %}<th{% if campo.porcentaje %} class="text-end"{% endif %}>{{ campo.etiqueta }}</th>{% endfor %}
+          {% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}
+        </tr></thead>
+        <tbody>
+          {% for fila in datos %}
+          {% set registro = maestro.singular ~ ' ' ~ (fila.get(maestro.principal) if fila.get(maestro.principal) is not none else '') %}
+          <tr>
+            {% for campo in maestro.campos %}
+            {% set valor = fila.get(campo.columna) %}
+            <td{% if campo.porcentaje %} class="text-end"{% endif %}>{% if valor is not none %}{{ valor }}{% if campo.porcentaje %}%{% endif %}{% endif %}</td>
+            {% endfor %}
+            {% if puede_editar %}
+            {% set valores = {(id_form ~ 'Actualizar'): fila.get(maestro.clave)} %}
+            {% for campo in maestro.campos %}{% set _ = valores.update({(campo.form ~ 'Actualizar'): fila.get(campo.columna) if fila.get(campo.columna) is not none else ''}) %}{% endfor %}
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="{{ registro }}"
+                      data-valores='{{ valores | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="{{ registro }}"
+                      data-valores='{{ {(id_form ~ "Borrar"): fila.get(maestro.clave)} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">{% if busqueda %}No se encontraron resultados para «{{ busqueda }}».{% else %}Sin resultados todavía.{% endif %}</div>
+    {% endif %}
+  </div>
+  {% block despues_tabla %}{% endblock %}
+</div>
+
+{% macro campos(sufijo) %}
+{% for campo in maestro.campos %}
+<div class="mb-3">
+  <label class="form-label" for="{{ campo.form }}{{ sufijo }}">{{ campo.etiqueta }}{% if campo.obligatorio %} *{% endif %}</label>
+  {% if campo.opciones %}
+  <select class="form-select" id="{{ campo.form }}{{ sufijo }}" name="{{ campo.form }}{{ sufijo }}"{% if campo.obligatorio %} required{% endif %}>
+    <option value="">Seleccione</option>
+    {% for valor, texto in campo.opciones %}<option value="{{ valor }}">{{ texto }}</option>{% endfor %}
+  </select>
+  {% else %}
+  <input type="{{ 'number' if campo.porcentaje else 'text' }}" class="form-control" id="{{ campo.form }}{{ sufijo }}" name="{{ campo.form }}{{ sufijo }}"
+         {% if campo.max and not campo.porcentaje %}maxlength="{{ campo.max }}"{% endif %}
+         {% if campo.numerico %}inputmode="numeric" pattern="[0-9]*"{% endif %}
+         {% if campo.porcentaje %}min="0" max="100" step="0.01"{% endif %}
+         {% if campo.obligatorio %}required{% endif %}>
+  {% endif %}
+  {% if campo.ayuda %}<small class="text-muted">{{ campo.ayuda }}</small>{% endif %}
+</div>
+{% endfor %}
+{% endmacro %}
+
+{% if puede_editar %}
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Crear {{ maestro.singular }}</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for(maestro.endpoint) }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="post">
+        {{ campos('Crear') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for(maestro.endpoint) }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="{{ id_form }}Actualizar">
+        {{ campos('Actualizar') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar {{ maestro.singular }}</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for(maestro.endpoint) }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="{{ id_form }}Borrar">
+        <p>¿Seguro que quieres eliminar {{ maestro.articulo }} <strong data-registro></strong>? Esta acción no se puede deshacer.</p>
+        {% if maestro.en_uso %}<small class="text-muted">No se elimina si está en uso en {{ maestro.en_uso|map(attribute=2)|join(', ') }}.</small>{% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
   <style>
     .codigo-ean { font-family: ui-monospace, Consolas, monospace; letter-spacing: .04em; }
@@ -19,7 +19,7 @@
 
 <div class="container-fluid">
   <div class="page-heading">
-    <div><div class="eyebrow">Datos maestros / Códigos EAN</div><h1>Códigos EAN</h1><p>Código de barras de cada producto por color y talla. Se arma con los códigos EAN de producto, color y talla.</p></div>
+    <div><div class="eyebrow">Archivos maestros / Códigos EAN</div><h1>Códigos EAN</h1><p>Código de barras de cada producto por color y talla. Se arma con los códigos EAN de producto, color y talla.</p></div>
     <div class="heading-actions">
       <a href="{{ url_for('emisionEAN') }}" class="btn btn-success icon-button"><i class="bi bi-printer" aria-hidden="true"></i><span>Emitir etiquetas</span></a>
     </div>

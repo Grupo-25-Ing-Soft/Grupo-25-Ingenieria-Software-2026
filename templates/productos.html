@@ -1,356 +1,299 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <title>Productos - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
   <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
-<script>
-
-
-    function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = ordenarColumnasTabla(Object.keys(data[0]), 'descripcion');
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = formatearCeldaTabla(key, (typeof value === 'object') ? JSON.stringify(value) : value);
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaProductos').appendChild(table);
-        } 
-</script>
-
-<body onload="createTableFromJSON()">
+<body>
 {% include '_flash_toast.html' %}
 {% include '_sidebar.html' %}
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
-<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
-
+{% set puede_editar = puede('productos', 'editar') %}
 
 <div class="container-fluid">
   <div class="page-heading">
-    <div><div class="eyebrow">Datos maestros / Catálogo</div><h1>Productos</h1><p>Administra el catálogo, sus variantes y precios.</p></div>
+    <div><div class="eyebrow">Archivos maestros / Catálogo</div><h1>Productos</h1><p>Administra los productos y sus variantes por color y talla, cada una con su precio y código EAN.</p></div>
+    {% if puede_editar %}
     <div class="heading-actions">
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
       <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo producto</span></button>
     </div>
+    {% endif %}
   </div>
   <div class="data-card">
     <div class="data-card-header">
-      <div>
-        <h2>Productos registrados</h2>
-        <span>Consulta en tiempo real</span>
-      </div>
-      <div class="heading-actions">
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarIDModal">
-          <i class="bi bi-search" aria-hidden="true"></i><span>ID</span></button>
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarDescripcionModal">
-          <i class="bi bi-person-lines-fill" aria-hidden="true"></i><span>Descripción</span></button>
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarAbreviacionModal">
-          <i class="bi bi-tag" aria-hidden="true"></i><span>Abreviación</span></button>
-        <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="createTableFromJSON()">
-          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Actualizar listado</span></button>
-      </div>
+      <div><h2>Productos registrados</h2><span>{{ datos|length }} producto{{ '' if datos|length == 1 else 's' }}</span></div>
+      <form method="GET" action="{{ url_for('productos') }}" class="d-flex gap-2" role="search">
+        <input type="search" class="form-control form-control-sm" name="q" value="{{ busqueda }}" placeholder="Buscar por descripción o código" aria-label="Buscar producto">
+        <button type="submit" class="btn btn-sm btn-outline-secondary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
+        {% if busqueda %}<a href="{{ url_for('productos') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>{% endif %}
+      </form>
     </div>
-    <div class="data-table-wrap" id="tablaProductos" onload="createTableFromJSON()"></div>
-    {% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Descripción</th><th>Código</th><th>Abreviación</th><th>Color base</th><th>Talla base</th><th class="text-end">Precio base</th><th>Código EAN</th><th>Variantes (color · talla · precio)</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for p in datos %}
+          <tr>
+            <td>{{ p.descripcion }}</td>
+            <td>{{ p.codigo or '' }}</td>
+            <td>{{ p.abreviacion or '' }}</td>
+            <td>{{ p.color_nombre }}</td>
+            <td>{{ p.talla_nombre }}</td>
+            <td class="text-end">{% if p.precio is not none %}{{ p.precio|moneda }}{% endif %}</td>
+            <td>{{ p.codigo_ean or '' }}</td>
+            <td class="small">
+              {% for v in p.variantes %}
+                <div class="{{ '' if v.activo else 'text-muted text-decoration-line-through' }}">{{ v.color }} · {{ v.talla }} · {{ v.precio_venta|moneda }}{% if v.en_liquidacion %} <span class="badge text-bg-warning">liquidación {{ v.precio_liquidacion|moneda }}</span>{% endif %}</div>
+              {% else %}<span class="text-muted">Sin variantes</span>{% endfor %}
+            </td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Variantes" data-bs-toggle="modal" data-bs-target="#variantesModal"
+                      data-id="{{ p.id_producto }}" data-descripcion="{{ p.descripcion }}" data-variantes='{{ p.variantes | tojson }}' data-precio="{{ p.precio or '' }}"><i class="bi bi-grid-3x3-gap" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="{{ p.descripcion }}"
+                      data-valores='{{ {"IdProductoActualizar": p.id_producto, "descripcionActualizar": p.descripcion, "abreviacionActualizar": p.abreviacion or "",
+                        "codigoActualizar": p.codigo or "", "idColorActualizar": p.color or "", "idTallaActualizar": p.talla or "",
+                        "precioActualizar": p.precio if p.precio is not none else "", "codigoEanActualizar": p.codigo_ean or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="{{ p.descripcion }}"
+                      data-valores='{{ {"idProductoBorrar": p.id_producto} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">{% if busqueda %}No se encontraron resultados para «{{ busqueda }}».{% else %}Sin productos registrados todavía.{% endif %}</div>
+    {% endif %}
   </div>
 </div>
 
-<div class="modal" id="crearModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
+{% macro campos_producto(sufijo) %}
+<div class="row g-3">
+  <div class="col-md-8">
+    <label class="form-label" for="descripcion{{ sufijo }}">Descripción</label>
+    <input type="text" class="form-control" id="descripcion{{ sufijo }}" name="descripcion{{ sufijo }}" maxlength="64" required>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="abreviacion{{ sufijo }}">Abreviación</label>
+    <input type="text" class="form-control" id="abreviacion{{ sufijo }}" name="abreviacion{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="codigo{{ sufijo }}">Código de artículo (en la etiqueta)</label>
+    <input type="text" class="form-control" id="codigo{{ sufijo }}" name="codigo{{ sufijo }}" maxlength="16" placeholder="Ej: 414 o C259">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="codigoEan{{ sufijo }}">Código EAN del producto (solo números)</label>
+    <input type="text" class="form-control" id="codigoEan{{ sufijo }}" name="codigoEan{{ sufijo }}" inputmode="numeric" pattern="[0-9]*" placeholder="Ej: 414">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="precio{{ sufijo }}">Precio base</label>
+    <input type="number" class="form-control" id="precio{{ sufijo }}" name="precio{{ sufijo }}" min="0" step="1">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="idColor{{ sufijo }}">Color base</label>
+    <select class="form-select" id="idColor{{ sufijo }}" name="idColor{{ sufijo }}">
+      <option value="">Sin color base</option>
+      {% for color in colores %}<option value="{{ color.id_color }}">{{ color.descripcion }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="idTalla{{ sufijo }}">Código de talla asociado</label>
+    <select class="form-select" id="idTalla{{ sufijo }}" name="idTalla{{ sufijo }}">
+      <option value="">Sin talla base</option>
+      {% for talla in tallas %}<option value="{{ talla.id_talla }}">{{ talla.nombre or talla.talla }}</option>{% endfor %}
+    </select>
+  </div>
+</div>
+{% endmacro %}
 
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Crear Producto</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
+{% macro grilla_combinaciones(prefijo) %}
+{% if colores and tallas %}
+<div class="data-table-wrap">
+  <table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Color \ Talla</th>{% for t in tallas %}<th>{{ t.nombre or t.talla }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for c in colores %}
+      <tr data-color="{{ c.id_color }}">
+        <th>{{ c.descripcion }}</th>
+        {% for t in tallas %}
+        <td data-combinacion="{{ c.id_color }}-{{ t.id_talla }}">
+          <div class="input-group input-group-sm" style="min-width: 8rem">
+            <span class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="{{ prefijo }}" value="{{ c.id_color }}-{{ t.id_talla }}" aria-label="{{ c.descripcion }} talla {{ t.nombre or t.talla }}"></span>
+            <input type="number" class="form-control" name="precio{{ prefijo|capitalize }}_{{ c.id_color }}-{{ t.id_talla }}" min="0" step="1" placeholder="Precio">
+          </div>
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<small class="text-muted">Marca las combinaciones a crear. Si dejas el precio vacío se usa el precio base. El código EAN de cada variante lo genera el sistema.</small>
+{% else %}
+<div class="text-muted small">Registra colores y tallas para poder crear variantes.</div>
+{% endif %}
+{% endmacro %}
 
-      <!-- Modal body -->
+{% if puede_editar %}
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Nuevo producto</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('productos') }}">
       <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="post" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-          <div class="form-section-title">Información del producto</div>
-            <div class="mb-3">
-                <label for="descripcionForm" class="form-label">Descripción:</label>
-                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionCrear">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="abreviacionForm" class="form-label">Abreviación:</label>
-                <input type="text" class="form-control" id="abreviacionForm" placeholder="Inserte abreviación" name="abreviacionCrear">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="idColorForm" class="form-label">ID del Color:</label>
-              <select class="form-select" id="idColorForm" name="idColorCrear" required>
-                <option value="" selected disabled>Seleccione un color</option>
-                {% for color in colores %}
-                <option value="{{ color.id_color }}">{{ color.descripcion }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="form-section-title">Precio</div>
-            <div class="mb-3 mt-3">
-                <label for="precioForm" class="form-label">Precio:</label>
-                <input type="number" class="form-control" id="precioForm" placeholder="Inserte precio" name="precioCrear">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="idTallaForm" class="form-label">ID de Talla:</label>
-              <select class="form-select" id="idTallaForm" name="idTallaCrear" required>
-                <option value="" selected disabled>Seleccione una talla</option>
-                {% for talla in tallas %}
-                    <option value="{{ talla.id_talla }}">{{ talla.talla }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Crear</button>
-        </form>
+        <input type="hidden" name="_method" value="post">
+        {{ campos_producto('Crear') }}
+        <h5 class="mt-4">Variantes (talla y color con su precio)</h5>
+        {{ grilla_combinaciones('variante') }}
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="actualizarModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Actualizar Producto</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('productos') }}">
       <div class="modal-body">
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="put" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-          <div class="form-section-title">Información del producto</div>
-            <div class="mb-3 mt-3">
-                <label for="IDidProductoActualizar" class="form-label">Id del producto a actualizar:</label>
-                <input type="text" class="form-control" id="IDidProductoActualizar" placeholder="Inserte id del producto" name="IdProductoActualizar">
-            </div>
-            <div class="mb-3">
-                <label for="descripcionFormActualizar" class="form-label">Descripción:</label>
-                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="abreviacionFormActualizar" class="form-label">Abreviación:</label>
-                <input type="text" class="form-control" id="abreviacionForm" placeholder="Inserte abreviación" name="abreviacionActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="idColorFormActualizar" class="form-label">ID de Color:</label>
-              <select class="form-select" id="idColorFormActualizar" name="idColorActualizar" required>
-                <option value="" selected disabled>Seleccione un color</option>
-                {% for color in colores %}
-                <option value="{{ color.id_color }}">{{ color.descripcion }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="form-section-title">Precio</div>
-            <div class="mb-3 mt-3">
-                <label for="precioFormActualizar" class="form-label">Precio:</label>
-                <input type="number" class="form-control" id="precioForm" placeholder="Inserte precio" name="precioActualizar">
-            </div>
-            <div class="mb-3 mt-3">
-                <label for="idtallaFormActualizar" class="form-label">ID de Talla:</label>
-              <select class="form-select" id="idtallaFormActualizar" name="idTallaActualizar" required>
-                <option value="" selected disabled>Seleccione una talla</option>
-                {% for talla in tallas %}
-                    <option value="{{ talla.id_talla }}">{{ talla.talla }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Actualizar</button>
-        </form>
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="IdProductoActualizar">
+        {{ campos_producto('Actualizar') }}
+        <small class="text-muted d-block mt-2">Las variantes se agregan o desactivan con el botón <i class="bi bi-grid-3x3-gap"></i> de la fila.</small>
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="borrarModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Borrar Producto</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+<div class="modal fade" id="variantesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Variantes de <span id="variantesProducto"></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('productos') }}">
       <div class="modal-body">
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="delete" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="idProductoFormBorrar" class="form-label">Id del Producto:</label>
-                <input type="text" class="form-control" id="idProductoFormBorrar" placeholder="Inserte id del producto" name="idProductoBorrar">
-            </div>
-            <button type="submit" class="btn btn-primary">Borrar</button>
-        </form>
+        <input type="hidden" name="_method" value="variantes">
+        <input type="hidden" name="idProductoVariantes" id="idProductoVariantes">
+        <h5>Precios por talla y color</h5>
+        <div class="row g-2 align-items-end mb-2">
+          <div class="col-md-4">
+            <label class="form-label" for="listaExtra">Lista de precios adicional a editar (opcional)</label>
+            <input type="number" class="form-control form-control-sm" id="listaExtra" name="listaExtra" min="2" step="1" placeholder="Ej: 2">
+          </div>
+          <div class="col-md-8"><small class="text-muted">El precio mayor es el de la lista 1. Para otra lista (2, 3…) escribe su número y completa la última columna; vacío = usa el precio mayor.</small></div>
+        </div>
+        <div class="data-table-wrap mb-2">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Color</th><th>Talla</th><th>Código EAN</th><th>Precio mayor (lista 1)</th><th>Precio costo</th><th>Precio detalle</th><th>Precio liquidación</th><th>En liquidación</th><th>Activa</th><th id="encabezadoLista">Precio lista —</th></tr></thead>
+            <tbody id="variantesExistentes"></tbody>
+          </table>
+        </div>
+        <small class="text-muted">Si una variante está en liquidación, ese precio se propone en los pedidos. Una variante desactivada deja de ofrecerse en pedidos nuevos; se conserva para el historial.</small>
+        <h5 class="mt-4">Agregar combinaciones</h5>
+        {{ grilla_combinaciones('nueva') }}
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar variantes</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="buscarIDModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Buscar Productos</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar producto</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('productos') }}">
       <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="buscarID" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="idForm" class="form-label">Por ID:</label>
-                <input type="text" class="form-control" id="idBuscar" placeholder="Inserte ID a buscar" name="idBuscar">
-            </div>
-            <button type="submit" class="btn btn-primary">Buscar</button>
-        </form>
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idProductoBorrar">
+        <p>¿Seguro que quieres eliminar <strong data-registro></strong> y sus variantes? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Si el producto tiene pedidos, inventario o cortes no se elimina: desactiva sus variantes.</small>
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="buscarDescripcionModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
+<script>
+  // Al escribir el número de una lista adicional se cargan sus precios en la última columna.
+  function mostrarLista() {
+    const lista = document.getElementById('listaExtra').value;
+    const valida = /^[0-9]+$/.test(lista) && Number(lista) >= 2;
+    document.getElementById('encabezadoLista').textContent = 'Precio lista ' + (valida ? lista : '—');
+    document.querySelectorAll('#variantesExistentes [name^="precioLista_"]').forEach(function (campo) {
+      campo.disabled = !valida;
+      campo.value = valida ? (JSON.parse(campo.dataset.listas || '{}')[lista] ?? '') : '';
+    });
+  }
+  document.getElementById('listaExtra').addEventListener('input', mostrarLista);
 
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Buscar Productos</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
-      <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="buscarDescripcion" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="descripcionForm" class="form-label">Por descripción:</label>
-                <input type="text" class="form-control" id="descripcionBuscar" placeholder="Inserte descripción a buscar" name="descripcionBuscar">
-            </div>
-            <button type="submit" class="btn btn-primary">Buscar</button>
-        </form>
-      </div>
-
-      <!-- Modal footer -->
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
-      </div>
-
-    </div>
-  </div>
-</div>
-
-<div class="modal" id="buscarAbreviacionModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Buscar Productos</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
-      <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="buscarAbreviacion" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="abreviacionForm" class="form-label">Por abreviación:</label>
-                <input type="text" class="form-control" id="abreviacionBuscar" placeholder="Inserte abreviacion a buscar" name="abreviacionBuscar">
-            </div>
-            <button type="submit" class="btn btn-primary">Buscar</button>
-        </form>
-      </div>
-
-      <!-- Modal footer -->
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
-      </div>
-
-    </div>
-  </div>
-</div>
+  document.getElementById('variantesModal').addEventListener('show.bs.modal', function (event) {
+    const boton = event.relatedTarget;
+    if (!boton) return;
+    const modal = this;
+    document.getElementById('idProductoVariantes').value = boton.dataset.id;
+    document.getElementById('variantesProducto').textContent = boton.dataset.descripcion;
+    const variantes = JSON.parse(boton.dataset.variantes || '[]');
+    const cuerpo = document.getElementById('variantesExistentes');
+    cuerpo.innerHTML = '';
+    if (!variantes.length) cuerpo.innerHTML = '<tr><td colspan="10" class="text-muted">Este producto todavía no tiene variantes.</td></tr>';
+    function campoNumero(nombre, valor) {
+      const celda = document.createElement('td');
+      celda.innerHTML = '<input type="number" class="form-control form-control-sm" style="min-width:6.5rem" min="0" step="1" name="' + nombre + '">';
+      celda.querySelector('input').value = valor;
+      return celda;
+    }
+    function casilla(nombre, marcada) {
+      const celda = document.createElement('td');
+      celda.innerHTML = '<input class="form-check-input" type="checkbox" name="' + nombre + '">';
+      celda.querySelector('input').checked = marcada;
+      return celda;
+    }
+    variantes.forEach(function (v) {
+      const fila = document.createElement('tr');
+      [v.color, v.talla, v.codigo_ean || ''].forEach(function (texto) {
+        const celda = document.createElement('td'); celda.textContent = texto; fila.appendChild(celda);
+      });
+      fila.appendChild(campoNumero('precio_' + v.id_variante, v.precio_venta));
+      fila.appendChild(campoNumero('costo_' + v.id_variante, v.precio_costo));
+      fila.appendChild(campoNumero('detalle_' + v.id_variante, v.precio_detalle));
+      fila.appendChild(campoNumero('liquidacion_' + v.id_variante, v.precio_liquidacion));
+      fila.appendChild(casilla('enLiquidacion_' + v.id_variante, v.en_liquidacion));
+      fila.appendChild(casilla('activo_' + v.id_variante, v.activo));
+      const lista = campoNumero('precioLista_' + v.id_variante, '');
+      lista.querySelector('input').dataset.listas = JSON.stringify(v.listas || {});
+      lista.querySelector('input').disabled = true;
+      fila.appendChild(lista);
+      cuerpo.appendChild(fila);
+    });
+    document.getElementById('listaExtra').value = '';
+    mostrarLista();
+    // En la grilla de nuevas se ocultan las combinaciones que ya existen.
+    const existentes = new Set(variantes.map(function (v) { return v.id_color + '-' + v.id_talla; }));
+    modal.querySelectorAll('[data-combinacion]').forEach(function (celda) {
+      const ya = existentes.has(celda.dataset.combinacion);
+      celda.querySelectorAll('input').forEach(function (campo) { campo.disabled = ya; if (campo.type === 'checkbox') campo.checked = false; else campo.value = ''; });
+      celda.classList.toggle('opacity-25', ya);
+    });
+  });
+</script>
+{% endif %}
 </body>
-
 </html>

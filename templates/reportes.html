@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body>
@@ -18,6 +18,7 @@
     <div><div class="eyebrow">Comercial D Nix / Reportes</div><h1>Reportes</h1><p>Consulta el estado de despachos, pedidos, inventario y producción.</p></div>
   </div>
   <div class="dashboard-grid">
+    <a href="{{ url_for('informeCobranza') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-cash-stack" aria-hidden="true"></i></span><span><strong>Informe de cobranza</strong><small>Facturas por cobrar, pagos aplicados y saldo por cliente</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
     <a href="{{ url_for('analisisDespachoClienteProducto') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-person-lines-fill" aria-hidden="true"></i></span><span><strong>Despachos por cliente y producto</strong><small>Analiza los despachos asociados a clientes y productos</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
     <a href="{{ url_for('analisisDespachoVendedorProducto') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-person-badge" aria-hidden="true"></i></span><span><strong>Despachos por vendedor y producto</strong><small>Consulta los despachos agrupados por vendedor y producto</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
     <a href="{{ url_for('analisisDespachoSegunFacturaCliente') }}" class="dashboard-link"><span class="dashboard-link-icon"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></span><span><strong>Despachos según factura y cliente</strong><small>En desarrollo</small></span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
