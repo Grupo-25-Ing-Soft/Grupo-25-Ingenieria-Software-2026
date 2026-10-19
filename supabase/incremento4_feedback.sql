@@ -14,6 +14,9 @@
 --   3. Recalcula facturas.saldo_pendiente = monto_total - pagos aplicados
 --      vigentes - notas de crédito vigentes, y su estado.
 --   4. Crea índices únicos para los códigos EAN (variantes y maestros).
+--   5. Reemplaza la función del trigger trg_factura_calcular_saldo, que ya existía
+--      y usaba las columnas antiguas (total, saldo, estado 'emitida'), por la
+--      misma regla de saldo que la app.
 --
 -- Es idempotente: se puede ejecutar más de una vez. Se ejecuta completo en el
 -- SQL Editor; si algo falla, no se aplica nada.
@@ -79,6 +82,18 @@ $$;
 -- =====================================================================
 -- 1. FACTURAS
 -- =====================================================================
+-- La base ya tenía el trigger trg_factura_calcular_saldo, que recalcula saldo y
+-- estado con las columnas antiguas (total, saldo, estado 'emitida'). Se desactiva
+-- mientras se migran los datos; en la sección 6 se reemplaza su función por la
+-- regla nueva y se vuelve a crear (activo).
+do $$
+begin
+  if exists (select 1 from pg_trigger where tgrelid = 'public.facturas'::regclass
+                                        and tgname = 'trg_factura_calcular_saldo') then
+    alter table public.facturas disable trigger trg_factura_calcular_saldo;
+  end if;
+end $$;
+
 alter table public.facturas
   add column if not exists folio            bigint,
   add column if not exists pedido_asociado  bigint references public.pedidos (id_pedido),
@@ -373,6 +388,61 @@ select pg_temp.indice_ean_unico('productos', 'productos_codigo_ean_uk');
 select pg_temp.indice_ean_unico('colores', 'colores_codigo_ean_uk');
 select pg_temp.indice_ean_unico('tallas', 'tallas_codigo_ean_uk');
 
+-- =====================================================================
+-- 6. TRIGGER DE SALDO DE FACTURAS CON LA REGLA NUEVA
+--    Misma regla que la app (_recalcular_factura): saldo_pendiente = monto_total
+--    - pagos vigentes aplicados - notas de crédito vigentes, y estado
+--    vigente / parcialmente_pagada / pagada. Una factura anulada no se recalcula.
+--    Se mantiene la validación de que lo aplicado no supere el total.
+--    Corre antes que trg_facturas_columnas_antiguas (orden alfabético), así que
+--    las columnas antiguas (saldo, total) quedan con los valores ya calculados.
+-- =====================================================================
+create or replace function public.fn_factura_calcular_saldo()
+returns trigger
+language plpgsql
+set search_path to 'public'
+as $$
+declare
+  v_pagado numeric;
+  v_notas  numeric;
+begin
+  if new.estado = 'anulada' then
+    return new;
+  end if;
+
+  select coalesce(sum(pf.monto_aplicado), 0) into v_pagado
+    from pago_facturas pf
+    join pagos p on p.id_pago = pf.id_pago
+   where pf.id_factura = new.id_factura
+     and p.estado = 'vigente';
+
+  select coalesce(sum(nc.monto_total), 0) into v_notas
+    from notas_credito nc
+   where nc.factura_referencia = new.id_factura
+     and nc.estado = 'vigente';
+
+  new.saldo_pendiente := new.monto_total - v_pagado - v_notas;
+
+  if new.saldo_pendiente < 0 then
+    raise exception 'Los pagos (%) y notas de crédito (%) aplicados a la factura % superan su total (%)',
+      v_pagado, v_notas, new.folio, new.monto_total;
+  end if;
+
+  new.estado := case
+    when new.saldo_pendiente <= 0               then 'pagada'
+    when new.saldo_pendiente >= new.monto_total then 'vigente'
+    else 'parcialmente_pagada'
+  end;
+
+  return new;
+end $$;
+
+-- Recrearlo lo deja activo (se había desactivado al inicio).
+drop trigger if exists trg_factura_calcular_saldo on public.facturas;
+create trigger trg_factura_calcular_saldo
+  before insert or update on public.facturas
+  for each row execute function public.fn_factura_calcular_saldo();
+
 commit;
 
 -- Comprobación (opcional): las tres tablas con las columnas de los scripts.
@@ -381,3 +451,16 @@ select id_factura, folio, pedido_asociado, cliente_asociado, fecha_emision, mont
 select id_nota_credito, folio, factura_referencia, cliente_asociado, fecha, monto_total, motivo, estado
   from public.notas_credito order by id_nota_credito;
 select id_pago, folio, cliente_asociado, fecha_pago, monto, medio_pago, estado from public.pagos order by id_pago;
+
+-- Comprobación final (es lo que muestra el SQL Editor): triggers propios que
+-- quedan en las tablas de finanzas. Si aparece alguno además de
+-- trg_factura_calcular_saldo y trg_facturas_columnas_antiguas, revisar que no
+-- use columnas antiguas (total, saldo, numero_factura, total_nota...).
+select c.relname as tabla, t.tgname as trigger, p.proname as funcion,
+       case when t.tgenabled = 'D' then 'desactivado' else 'activo' end as estado
+  from pg_trigger t
+  join pg_class c on c.oid = t.tgrelid
+  join pg_proc p on p.oid = t.tgfoid
+ where not t.tgisinternal
+   and c.relname in ('facturas', 'notas_credito', 'pagos', 'pago_facturas')
+ order by 1, 2;
