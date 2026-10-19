@@ -34,5 +34,7 @@ def cliente(db):
 
 @pytest.fixture
 def admin(cliente):
-    """Cliente con acceso a todo (la app todavía no tiene inicio de sesión)."""
+    """Cliente con sesión del superusuario de con_datos_de_ejemplo() (acceso a todo)."""
+    with cliente.session_transaction() as sesion:
+        sesion['id_usuario'] = 1
     return cliente
