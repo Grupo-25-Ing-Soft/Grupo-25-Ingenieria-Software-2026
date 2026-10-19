@@ -59,8 +59,8 @@
             <td>{{ c.ciudad or '' }}</td>
             <td>{{ nombre_zona.get(c.id_zona_venta, '') }}</td>
             <td class="text-end text-nowrap">{{ '%.2f'|format(c.descuento_1 or 0) }}% / {{ '%.2f'|format(c.descuento_2 or 0) }}% / {{ '%.2f'|format(c.descuento_3 or 0) }}%</td>
-            <td class="text-end">{% if c.porcentaje_comision is not none %}{{ '%.2f'|format(c.porcentaje_comision) }}%{% endif %}</td>
-            <td class="text-end">{% if c.porcentaje_cobranza is not none %}{{ '%.2f'|format(c.porcentaje_cobranza) }}%{% endif %}</td>
+            <td class="text-end">{% if c.get('porcentaje_comision') is not none %}{{ '%.2f'|format(c.get('porcentaje_comision')) }}%{% endif %}</td>
+            <td class="text-end">{% if c.get('porcentaje_cobranza') is not none %}{{ '%.2f'|format(c.get('porcentaje_cobranza')) }}%{% endif %}</td>
             <td>{{ c.via_despacho or '' }}</td>
             <td>{{ c.condiciones_venta or '' }}</td>
             <td>{{ c.observaciones or '' }}</td>
@@ -72,8 +72,8 @@
                         "telefonoActualizar": c.telefono or "", "correoActualizar": c.correo or "", "direccionActualizar": c.direccion or "",
                         "comunaActualizar": c.comuna or "", "ciudadActualizar": c.ciudad or "", "idZonaVentaActualizar": c.id_zona_venta or "",
                         "descuento1Actualizar": c.descuento_1 or 0, "descuento2Actualizar": c.descuento_2 or 0, "descuento3Actualizar": c.descuento_3 or 0,
-                        "porComisionActualizar": c.porcentaje_comision if c.porcentaje_comision is not none else "",
-                        "porCobranzaActualizar": c.porcentaje_cobranza if c.porcentaje_cobranza is not none else "",
+                        "porComisionActualizar": c.get('porcentaje_comision') if c.get('porcentaje_comision') is not none else "",
+                        "porCobranzaActualizar": c.get('porcentaje_cobranza') if c.get('porcentaje_cobranza') is not none else "",
                         "viaDespachoActualizar": c.via_despacho or "", "condicionesVentaActualizar": c.condiciones_venta or "",
                         "observacionesActualizar": c.observaciones or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
               <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="cliente {{ c.nombre }}"

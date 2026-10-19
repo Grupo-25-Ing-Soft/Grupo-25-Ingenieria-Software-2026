@@ -146,3 +146,50 @@ def test_bodega_con_stock_no_se_elimina(admin, bodegas):
     assert 'está en uso en inventario y no se puede eliminar' in r.get_data(as_text=True)
     assert 'Ya existe la bodega con código de bodega B02' in admin.post('/bodegas.html', data={
         '_method': 'post', 'descripcionCrear': 'Otra', 'codigoCrear': 'B02'}, follow_redirects=True).get_data(as_text=True)
+
+
+# ------------------------------------------------------------------ colores y vendedores
+def test_colores_con_flash_y_codigo_unico(admin, base):
+    r = admin.post('/colores.html', data={'_method': 'post', 'descripcionCrear': 'ROJO', 'codigoCrear': 'RO',
+                                          'codigoEanCrear': '0005'}, follow_redirects=True)
+    assert 'Color ROJO creado exitosamente' in r.get_data(as_text=True)  # antes devolvía texto plano
+    assert 'Ya existe el color con código de color BL' in admin.post('/colores.html', data={
+        '_method': 'post', 'descripcionCrear': 'Otro', 'codigoCrear': 'BL'}, follow_redirects=True).get_data(as_text=True)
+    assert 'Ya hay otro color con el código EAN 0001' in admin.post('/colores.html', data={
+        '_method': 'post', 'descripcionCrear': 'Otro', 'codigoEanCrear': '0001'}, follow_redirects=True).get_data(as_text=True)
+    base.tablas['inventario'].append({'id_inventario': 1, 'id_color': 1})
+    r = admin.post('/colores.html', data={'_method': 'delete', 'idColorBorrar': 1}, follow_redirects=True)
+    assert 'está en uso en inventario y no se puede eliminar' in r.get_data(as_text=True)
+
+
+def test_vendedores_rut_valido_y_en_uso(admin, base):
+    base.tablas.update({'vendedores': [], 'pedidos': []})
+    datos = {'_method': 'post', 'nombreCrear': 'Ana Pérez', 'codigoCrear': 'V01', 'rutCrear': '12.345.678',
+             'digVerCrear': '5', 'porComiCrear': '4.5'}
+    assert 'no es válido' in admin.post('/vendedores.html', data={**datos, 'digVerCrear': '4'},
+                                        follow_redirects=True).get_data(as_text=True)
+    assert 'entre 0 y 100' in admin.post('/vendedores.html', data={**datos, 'porComiCrear': '120'},
+                                         follow_redirects=True).get_data(as_text=True)
+    assert 'Vendedor Ana Pérez creado exitosamente' in admin.post('/vendedores.html', data=datos,
+                                                                 follow_redirects=True).get_data(as_text=True)
+    assert base.tablas['vendedores'][0] == {'id_vendedor': 1, 'nombre': 'Ana Pérez', 'codigo': 'V01', 'rut': '12345678',
+                                            'digito_verificador': '5', 'porcentaje_comision': 4.5}
+    assert 'Ya existe el vendedor con rut 12345678' in admin.post('/vendedores.html', data={**datos, 'codigoCrear': 'V02'},
+                                                                  follow_redirects=True).get_data(as_text=True)
+    base.tablas['pedidos'].append({'id_pedido': 1, 'vendedor_asociado': 1})
+    r = admin.post('/vendedores.html', data={'_method': 'delete', 'idVendedorBorrar': 1}, follow_redirects=True)
+    assert 'está en uso en pedidos' in r.get_data(as_text=True)
+    assert '4.5%' in admin.get('/vendedores.html').get_data(as_text=True)
+
+
+@pytest.mark.parametrize('url', ['/colores.html', '/tallas.html', '/zonasVenta.html', '/vendedores.html', '/bodegas.html',
+                                 '/clientes.html', '/productos.html'])
+def test_todos_los_maestros_tienen_el_mismo_patron(admin, base, url):
+    base.tablas.setdefault('vendedores', [{'id_vendedor': 1, 'nombre': 'Ana', 'rut': '1', 'digito_verificador': '9'}])
+    base.tablas.setdefault('bodegas', [{'id_bodega': 1, 'descripcion': 'Central'}])
+    base.tablas['zona_venta'] = [{'id_zona_venta': 1, 'nombre': 'Sur', 'descripcion': 'Sur'}]
+    base.tablas['clientes'] = [{'id_cliente': 1, 'nombre': 'Tienda', 'rut': '1', 'digito_verificador': '9'}]
+    html = admin.get(url).get_data(as_text=True)
+    for parte in ('id="crearModal"', 'id="actualizarModal"', 'id="borrarModal"', 'data-modal="#actualizarModal"',
+                  'data-modal="#borrarModal"', 'name="q"'):
+        assert parte in html, (url, parte)

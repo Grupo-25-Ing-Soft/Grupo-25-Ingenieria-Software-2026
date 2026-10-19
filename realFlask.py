@@ -2464,82 +2464,10 @@ def clientes():
 
 @app.route('/colores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def colores():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            codigo = request.form['codigoCrear']
-            descripcion = request.form['descripcionCrear']
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanCrear'))
+    # RF-003/004, CU-03.1 a CU-03.4.
+    return _crud_maestro('colores')
 
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
 
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("colores").insert({"codigo_color": codigo, "descripcion": descripcion,
-                        "codigo_ean": codigoEan
-                        }).execute()
-            )
-            if response.data:
-                return "Color creado exitosamente"
-            else:
-                return "Error creando color", 500
-        if (metodo == "put"):
-            idColor = request.form['idColorActualizar']
-            codigo = request.form['codigoActualizar']
-            descripcion = request.form['descripcionActualizar']
-            codigoEan = _texto_o_nulo(request.form.get('codigoEanActualizar'))
-            response = (
-
-                supabase.table("colores").update({"codigo_color": codigo, "descripcion": descripcion,
-                        "codigo_ean": codigoEan
-                        }).eq("id_color", idColor).select("id_color").execute()
-            )
-            if response.data:
-                return "Color actualizado exitosamente"
-            else:
-                return "Error actualizando color", 500
-        if (metodo == "delete"):
-            idABorrar = request.form['idColorBorrar']
-            response = (
-                supabase.table("colores").delete()
-                .eq("id_color", idABorrar)
-                .execute()
-            )
-            if response.data:
-                return "Color borrado exitosamente"
-            else:
-                return "Error borrando color", 500
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarcolorid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('colores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún color con la id buscada"
-        if (metodo == "buscarDescripcion"):
-            texto = request.form["descripcionBuscar"]
-            response = supabase.rpc('buscarcolordescripcion', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('colores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún color con la descrpición buscada"
-        if (metodo == "buscarCodigo"):
-            texto = request.form["codigoBuscar"]
-            response = supabase.rpc('buscarcolorcodigo', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('colores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún color con el código buscado"
-    else:
-        response =(
-            supabase.table("colores").select("*").execute()
-        )
-            
-        return render_template('colores.html', datos = response.data)
-    
 def _cantidad_inventario(valor, etiqueta):
     texto = (valor or '').strip()
     if not texto:
@@ -2640,85 +2568,48 @@ def bodegas():
 
 @app.route('/vendedores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def vendedores():
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            nombre = request.form['nombreCrear']
-            rut = request.form['rutCrear']
-            digVer = request.form['digVerCrear']
-            porComi = request.form['porComiCrear']
-            response = (
+    # RF-007/008, CU-07.1 a CU-07.4.
+    return _crud_maestro('vendedores')
 
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("vendedores").insert({"rut": rut, "nombre": nombre,
-                        "digito_verificador": digVer, "porcentaje_comision": porComi
-                        }).execute()
-            )
-            if response.data:
-                flash("Vendedor creado exitosamente", "success")
-                return redirect(url_for('vendedores'))
-            else:
-                flash("Error creando vendedor", "error")
-                return redirect(url_for('vendedores'))
-        if (metodo == "put"):
-            idVendedor = request.form['IdVendedorActualizar']
-            nombre = request.form['nombreActualizar']
-            rut = request.form['rutActualizar']
-            digVer = request.form['digVerActualizar']
-            porComi = request.form['porComiActualizar']
-            response = (
-                
-                supabase.table("vendedores").update({"rut": rut, "nombre": nombre,
-                        "digito_verificador": digVer, "porcentaje_comision": porComi
-                        }).eq("id_vendedor", idVendedor).select("id_vendedor").execute()
-            )
-            if response.data:
-                flash("Vendedor actualizado exitosamente", "success")
-                return redirect(url_for('vendedores'))
-            else:
-                flash("Error actualizando vendedor", "error")
-                return redirect(url_for('vendedores'))
-        if (metodo == "delete"):
-            idABorrar = request.form['idVendedorBorrar']
-            response = (
-                supabase.table("vendedores").delete()
-                .eq("id_vendedor", idABorrar)
-                .execute()
-            )
-            if response.data:
-                flash("Vendedor borrado exitosamente", "success")
-                return redirect(url_for('vendedores'))
-            else:
-                flash("Error borrando vendedor", "error")
-                return redirect(url_for('vendedores'))
-        if (metodo == "buscarID"):
-            texto = request.form["idBuscar"]
-            response = supabase.rpc('buscarvendedorid', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('vendedores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún vendedor con la id buscada"
-        if (metodo == "buscarNombre"):
-            texto = request.form["nombreBuscar"]
-            response = supabase.rpc('buscarvendedornombre', { 'textobusqueda': texto }).execute()
-            if response.data:
-                return render_template('vendedores.html', datos = response.data)
-            else:
-                return "No se ha encontrado ningún vendedor con el nombre buscado"
-    else:
-        response =(
-            supabase.table("vendedores").select("*").execute()
-        )
-            
-        return render_template('vendedores.html', datos = response.data)
 
-# ---------------------------------------------------------------------
-# Archivos maestros simples (CU-03 a CU-11). Mismo patrón que el CRUD de colores:
-# _method post/put/delete, modales crear/actualizar/borrar con campos <campo>Crear y
-# <campo>Actualizar, avisos con flash y confirmación que nombra el registro.
-# Cada maestro define sus columnas, validaciones (largos del glosario, campos únicos)
-# y las tablas que impiden borrarlo (excepción "registro referenciado").
+def _validar_rut_vendedor(datos):
+    # CU-07.1 excepción 1: RUT con dígito verificador correcto (módulo 11).
+    if datos.get('digito_verificador') and digito_verificador_rut(datos['rut']) != datos['digito_verificador']:
+        return f"El RUT {datos['rut']}-{datos['digito_verificador']} no es válido: el dígito verificador no coincide."
+    return None
+
+
 MAESTROS_SIMPLES = {
+    'colores': {
+        'tabla': 'colores', 'clave': 'id_color', 'endpoint': 'colores', 'modulo': 'colores',
+        'plantilla': 'colores.html', 'singular': 'color', 'plural': 'colores', 'articulo': 'el',
+        'id_form': 'idColor', 'principal': 'descripcion',
+        'campos': [
+            {'columna': 'descripcion', 'form': 'descripcion', 'etiqueta': 'Descripción', 'obligatorio': True, 'max': 32},
+            {'columna': 'codigo_color', 'form': 'codigo', 'etiqueta': 'Código de color', 'max': 8, 'unico': True,
+             'ayuda': 'Hasta 8 caracteres (glosario dddd)'},
+            {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN del color', 'max': 4,
+             'numerico': True, 'ean_parte': 'color', 'ayuda': 'Solo números, hasta 4 dígitos (ej. 0001); único'},
+        ],
+        'en_uso': [('producto_variantes', 'id_color', 'variantes de producto'), ('productos', 'color', 'productos'),
+                   ('inventario', 'id_color', 'inventario')],
+    },
+    'vendedores': {
+        'tabla': 'vendedores', 'clave': 'id_vendedor', 'endpoint': 'vendedores', 'modulo': 'vendedores',
+        'plantilla': 'vendedores.html', 'singular': 'vendedor', 'plural': 'vendedores', 'articulo': 'el',
+        'id_form': 'idVendedor', 'principal': 'nombre', 'validar': _validar_rut_vendedor,
+        'campos': [
+            {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre', 'obligatorio': True, 'max': 64},
+            {'columna': 'codigo', 'form': 'codigo', 'etiqueta': 'Código de vendedor', 'max': 3, 'unico': True,
+             'ayuda': 'Hasta 3 caracteres (glosario ffff)'},
+            {'columna': 'rut', 'form': 'rut', 'etiqueta': 'RUT', 'obligatorio': True, 'max': 9, 'numerico': True,
+             'rut': True, 'unico': True, 'ayuda': 'Sin puntos ni dígito verificador'},
+            {'columna': 'digito_verificador', 'form': 'digVer', 'etiqueta': 'Dígito verificador', 'obligatorio': True,
+             'max': 1, 'mayusculas': True},
+            {'columna': 'porcentaje_comision', 'form': 'porComi', 'etiqueta': 'Comisión', 'porcentaje': True},
+        ],
+        'en_uso': [('pedidos', 'vendedor_asociado', 'pedidos')],
+    },
     'tallas': {
         'tabla': 'tallas', 'clave': 'id_talla', 'endpoint': 'tallas', 'modulo': 'tallas',
         'plantilla': 'tallas.html', 'singular': 'talla', 'plural': 'tallas', 'articulo': 'la',
@@ -2791,6 +2682,10 @@ def _leer_maestro_formulario(maestro, sufijo, id_registro=None):
     datos = {}
     for campo in maestro['campos']:
         valor = (request.form.get(campo['form'] + sufijo) or '').strip()
+        if campo.get('rut'):
+            valor = re.sub(r'[.\s-]', '', valor)
+        if campo.get('mayusculas'):
+            valor = valor.upper()
         etiqueta = campo['etiqueta']
         if not valor:
             if campo.get('obligatorio'):
@@ -2817,6 +2712,10 @@ def _leer_maestro_formulario(maestro, sufijo, id_registro=None):
             if any(str(f[maestro['clave']]) != str(id_registro) for f in mismos):
                 return None, f'Ya existe {maestro["articulo"]} {maestro["singular"]} con {etiqueta.lower()} {valor}.'
         datos[campo['columna']] = valor
+    if maestro.get('validar'):
+        error = maestro['validar'](datos)
+        if error:
+            return None, error
     return datos, None
 
 
