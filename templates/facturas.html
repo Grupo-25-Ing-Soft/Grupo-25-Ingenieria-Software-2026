@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
   <title>Facturas - Comercial D Nix</title>
   <meta charset="utf-8">
@@ -10,464 +9,212 @@
   <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
   <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
-<script>
-      function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = ordenarColumnasTabla(Object.keys(data[0]));
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = formatearCeldaTabla(key, (typeof value === 'object') ? JSON.stringify(value) : value);
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaFacturas').appendChild(table);
-        } 
-</script>
- </head>
-<body onload="createTableFromJSON()">
+</head>
+<body>
 {% include '_flash_toast.html' %}
-<input type="hidden" id="my_variable" value='{{ datos | tojson }}'>
 {% include '_sidebar.html' %}
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('facturas', 'editar') %}
+{% set estados = {'vigente': 'Vigente', 'parcialmente_pagada': 'Parcialmente pagada', 'pagada': 'Pagada', 'anulada': 'Anulada'} %}
+
 <div class="container-fluid">
-  <div class="page-heading"><div><div class="eyebrow">Ventas / Facturas</div><h1>Facturas</h1><p>Administra y consulta las facturas registradas.</p></div>
+  <div class="page-heading">
+    <div><div class="eyebrow">Ventas / Facturas</div><h1>Facturas</h1><p>Registra las facturas de los pedidos. El saldo baja con los pagos y las notas de crédito aplicadas.</p></div>
+    {% if puede_editar %}
     <div class="heading-actions">
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
-      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Crear factura</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" onclick="createTableFromJSON()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Ver</span></button>
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nueva factura</span></button>
     </div>
+    {% endif %}
   </div>
-  <div class="data-card"><div class="data-card-header"><div><h2>Resultados</h2><span>Facturas registradas</span></div></div><div class="data-table-wrap" id="tablaFacturas"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}</div>
+
+  <div class="data-card mb-4">
+    <div class="data-card-header"><div><h2>Filtros</h2><span>Por cliente, fecha de emisión y estado</span></div></div>
+    <form method="GET" action="{{ url_for('facturas') }}" class="modal-body row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label" for="cliente">Cliente</label>
+        <input type="text" class="form-control" id="cliente" name="cliente" value="{{ filtros.cliente }}" placeholder="Nombre del cliente">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="desde">Desde</label>
+        <input type="date" class="form-control" id="desde" name="desde" value="{{ filtros.desde }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="hasta">Hasta</label>
+        <input type="date" class="form-control" id="hasta" name="hasta" value="{{ filtros.hasta }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="estado">Estado</label>
+        <select class="form-select" id="estado" name="estado">
+          <option value="">Todos</option>
+          {% for valor, texto in estados.items() %}<option value="{{ valor }}" {% if filtros.estado == valor %}selected{% endif %}>{{ texto }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <a href="{{ url_for('facturas') }}" class="btn btn-outline-secondary">Limpiar</a>
+        <button type="submit" class="btn btn-primary">Filtrar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header"><div><h2>Facturas registradas</h2><span>{{ datos|length }} resultado{{ '' if datos|length == 1 else 's' }}</span></div></div>
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Folio</th><th>Fecha emisión</th><th>Cliente</th><th>Pedido</th><th class="text-end">Neto</th><th class="text-end">Impuesto</th><th class="text-end">Total</th><th class="text-end">Saldo pendiente</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for f in datos %}
+          <tr>
+            <td>{{ f.folio }}</td>
+            <td>{{ f.fecha_emision|fecha }}</td>
+            <td>{{ f.cliente }}</td>
+            <td>{{ f.numero_pedido }}</td>
+            <td class="text-end">{{ f.monto_neto|moneda }}</td>
+            <td class="text-end">{{ f.monto_impuesto|moneda }}</td>
+            <td class="text-end">{{ f.monto_total|moneda }}</td>
+            <td class="text-end">{{ f.saldo_pendiente|moneda }}</td>
+            <td><span class="badge {{ {'pagada': 'text-bg-success', 'anulada': 'text-bg-secondary', 'parcialmente_pagada': 'text-bg-warning'}.get(f.estado, 'text-bg-primary') }}">{{ estados.get(f.estado, f.estado) }}</span></td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              {% if f.estado != 'anulada' %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="Factura {{ f.folio }}"
+                      data-valores='{{ {"idFacturaActualizar": f.id_factura, "folioActualizar": f.folio, "fechaEmisionActualizar": f.fecha_emision, "pedidoActualizar": f.pedido_asociado, "montoNetoActualizar": f.monto_neto} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-warning" title="Anular" data-modal="#anularModal" data-registro="Factura {{ f.folio }}"
+                      data-valores='{{ {"idFacturaAnular": f.id_factura} | tojson }}'><i class="bi bi-x-octagon" aria-hidden="true"></i></button>
+              {% endif %}
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="Factura {{ f.folio }}"
+                      data-valores='{{ {"idFacturaBorrar": f.id_factura} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">No hay facturas{% if filtros.values()|select|list %} para los filtros aplicados{% endif %}.</div>
+    {% endif %}
+  </div>
 </div>
 
+{% macro campos_factura(sufijo, folio='') %}
+<div class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label" for="folio{{ sufijo }}">Folio</label>
+    <input type="number" class="form-control" id="folio{{ sufijo }}" name="folio{{ sufijo }}" min="1" value="{{ folio }}" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="fechaEmision{{ sufijo }}">Fecha de emisión</label>
+    <input type="date" class="form-control" id="fechaEmision{{ sufijo }}" name="fechaEmision{{ sufijo }}" required>
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="pedido{{ sufijo }}">Pedido asociado</label>
+    <select class="form-select" id="pedido{{ sufijo }}" name="pedido{{ sufijo }}" required>
+      <option value="" selected disabled>Seleccione un pedido</option>
+      {% for p in pedidos %}<option value="{{ p.id_pedido }}">{{ p.numero_pedido or p.id_pedido }} · {{ clientes.get(p.cliente_asociado, 'Sin cliente') }}</option>{% endfor %}
+    </select>
+    <small class="text-muted">El cliente de la factura es el del pedido.</small>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="montoNeto{{ sufijo }}">Monto neto</label>
+    <input type="number" class="form-control monto-neto" id="montoNeto{{ sufijo }}" name="montoNeto{{ sufijo }}" min="0" step="1" required data-sufijo="{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">Impuesto ({{ porcentaje_impuesto|round(2) }}%)</label>
+    <input type="text" class="form-control" id="impuesto{{ sufijo }}" readonly tabindex="-1">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">Total</label>
+    <input type="text" class="form-control" id="total{{ sufijo }}" readonly tabindex="-1">
+  </div>
+</div>
+{% endmacro %}
 
-<!-- CREAR FACTURA -->
-
-<div class="modal fade" id="crearModal">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <div class="modal-header">
-        <h4 class="modal-title">Crear Factura</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Nueva factura</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('facturas') }}">
       <div class="modal-body">
-
-        <form method="POST" role="form" action="#">
-
-          <input type="hidden" name="_method" value="post">
-
-          <div class="mb-3">
-            <label class="form-label">Número de Factura:</label>
-            <input type="text" class="form-control"
-                   id="numeroFacturaCrear"
-                   name="numeroFacturaCrear"
-                   placeholder="Ingrese número de factura">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Fecha:</label>
-            <input type="date" class="form-control"
-                   id="fechaFacturaCrear"
-                   name="fechaFacturaCrear">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Razón Social / Cliente:</label>
-            <input type="text" class="form-control"
-                   id="razonSocialCrear"
-                   name="razonSocialCrear"
-                   placeholder="Ingrese razón social">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">RUT:</label>
-            <input type="text" class="form-control"
-                   id="rutCrear"
-                   name="rutCrear"
-                   placeholder="Ingrese RUT">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Dirección:</label>
-            <input type="text" class="form-control"
-                   id="direccionCrear"
-                   name="direccionCrear"
-                   placeholder="Ingrese dirección">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Giro:</label>
-            <input type="text" class="form-control"
-                   id="giroCrear"
-                   name="giroCrear"
-                   placeholder="Ingrese giro">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Detalle:</label>
-            <textarea class="form-control"
-                      id="detalleCrear"
-                      name="detalleCrear"
-                      rows="4"
-                      placeholder="Ingrese detalle de productos"></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Forma de Pago:</label>
-
-            <select class="form-select"
-                    id="formaPagoCrear"
-                    name="formaPagoCrear">
-
-              <option value="">Seleccione una opción</option>
-              <option value="Contado">Contado</option>
-              <option value="Credito">Crédito</option>
-              <option value="Transferencia">Transferencia</option>
-              <option value="Otro">Otro</option>
-
-            </select>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Monto Neto:</label>
-            <input type="number" class="form-control"
-                   id="netoCrear"
-                   name="netoCrear"
-                   min="0">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">IVA:</label>
-            <input type="number" class="form-control"
-                   id="ivaCrear"
-                   name="ivaCrear"
-                   min="0">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Total:</label>
-            <input type="number" class="form-control"
-                   id="totalCrear"
-                   name="totalCrear"
-                   min="0">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">ID Cliente:</label>
-            <input type="number" class="form-control"
-                   id="idClienteCrear"
-                   name="idClienteCrear"
-                   min="0">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">ID Pedido:</label>
-            <input type="number" class="form-control"
-                   id="idPedidoCrear"
-                   name="idPedidoCrear"
-                   min="0">
-          </div>
-
-          <button type="submit" class="btn btn-primary">
-            Crear Factura
-          </button>
-
-        </form>
-
+        <input type="hidden" name="_method" value="post">
+        {{ campos_factura('Crear', siguiente_folio) }}
       </div>
-
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary"
-                data-bs-dismiss="modal">
-          Cancelar
-        </button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-
-<!-- ACTUALIZAR FACTURA -->
-
-<div class="modal fade" id="actualizarModal">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <div class="modal-header">
-        <h4 class="modal-title">Actualizar Factura</h4>
-        <button type="button" class="btn-close"
-                data-bs-dismiss="modal"></button>
-      </div>
-
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('facturas') }}">
       <div class="modal-body">
-
-        <form method="POST" role="form" action="#">
-
-          <input type="hidden" name="_method" value="put">
-
-          <div class="mb-3">
-            <label class="form-label">ID de la Factura:</label>
-            <input type="text" class="form-control"
-                   id="idFacturaActualizar"
-                   name="idFacturaActualizar"
-                   placeholder="Ingrese ID">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Número de Factura:</label>
-            <input type="text" class="form-control"
-                   id="numeroFacturaActualizar"
-                   name="numeroFacturaActualizar">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Fecha:</label>
-            <input type="date" class="form-control"
-                   id="fechaFacturaActualizar"
-                   name="fechaFacturaActualizar">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Razón Social / Cliente:</label>
-            <input type="text" class="form-control"
-                   id="razonSocialActualizar"
-                   name="razonSocialActualizar">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">RUT:</label>
-            <input type="text" class="form-control"
-                   id="rutActualizar"
-                   name="rutActualizar">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Dirección:</label>
-            <input type="text" class="form-control"
-                   id="direccionActualizar"
-                   name="direccionActualizar">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Giro:</label>
-            <input type="text" class="form-control"
-                   id="giroActualizar"
-                   name="giroActualizar">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Detalle:</label>
-            <textarea class="form-control"
-                      id="detalleActualizar"
-                      name="detalleActualizar"
-                      rows="4"></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Forma de Pago:</label>
-            <input type="text" class="form-control"
-                   id="formaPagoActualizar"
-                   name="formaPagoActualizar">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Monto Neto:</label>
-            <input type="number" class="form-control"
-                   id="netoActualizar"
-                   name="netoActualizar"
-                   min="0">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">IVA:</label>
-            <input type="number" class="form-control"
-                   id="ivaActualizar"
-                   name="ivaActualizar"
-                   min="0">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Total:</label>
-            <input type="number" class="form-control"
-                   id="totalActualizar"
-                   name="totalActualizar"
-                   min="0">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">ID Cliente:</label>
-            <input type="number" class="form-control"
-                   id="idClienteActualizar"
-                   name="idClienteActualizar"
-                   min="0">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">ID Pedido:</label>
-            <input type="number" class="form-control"
-                   id="idPedidoActualizar"
-                   name="idPedidoActualizar"
-                   min="0">
-          </div>
-          <button type="submit" class="btn btn-primary">
-            Actualizar Factura
-          </button>
-
-        </form>
-
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="idFacturaActualizar">
+        {{ campos_factura('Actualizar') }}
+        <small class="text-muted d-block mt-2">El saldo pendiente se recalcula con los pagos y notas de crédito ya aplicados.</small>
       </div>
-
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary"
-                data-bs-dismiss="modal">
-          Cancelar
-        </button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-
-<!-- BORRAR FACTURA -->
-
-<div class="modal fade" id="borrarModal">
-  <div class="modal-dialog">
-    <div class="modal-content">
-
-      <div class="modal-header">
-        <h4 class="modal-title">Borrar Factura</h4>
-        <button type="button" class="btn-close"
-                data-bs-dismiss="modal"></button>
-      </div>
-
+<div class="modal fade" id="anularModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Anular <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('facturas') }}">
       <div class="modal-body">
-
-        <form method="POST" role="form" action="#">
-
-          <input type="hidden" name="_method" value="delete">
-
-          <div class="mb-3">
-            <label class="form-label">ID de la Factura:</label>
-            <input type="text" class="form-control"
-                   id="idFacturaBorrar"
-                   name="idFacturaBorrar"
-                   placeholder="Ingrese ID de la factura">
-          </div>
-
-          <button type="submit" class="btn btn-danger">
-            Borrar Factura
-          </button>
-
-        </form>
-
+        <input type="hidden" name="_method" value="anular">
+        <input type="hidden" name="idFacturaAnular">
+        <p>La factura queda en estado <strong>anulada</strong>: no recibe más pagos ni notas de crédito y sale del informe de cobranza. Sus pagos y notas se conservan como historial.</p>
       </div>
-
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary"
-                data-bs-dismiss="modal">
-          Cancelar
-        </button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-warning">Anular factura</button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('facturas') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idFacturaBorrar">
+        <p>¿Seguro que quieres eliminar la <strong data-registro></strong>? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Si la factura tiene pagos, notas de crédito o despachos asociados no se elimina: hay que anularla.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
 
 <script>
-
-function createTableFromJSON() {
-
-  const test = document.querySelector('#my_variable').value;
-  const data = JSON.parse(test);
-
-  if (!data || !data.length) return;
-
-  const contenedor = document.getElementById('tablaFacturas');
-
-  contenedor.innerHTML = "";
-
-  const table = document.createElement('table');
-
-  table.className =
-    "table table-striped table-bordered";
-
-  const thead = document.createElement('thead');
-  const tbody = document.createElement('tbody');
-  const headerRow = document.createElement('tr');
-
-  const headers = ordenarColumnasTabla(Object.keys(data[0]));
-
-  headers.forEach(key => {
-
-    const th = document.createElement('th');
-
-    th.textContent = key;
-
-    headerRow.appendChild(th);
-
+  // Impuesto y total en vivo, con el mismo porcentaje que usa el servidor.
+  const PORCENTAJE_IMPUESTO = {{ porcentaje_impuesto | tojson }};
+  function formatoPesos(valor) { return '$' + Math.round(valor).toLocaleString('es-CL'); }
+  function recalcularTotal(campo) {
+    const neto = parseFloat(campo.value) || 0;
+    const impuesto = Math.round(neto * PORCENTAJE_IMPUESTO) / 100;
+    document.getElementById('impuesto' + campo.dataset.sufijo).value = formatoPesos(impuesto);
+    document.getElementById('total' + campo.dataset.sufijo).value = formatoPesos(neto + impuesto);
+  }
+  document.querySelectorAll('.monto-neto').forEach(function (campo) {
+    campo.addEventListener('input', function () { recalcularTotal(campo); });
   });
-
-  thead.appendChild(headerRow);
-
-  data.forEach(rowData => {
-
-    const tr = document.createElement('tr');
-
-    headers.forEach(key => {
-
-      const td = document.createElement('td');
-
-      const value = rowData[key];
-
-      td.textContent = formatearCeldaTabla(key,
-        (typeof value === 'object' && value !== null)
-        ? JSON.stringify(value)
-        : value ?? "");
-
-      tr.appendChild(td);
-
-    });
-
-    tbody.appendChild(tr);
-
+  document.getElementById('actualizarModal').addEventListener('shown.bs.modal', function () {
+    recalcularTotal(document.getElementById('montoNetoActualizar'));
   });
-
-  table.appendChild(thead);
-  table.appendChild(tbody);
-
-  contenedor.appendChild(table);
-}
-
 </script>
-
 </body>
 </html>

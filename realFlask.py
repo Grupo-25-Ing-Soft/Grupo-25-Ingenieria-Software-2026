@@ -684,62 +684,199 @@ def verDetalle():
     )
 
 
-def _datos_factura_formulario(sufijo):
-    # Lee los campos del modal de facturas ("Crear" o "Actualizar"); los opcionales vacíos quedan en NULL.
+@app.template_filter('moneda')
+def formatear_moneda(valor):
+    """Monto en pesos con separador de miles: $12.500 (formato qqqq del Documento 0)."""
+    try:
+        return '$' + f'{float(valor or 0):,.0f}'.replace(',', '.')
+    except (TypeError, ValueError):
+        return valor
+
+
+def _numero_positivo(valor, permitir_cero=False):
+    """Monto escrito por el usuario (acepta coma decimal). None si no es válido."""
+    try:
+        numero = float(str(valor).strip().replace(',', '.'))
+    except (TypeError, ValueError):
+        return None
+    if numero < 0 or (numero == 0 and not permitir_cero):
+        return None
+    return round(numero, 2)
+
+
+def _descuentos_factura(id_factura):
+    """Lo que ya rebaja la factura: pagos vigentes aplicados y notas de crédito vigentes."""
+    aplicaciones = supabase.table('pago_facturas').select('id_pago, monto_aplicado') \
+        .eq('id_factura', id_factura).execute().data or []
+    ids_pago = {a['id_pago'] for a in aplicaciones}
+    vigentes = {p['id_pago'] for p in supabase.table('pagos').select('id_pago, estado')
+                .in_('id_pago', list(ids_pago)).execute().data or []
+                if (p.get('estado') or 'vigente') == 'vigente'} if ids_pago else set()
+    pagado = sum(float(a.get('monto_aplicado') or 0) for a in aplicaciones if a['id_pago'] in vigentes)
+    notas = sum(float(n.get('monto_total') or 0) for n in supabase.table('notas_credito')
+                .select('monto_total, estado').eq('factura_referencia', id_factura).execute().data or []
+                if (n.get('estado') or 'vigente') == 'vigente')
+    return pagado, notas
+
+
+def _recalcular_factura(id_factura):
+    """saldo_pendiente = monto_total - pagos aplicados - notas de crédito (mismo criterio
+    que supabase/incremento4_feedback.sql), y su estado con _estado_para_saldo()."""
+    filas = supabase.table('facturas').select('id_factura, monto_total, estado') \
+        .eq('id_factura', id_factura).execute().data
+    if not filas or filas[0].get('estado') == 'anulada':
+        return
+    pagado, notas = _descuentos_factura(id_factura)
+    saldo = max(round(float(filas[0].get('monto_total') or 0) - pagado - notas, 2), 0)
+    supabase.table('facturas').update({
+        'saldo_pendiente': saldo,
+        'estado': _estado_para_saldo(filas[0].get('monto_total'), saldo),
+    }).eq('id_factura', id_factura).execute()
+
+
+def _leer_factura_formulario(sufijo):
+    """Valida el modal de facturas ("Crear" o "Actualizar"). Devuelve (datos, error)."""
+    try:
+        folio = int(request.form.get('folio' + sufijo, ''))
+        if folio <= 0:
+            raise ValueError
+    except ValueError:
+        return None, 'El folio debe ser un número entero mayor que cero.'
+    id_pedido = _entero_positivo(request.form.get('pedido' + sufijo))
+    if not id_pedido:
+        return None, 'Seleccione el pedido asociado a la factura.'
+    pedido = supabase.table('pedidos').select('id_pedido, cliente_asociado, estado') \
+        .eq('id_pedido', id_pedido).execute().data
+    if not pedido:
+        return None, 'El pedido seleccionado no existe.'
+    if pedido[0].get('estado') == 'anulado':
+        return None, 'No se puede facturar un pedido anulado.'
+    fecha = (request.form.get('fechaEmision' + sufijo) or '').strip()
+    if not fecha:
+        return None, 'Ingrese la fecha de emisión.'
+    neto = _numero_positivo(request.form.get('montoNeto' + sufijo), permitir_cero=True)
+    if neto is None:
+        return None, 'El monto neto debe ser un número mayor o igual a cero.'
+    # El impuesto sale del porcentaje configurado en Configuración (RF-056).
+    impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
     return {
-        "numero_factura": request.form['numeroFactura' + sufijo],
-        "fecha": request.form['fechaFactura' + sufijo],
-        "razon_social": request.form['razonSocial' + sufijo],
-        "rut": request.form['rut' + sufijo],
-        "direccion": _texto_o_nulo(request.form.get('direccion' + sufijo)),
-        "giro": _texto_o_nulo(request.form.get('giro' + sufijo)),
-        "detalle": _texto_o_nulo(request.form.get('detalle' + sufijo)),
-        "forma_pago": _texto_o_nulo(request.form.get('formaPago' + sufijo)),
-        "neto": request.form['neto' + sufijo],
-        "iva": request.form['iva' + sufijo],
-        "total": request.form['total' + sufijo],
-        "id_pedido": _texto_o_nulo(request.form.get('idPedido' + sufijo)),
-        "id_cliente": _texto_o_nulo(request.form.get('idCliente' + sufijo)),
-    }
+        'folio': folio,
+        'pedido_asociado': id_pedido,
+        # El cliente es el del pedido, para que no puedan quedar distintos.
+        'cliente_asociado': pedido[0].get('cliente_asociado'),
+        'fecha_emision': fecha,
+        'monto_neto': neto,
+        'monto_impuesto': impuesto,
+        'monto_total': round(neto + impuesto, 2),
+    }, None
 
 
-@app.route('/facturas.html', methods=['GET', 'POST'])
+def _folio_repetido(tabla, clave, folio, id_actual=None):
+    filas = supabase.table(tabla).select(f'{clave}, folio').eq('folio', folio).execute().data or []
+    return any(str(f.get(clave)) != str(id_actual) for f in filas)
+
+
+@app.route('/facturas.html', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def facturas():
+    # RF-029/030. Esquema de supabase/facturas.sql. Una factura con pagos, notas de
+    # crédito o despachos no se elimina: se anula (estado 'anulada').
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            datos = _datos_factura_formulario('Crear')
+        metodo = request.form.get('_method')
+        if metodo == 'post':
+            datos, error = _leer_factura_formulario('Crear')
+            if not error and _folio_repetido('facturas', 'id_factura', datos['folio']):
+                error = f"Ya existe una factura con el folio {datos['folio']}."
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('facturas'))
             # Una factura nueva parte con todo su total pendiente de pago.
-            datos["saldo"] = datos["total"]
-            response = supabase.table("facturas").insert(datos).execute()
+            datos.update(saldo_pendiente=datos['monto_total'], estado='vigente',
+                         usuario_creacion=g.usuario.get('nombre_usuario') or 'Admin')
+            response = supabase.table('facturas').insert(datos).execute()
             if response.data:
-                return "Factura creada exitosamente"
+                flash(f"Factura {datos['folio']} creada exitosamente", 'success')
             else:
-                return "Error creando factura", 500
-        if (metodo == "put"):
-            idFactura = request.form['idFacturaActualizar']
-            response = (
-                supabase.table("facturas").update(_datos_factura_formulario('Actualizar'))
-                .eq("id_factura", idFactura).select("id_factura").execute()
-            )
-            if response.data:
-                return "Factura actualizada exitosamente"
+                flash('Error creando factura', 'error')
+            return redirect(url_for('facturas'))
+
+        id_factura = _entero_positivo(request.form.get('idFacturaActualizar')
+                                      or request.form.get('idFacturaBorrar')
+                                      or request.form.get('idFacturaAnular'))
+        actual = supabase.table('facturas').select('id_factura, folio, estado') \
+            .eq('id_factura', id_factura).execute().data if id_factura else []
+        if not actual:
+            flash('La factura no existe', 'error')
+            return redirect(url_for('facturas'))
+        actual = actual[0]
+
+        if metodo == 'put':
+            if actual.get('estado') == 'anulada':
+                flash(f"La factura {actual['folio']} está anulada y no se puede modificar", 'error')
+                return redirect(url_for('facturas'))
+            datos, error = _leer_factura_formulario('Actualizar')
+            if not error and _folio_repetido('facturas', 'id_factura', datos['folio'], id_factura):
+                error = f"Ya existe otra factura con el folio {datos['folio']}."
+            if not error:
+                pagado, notas = _descuentos_factura(id_factura)
+                if datos['monto_total'] < pagado + notas:
+                    error = ('El nuevo total es menor que lo ya pagado y abonado con notas de crédito '
+                             f'({formatear_moneda(pagado + notas)}).')
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('facturas'))
+            supabase.table('facturas').update(datos).eq('id_factura', id_factura).execute()
+            _recalcular_factura(id_factura)
+            flash(f"Factura {datos['folio']} actualizada exitosamente", 'success')
+
+        elif metodo == 'delete':
+            tiene_pagos = supabase.table('pago_facturas').select('id_pago_factura') \
+                .eq('id_factura', id_factura).limit(1).execute().data
+            tiene_notas = supabase.table('notas_credito').select('id_nota_credito') \
+                .eq('factura_referencia', id_factura).limit(1).execute().data
+            tiene_despachos = supabase.table('despachos').select('id_despacho') \
+                .eq('id_factura', id_factura).limit(1).execute().data
+            if tiene_pagos or tiene_notas or tiene_despachos:
+                asociados = ', '.join(nombre for nombre, hay in (
+                    ('pagos', tiene_pagos), ('notas de crédito', tiene_notas), ('despachos', tiene_despachos)) if hay)
+                flash(f"La factura {actual['folio']} tiene {asociados} asociados: no se puede eliminar, solo anular.",
+                      'error')
+                return redirect(url_for('facturas'))
+            supabase.table('facturas').delete().eq('id_factura', id_factura).execute()
+            flash(f"Factura {actual['folio']} borrada exitosamente", 'success')
+
+        elif metodo == 'anular':
+            if actual.get('estado') == 'anulada':
+                flash(f"La factura {actual['folio']} ya está anulada", 'error')
             else:
-                return "Error actualizando factura", 500
-        if (metodo == "delete"):
-            idABorrar = request.form['idFacturaBorrar']
-            response = (
-                supabase.table("facturas").delete()
-                .eq("id_factura", idABorrar)
-                .execute()
-            )
-            if response.data:
-                return "Factura borrada exitosamente"
-            else:
-                return "Error borrando factura", 500
+                supabase.table('facturas').update({'estado': 'anulada'}).eq('id_factura', id_factura).execute()
+                flash(f"Factura {actual['folio']} anulada", 'success')
         return redirect(url_for('facturas'))
-    response = supabase.table("facturas").select("*").order("id_factura").execute()
-    return render_template('facturas.html', datos=response.data)
+
+    clientes = _obtener_clientes_map()
+    pedidos = supabase.table('pedidos').select('id_pedido, numero_pedido, cliente_asociado, estado') \
+        .order('id_pedido').execute().data or []
+    numero_pedido = {p['id_pedido']: p.get('numero_pedido') or str(p['id_pedido']) for p in pedidos}
+
+    filtros = {campo: request.args.get(campo, '').strip() for campo in ('cliente', 'desde', 'hasta', 'estado')}
+    query = supabase.table('facturas').select('*')
+    if filtros['desde']:
+        query = query.gte('fecha_emision', filtros['desde'])
+    if filtros['hasta']:
+        query = query.lte('fecha_emision', filtros['hasta'])
+    if filtros['estado']:
+        query = query.eq('estado', filtros['estado'])
+    datos = []
+    for fila in query.order('folio', desc=True).execute().data or []:
+        cliente = clientes.get(fila.get('cliente_asociado'), 'Sin cliente') if fila.get('cliente_asociado') else 'Sin cliente'
+        if filtros['cliente'] and filtros['cliente'].lower() not in cliente.lower():
+            continue
+        datos.append({**fila, 'cliente': cliente, 'numero_pedido': numero_pedido.get(fila.get('pedido_asociado'), '')})
+
+    folios = [f.get('folio') or 0 for f in supabase.table('facturas').select('folio').execute().data or []]
+    return render_template('facturas.html', datos=datos, filtros=filtros,
+                           pedidos=[p for p in pedidos if p.get('estado') != 'anulado'],
+                           clientes=clientes, siguiente_folio=max(folios, default=0) + 1,
+                           porcentaje_impuesto=obtener_porcentaje_impuesto())
 
 
 @app.route('/crudDetallePedido.html', methods=['GET', 'POST'])
