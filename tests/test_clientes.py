@@ -74,3 +74,27 @@ def test_busqueda_por_nombre(admin, base):
     admin.post('/clientes.html', data=datos())
     assert 'Tienda Sur' in admin.get('/clientes.html?q=tienda').get_data(as_text=True)
     assert 'No se encontraron resultados' in admin.get('/clientes.html?q=zzz').get_data(as_text=True)
+
+
+def test_campos_rf001_giro_telefono2_vendedor_y_lista(admin, base):
+    base.tablas['vendedores'] = [{'id_vendedor': 7, 'nombre': 'Ana Vendedora'}]
+    r = admin.post('/clientes.html', data=datos(giro='Venta de ropa', telefono2='+56922222222', idVendedor='7',
+                                                 listaPrecios='2'), follow_redirects=True)
+    assert 'Cliente Tienda Sur creado' in r.get_data(as_text=True)
+    c = base.tablas['clientes'][0]
+    assert (c['giro'], c['telefono_2'], c['id_vendedor'], c['lista_precios']) == ('Venta de ropa', '+56922222222', 7, 2)
+    html = admin.get('/clientes.html').get_data(as_text=True)
+    assert 'Venta de ropa' in html and 'Ana Vendedora' in html and '+56922222222' in html
+    # Sin lista de precios se usa la 1.
+    admin.post('/clientes.html', data={**datos('Actualizar', listaPrecios=''), 'idClienteActualizar': 1})
+    assert base.tablas['clientes'][0]['lista_precios'] == 1
+
+
+@pytest.mark.parametrize('cambios,mensaje', [
+    ({'listaPrecios': '0'}, 'lista de precios debe ser un entero'),
+    ({'idVendedor': '99'}, 'vendedor seleccionado no está registrado'),
+])
+def test_validaciones_rf001(admin, base, cambios, mensaje):
+    base.tablas['vendedores'] = []
+    assert mensaje in admin.post('/clientes.html', data=datos(**cambios), follow_redirects=True).get_data(as_text=True)
+    assert base.tablas['clientes'] == []

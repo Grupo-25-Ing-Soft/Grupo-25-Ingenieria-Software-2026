@@ -17,6 +17,8 @@
 {% set puede_editar = puede('clientes', 'editar') %}
 {% set nombre_zona = {} %}
 {% for z in zonasVenta %}{% set _ = nombre_zona.update({z.id_zona_venta: z.nombre or z.descripcion}) %}{% endfor %}
+{% set nombre_vendedor = {} %}
+{% for v in vendedores %}{% set _ = nombre_vendedor.update({v.id_vendedor: v.nombre}) %}{% endfor %}
 
 <div class="container-fluid">
   <div class="page-heading">
@@ -40,8 +42,8 @@
     <div class="data-table-wrap data-table-wrap--scroll">
       <table class="table table-striped align-middle mb-0">
         <thead><tr>
-          <th>Nombre</th><th>Código</th><th>RUT</th><th>Abreviación</th><th>Teléfono</th><th>Correo</th><th>Dirección</th>
-          <th>Comuna</th><th>Ciudad</th><th>Zona de venta</th><th class="text-end">Descuentos</th><th class="text-end">Comisión</th>
+          <th>Nombre</th><th>Código</th><th>RUT</th><th>Abreviación</th><th>Giro</th><th>Teléfonos</th><th>Correo</th><th>Dirección</th>
+          <th>Comuna</th><th>Ciudad</th><th>Zona de venta</th><th>Vendedor</th><th class="text-end">Lista de precios</th><th class="text-end">Descuentos</th><th class="text-end">Comisión</th>
           <th class="text-end">Cobranza</th><th>Vía de despacho</th><th>Condiciones de venta</th><th>Observaciones</th>
           {% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}
         </tr></thead>
@@ -52,12 +54,15 @@
             <td>{{ c.codigo or '' }}</td>
             <td class="text-nowrap">{{ c.rut }}{% if c.digito_verificador %}-{{ c.digito_verificador }}{% endif %}</td>
             <td>{{ c.abreviacion or '' }}</td>
-            <td>{{ c.telefono or '' }}</td>
+            <td>{{ c.get('giro') or '' }}</td>
+            <td class="text-nowrap">{{ c.telefono or '' }}{% if c.get('telefono_2') %}<br>{{ c.get('telefono_2') }}{% endif %}</td>
             <td>{{ c.correo or '' }}</td>
             <td>{{ c.direccion or '' }}</td>
             <td>{{ c.comuna or '' }}</td>
             <td>{{ c.ciudad or '' }}</td>
             <td>{{ nombre_zona.get(c.id_zona_venta, '') }}</td>
+            <td>{{ nombre_vendedor.get(c.get('id_vendedor'), '') }}</td>
+            <td class="text-end">{{ c.get('lista_precios') or 1 }}</td>
             <td class="text-end text-nowrap">{{ '%.2f'|format(c.descuento_1 or 0) }}% / {{ '%.2f'|format(c.descuento_2 or 0) }}% / {{ '%.2f'|format(c.descuento_3 or 0) }}%</td>
             <td class="text-end">{% if c.get('porcentaje_comision') is not none %}{{ '%.2f'|format(c.get('porcentaje_comision')) }}%{% endif %}</td>
             <td class="text-end">{% if c.get('porcentaje_cobranza') is not none %}{{ '%.2f'|format(c.get('porcentaje_cobranza')) }}%{% endif %}</td>
@@ -71,6 +76,8 @@
                         "rutActualizar": c.rut, "digVerActualizar": c.digito_verificador, "abreviacionActualizar": c.abreviacion or "",
                         "telefonoActualizar": c.telefono or "", "correoActualizar": c.correo or "", "direccionActualizar": c.direccion or "",
                         "comunaActualizar": c.comuna or "", "ciudadActualizar": c.ciudad or "", "idZonaVentaActualizar": c.id_zona_venta or "",
+                        "giroActualizar": c.get('giro') or "", "telefono2Actualizar": c.get('telefono_2') or "",
+                        "listaPreciosActualizar": c.get('lista_precios') or 1, "idVendedorActualizar": c.get('id_vendedor') or "",
                         "descuento1Actualizar": c.descuento_1 or 0, "descuento2Actualizar": c.descuento_2 or 0, "descuento3Actualizar": c.descuento_3 or 0,
                         "porComisionActualizar": c.get('porcentaje_comision') if c.get('porcentaje_comision') is not none else "",
                         "porCobranzaActualizar": c.get('porcentaje_cobranza') if c.get('porcentaje_cobranza') is not none else "",
@@ -113,11 +120,19 @@
     <label class="form-label" for="abreviacion{{ sufijo }}">Abreviación</label>
     <input type="text" class="form-control" id="abreviacion{{ sufijo }}" name="abreviacion{{ sufijo }}">
   </div>
-  <div class="col-md-6">
-    <label class="form-label" for="telefono{{ sufijo }}">Teléfono</label>
+  <div class="col-12">
+    <label class="form-label" for="giro{{ sufijo }}">Giro</label>
+    <input type="text" class="form-control" id="giro{{ sufijo }}" name="giro{{ sufijo }}" placeholder="Actividad económica del cliente">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="telefono{{ sufijo }}">Teléfono 1</label>
     <input type="text" class="form-control" id="telefono{{ sufijo }}" name="telefono{{ sufijo }}">
   </div>
-  <div class="col-md-6">
+  <div class="col-md-4">
+    <label class="form-label" for="telefono2{{ sufijo }}">Teléfono 2</label>
+    <input type="text" class="form-control" id="telefono2{{ sufijo }}" name="telefono2{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
     <label class="form-label" for="correo{{ sufijo }}">Correo</label>
     <input type="email" class="form-control" id="correo{{ sufijo }}" name="correo{{ sufijo }}">
   </div>
@@ -139,6 +154,17 @@
       <option value="">Sin zona</option>
       {% for zona in zonasVenta %}<option value="{{ zona.id_zona_venta }}">{{ zona.nombre or zona.descripcion }}</option>{% endfor %}
     </select>
+  </div>
+  <div class="col-md-8">
+    <label class="form-label" for="idVendedor{{ sufijo }}">Vendedor asociado</label>
+    <select class="form-select" id="idVendedor{{ sufijo }}" name="idVendedor{{ sufijo }}">
+      <option value="">Sin vendedor</option>
+      {% for v in vendedores %}<option value="{{ v.id_vendedor }}">{% if v.codigo %}{{ v.codigo }} · {% endif %}{{ v.nombre }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="listaPrecios{{ sufijo }}">N° de lista de precios</label>
+    <input type="number" class="form-control" id="listaPrecios{{ sufijo }}" name="listaPrecios{{ sufijo }}" min="1" step="1" value="1">
   </div>
   {% for n in [1, 2, 3] %}
   <div class="col-md-4">

@@ -2383,9 +2383,20 @@ def _leer_cliente_formulario(sufijo, id_cliente=None):
         'via_despacho': _texto_o_nulo(form('viaDespacho')),
         'observaciones': _texto_o_nulo(form('observaciones')),
         'id_zona_venta': _entero_positivo(form('idZonaVenta')),
+        'giro': _texto_o_nulo(form('giro')),
+        'telefono_2': _texto_o_nulo(form('telefono2')),
+        'id_vendedor': _entero_positivo(form('idVendedor')),
     }
     if datos['observaciones'] and len(datos['observaciones']) > 256:
         return None, 'Las observaciones admiten hasta 256 caracteres.'
+    lista = (form('listaPrecios') or '1').strip()
+    if not lista.isdigit() or int(lista) < 1:
+        return None, 'El número de lista de precios debe ser un entero mayor o igual a 1.'
+    datos['lista_precios'] = int(lista)
+    # CU-01.1 excepción 4: el vendedor asociado debe existir.
+    if datos['id_vendedor'] and not supabase.table('vendedores').select('id_vendedor') \
+            .eq('id_vendedor', datos['id_vendedor']).execute().data:
+        return None, 'El vendedor seleccionado no está registrado.'
     for campo, etiqueta, columna, obligatorio in (
             ('descuento1', 'El descuento 1', 'descuento_1', True),
             ('descuento2', 'El descuento 2', 'descuento_2', True),
@@ -2404,6 +2415,7 @@ def clientes():
     # RF-001/002, CU-01.1 a CU-01.5 y CU-02. Mismo patrón que colores: _method
     # post/put/delete, modales crear/actualizar/borrar y avisos con flash.
     zonas = supabase.table("zona_venta").select("id_zona_venta, nombre, descripcion").execute().data or []
+    vendedores = supabase.table("vendedores").select("id_vendedor, nombre, codigo").order("nombre").execute().data or []
     if request.method == 'POST':
         metodo = request.form.get('_method')
         if metodo == "post":
@@ -2450,7 +2462,7 @@ def clientes():
             datos = supabase.rpc(funcion, {'textobusqueda': request.form.get(campo, '')}).execute().data or []
             if not datos:
                 flash("No se encontraron clientes con ese criterio", "warning")
-            return render_template('clientes.html', datos=datos, zonasVenta=zonas, busqueda='')
+            return render_template('clientes.html', datos=datos, zonasVenta=zonas, vendedores=vendedores, busqueda='')
         return redirect(url_for('clientes'))
 
     # RF-002 / CU-02: barra de búsqueda por nombre (también busca en RUT y abreviación).
@@ -2459,7 +2471,7 @@ def clientes():
     if busqueda:
         texto = busqueda.lower()
         datos = [c for c in datos if texto in ' '.join(str(c.get(k) or '') for k in ('nombre', 'rut', 'abreviacion', 'codigo')).lower()]
-    return render_template('clientes.html', datos=datos, zonasVenta=zonas, busqueda=busqueda)
+    return render_template('clientes.html', datos=datos, zonasVenta=zonas, vendedores=vendedores, busqueda=busqueda)
 
 
 @app.route('/colores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
