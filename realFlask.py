@@ -1128,8 +1128,109 @@ def despachos():
                            nuevo=nuevo, detalle=detalle)
 
 
-@app.route('/notasCredito.html', methods=['GET'])
+def _leer_nota_formulario(sufijo, id_nota=None):
+    """Valida el modal de notas de crédito. Devuelve (datos, error).
+
+    La nota rebaja el saldo de su factura (glosario oo: "rectificar la factura y
+    ajustar su saldo"), igual que un pago, así que no puede superar lo que queda
+    por cobrar de la factura (sin contar lo que esta misma nota ya rebajaba)."""
+    try:
+        folio = int(request.form.get('folio' + sufijo, ''))
+        if folio <= 0:
+            raise ValueError
+    except ValueError:
+        return None, 'El folio debe ser un número entero mayor que cero.'
+    if _folio_repetido('notas_credito', 'id_nota_credito', folio, id_nota):
+        return None, f'Ya existe una nota de crédito con el folio {folio}.'
+    id_factura = _entero_positivo(request.form.get('factura' + sufijo))
+    factura = supabase.table('facturas').select('id_factura, folio, cliente_asociado, saldo_pendiente, estado') \
+        .eq('id_factura', id_factura).execute().data if id_factura else []
+    if not factura:
+        return None, 'Seleccione la factura de referencia.'
+    factura = factura[0]
+    if factura.get('estado') == 'anulada':
+        return None, f"La factura {factura['folio']} está anulada: no admite notas de crédito."
+    fecha = (request.form.get('fecha' + sufijo) or '').strip()
+    if not fecha:
+        return None, 'Ingrese la fecha de emisión de la nota.'
+    neto = _numero_positivo(request.form.get('montoNeto' + sufijo))
+    if neto is None:
+        return None, 'El monto neto debe ser un número mayor que cero.'
+    motivo = (request.form.get('motivo' + sufijo) or '').strip()
+    if not motivo:
+        return None, 'Indique el motivo de la nota de crédito (devolución o ajuste).'
+    impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
+    total = round(neto + impuesto, 2)
+
+    disponible = float(factura.get('saldo_pendiente') or 0)
+    if id_nota:
+        anterior = supabase.table('notas_credito').select('factura_referencia, monto_total, estado') \
+            .eq('id_nota_credito', id_nota).execute().data or []
+        if anterior and str(anterior[0].get('factura_referencia')) == str(id_factura) \
+                and anterior[0].get('estado') == 'vigente':
+            disponible += float(anterior[0].get('monto_total') or 0)
+    if total > disponible + 0.005:
+        return None, (f"La nota ({formatear_moneda(total)}) supera el saldo pendiente de la factura "
+                      f"{factura['folio']} ({formatear_moneda(disponible)}).")
+    return {
+        'folio': folio, 'factura_referencia': id_factura, 'cliente_asociado': factura.get('cliente_asociado'),
+        'fecha': fecha, 'monto_neto': neto, 'monto_impuesto': impuesto, 'monto_total': total, 'motivo': motivo,
+    }, None
+
+
+@app.route('/notasCredito.html', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def notasCredito():
+    # RF-035/036. Esquema de supabase/notas_credito.sql.
+    if request.method == 'POST':
+        metodo = request.form.get('_method')
+        if metodo == 'post':
+            datos, error = _leer_nota_formulario('Crear')
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('notasCredito'))
+            datos.update(estado='vigente', usuario_creacion=g.usuario.get('nombre_usuario') or 'Admin')
+            if supabase.table('notas_credito').insert(datos).execute().data:
+                _recalcular_factura(datos['factura_referencia'])
+                flash(f"Nota de crédito {datos['folio']} creada exitosamente", 'success')
+            else:
+                flash('Error creando nota de crédito', 'error')
+            return redirect(url_for('notasCredito'))
+
+        id_nota = _entero_positivo(request.form.get('idNotaActualizar') or request.form.get('idNotaBorrar')
+                                   or request.form.get('idNotaAnular'))
+        actual = supabase.table('notas_credito').select('id_nota_credito, folio, factura_referencia, estado') \
+            .eq('id_nota_credito', id_nota).execute().data if id_nota else []
+        if not actual:
+            flash('La nota de crédito no existe', 'error')
+            return redirect(url_for('notasCredito'))
+        actual = actual[0]
+
+        if metodo == 'put':
+            if actual.get('estado') != 'vigente':
+                flash(f"La nota de crédito {actual['folio']} está {actual.get('estado')} y no se puede modificar", 'error')
+                return redirect(url_for('notasCredito'))
+            datos, error = _leer_nota_formulario('Actualizar', id_nota)
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('notasCredito'))
+            supabase.table('notas_credito').update(datos).eq('id_nota_credito', id_nota).execute()
+            # Si cambió la factura, se recalculan la anterior y la nueva.
+            for id_factura in {actual.get('factura_referencia'), datos['factura_referencia']}:
+                _recalcular_factura(id_factura)
+            flash(f"Nota de crédito {datos['folio']} actualizada exitosamente", 'success')
+        elif metodo == 'anular':
+            if actual.get('estado') == 'anulada':
+                flash(f"La nota de crédito {actual['folio']} ya está anulada", 'error')
+            else:
+                supabase.table('notas_credito').update({'estado': 'anulada'}).eq('id_nota_credito', id_nota).execute()
+                _recalcular_factura(actual.get('factura_referencia'))
+                flash(f"Nota de crédito {actual['folio']} anulada: su monto vuelve al saldo de la factura", 'success')
+        elif metodo == 'delete':
+            supabase.table('notas_credito').delete().eq('id_nota_credito', id_nota).execute()
+            _recalcular_factura(actual.get('factura_referencia'))
+            flash(f"Nota de crédito {actual['folio']} borrada exitosamente", 'success')
+        return redirect(url_for('notasCredito'))
+
     allowed_sort = {
         'folio': lambda item: item.get('folio') or '',
         'fecha': lambda item: item.get('fecha') or '0000-00-00',
@@ -1147,30 +1248,29 @@ def notasCredito():
         sort_dir = 'desc'
 
     try:
-        query = supabase.table('notas_credito').select(
-            '*, facturas(numero_factura, razon_social)'
-        ).execute()
-        rows = query.data or []
+        rows = supabase.table('notas_credito').select('*').execute().data or []
+        facturas_rows = supabase.table('facturas').select(
+            'id_factura, folio, cliente_asociado, saldo_pendiente, estado').execute().data or []
     except Exception:
         flash("No se pudo cargar el listado de notas de crédito. Intenta nuevamente.", "error")
-        rows = []
+        rows, facturas_rows = [], []
+    clientes_map = _obtener_clientes_map()
+    folio_factura = {f['id_factura']: f.get('folio') for f in facturas_rows}
 
     normalized = []
     for row in rows:
-        factura_row = row.get('facturas') or {}
-        factura_numero = factura_row.get('numero_factura') if isinstance(factura_row, dict) else None
-        cliente_nombre = factura_row.get('razon_social') if isinstance(factura_row, dict) else ''
+        cliente_id = row.get('cliente_asociado')
         normalized.append({
-            'id_nota_credito': row.get('id_nota'),
-            'folio': row.get('numero_nota'),
-            'factura_referencia': row.get('id_factura'),
-            'factura_referencia_folio': factura_numero,
-            'cliente_asociado': row.get('id_cliente'),
-            'cliente': cliente_nombre,
+            'id_nota_credito': row.get('id_nota_credito'),
+            'folio': row.get('folio'),
+            'factura_referencia': row.get('factura_referencia'),
+            'factura_referencia_folio': folio_factura.get(row.get('factura_referencia')),
+            'cliente_asociado': cliente_id,
+            'cliente': clientes_map.get(cliente_id, 'Sin cliente') if cliente_id is not None else 'Sin cliente',
             'fecha': row.get('fecha'),
-            'monto_neto': row.get('total_neto', 0),
-            'monto_impuesto': row.get('total_iva', 0),
-            'monto_total': row.get('total_nota', 0),
+            'monto_neto': row.get('monto_neto', 0),
+            'monto_impuesto': row.get('monto_impuesto', 0),
+            'monto_total': row.get('monto_total', 0),
             'motivo': row.get('motivo'),
             'estado': row.get('estado'),
         })
@@ -1199,7 +1299,15 @@ def notasCredito():
     reverse = sort_dir == 'desc'
     normalized = sorted(normalized, key=allowed_sort.get(sort_field, allowed_sort['fecha']), reverse=reverse)
 
-    return render_template('notasCredito.html', datos=normalized)
+    folios = [n.get('folio') or 0 for n in rows]
+    facturas_disponibles = [
+        {**f, 'cliente': clientes_map.get(f.get('cliente_asociado'), 'Sin cliente')}
+        for f in sorted(facturas_rows, key=lambda f: f.get('folio') or 0)
+        if f.get('estado') != 'anulada'
+    ]
+    return render_template('notasCredito.html', datos=normalized, facturas=facturas_disponibles,
+                           siguiente_folio=max(folios, default=0) + 1,
+                           porcentaje_impuesto=obtener_porcentaje_impuesto())
 
 
 def _obtener_clientes_map():
