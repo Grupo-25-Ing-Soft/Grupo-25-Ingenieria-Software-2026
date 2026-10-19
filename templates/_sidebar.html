@@ -13,7 +13,7 @@
             ep.startswith('analisis') or ep.startswith('informeProductos') or ep in ('inventario', 'resumenProduccion')) }}
 
   <div class="shared-caption">Ventas</div>
-  {{ enlace('pedidos', 'bi-receipt-cutoff', 'Pedidos', ep == 'verDetalle') }}
+  {{ enlace('pedidos', 'bi-receipt-cutoff', 'Pedidos', ep in ('verDetalle', 'crudDetallePedido')) }}
   {{ enlace('despachos', 'bi-truck', 'Despachos') }}
   {{ enlace('facturas', 'bi-file-earmark-text', 'Facturas') }}
   {{ enlace('notasCredito', 'bi-receipt-cutoff', 'Notas de crédito') }}

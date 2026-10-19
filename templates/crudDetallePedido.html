@@ -9,177 +9,155 @@
   <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
   <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
-<script>
-
-    function inicializarCrudDetallePedido(){
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test);
-        console.log(data);
-        createTableFromJSON();
-    }
-
-    function createTableFromJSON() {
-        var test = document.querySelector('#my_variable').value 
-        const data = JSON.parse(test)
-        if (!data || !data.length) return;
-
-        const table = document.createElement('table');
-        table.className = "table table-striped";
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-        const headerRow = document.createElement('tr');
-
-        // Extract headers from the first object's keys
-        const headers = ordenarColumnasTabla(Object.keys(data[0]));
-        console.log(headers)
-        headers.forEach(key => {
-            const th = document.createElement('th');
-            th.textContent = key;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-
-        // Create rows for each data object
-        data.forEach((rowData) => {
-            const tr = document.createElement('tr');
-            headers.forEach(key => {
-            const td = document.createElement('td');
-            // Handle null/undefined or nested objects
-            const value = rowData[key];
-            td.textContent = formatearCeldaTabla(key, (typeof value === 'object') ? JSON.stringify(value) : value);
-            tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        document.getElementById('tablaBodegas').appendChild(table);
-        } 
-</script>
- </head>
-<body onload="inicializarCrudDetallePedido()">
+</head>
+<body>
 {% include '_flash_toast.html' %}
-<input type="hidden"  id="my_variable" value='{{ datos | tojson }}'>
 {% include '_sidebar.html' %}
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('pedidos', 'editar') and editable %}
 <div class="container-fluid">
-  <div class="page-heading"><div><div class="eyebrow">Ventas / Detalle de pedido</div><h1>Detalle de pedido</h1><p>Administra y consulta los productos asociados al pedido.</p></div>
+  <div class="page-heading">
+    <div><div class="eyebrow"><a href="{{ url_for('pedidos') }}">Pedidos</a> / Detalle</div><h1>Pedido {{ nombre }}</h1>
+      <p>Cliente: {{ cliente }} · Fecha: {{ pedido.fecha_pedido|fecha }} · Entrega: {{ pedido.fecha_entrega|fecha or '—' }} · Estado: {{ pedido.estado }}</p></div>
     <div class="heading-actions">
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#actualizarModal"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Actualizar</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#borrarModal"><i class="bi bi-trash3" aria-hidden="true"></i><span>Eliminar</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarIDModal"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar por ID</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" data-bs-toggle="modal" data-bs-target="#buscarDescripcionModal"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar por descripción</span></button>
-      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Crear</span></button>
-      <button type="button" class="btn btn-outline-secondary icon-button" onclick="createTableFromJSON()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Ver</span></button>
+      <a class="btn btn-outline-secondary icon-button" href="{{ url_for('verDetalle', id_pedido=pedido.id_pedido) }}"><i class="bi bi-eye" aria-hidden="true"></i><span>Porcentaje cumplible</span></a>
+      {% if puede_editar %}
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Agregar producto</span></button>
+      {% endif %}
     </div>
   </div>
-  <div class="data-card"><div class="data-card-header"><div><h2>Resultados</h2><span>Detalle de productos del pedido</span></div></div><div class="data-table-wrap" id="tablaBodegas"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}</div>
+  {% if not editable %}<div class="alert alert-secondary">El pedido está {{ pedido.estado }}: su detalle es solo de consulta.</div>{% endif %}
+
+  <div class="data-card">
+    <div class="data-card-header"><div><h2>Productos del pedido</h2><span>{{ lineas|length }} línea{{ '' if lineas|length == 1 else 's' }}</span></div></div>
+    {% if lineas %}
+    <div class="data-table-wrap">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Producto</th><th>Color</th><th>Talla</th><th class="text-end">Cantidad</th><th class="text-end">Anulada</th><th class="text-end">Precio unitario</th><th class="text-end">Subtotal</th><th>Observación</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for l in lineas %}
+          <tr>
+            <td>{{ l.producto or ('Variante ' ~ l.id_variante) }}</td>
+            <td>{{ l.color or '' }}</td>
+            <td>{{ l.talla or '' }}</td>
+            <td class="text-end">{{ l.cantidad }}</td>
+            <td class="text-end">{{ l.cantidad_anulada or 0 }}</td>
+            <td class="text-end">{{ l.precio_unitario|moneda }}</td>
+            <td class="text-end">{{ l.subtotal|moneda }}</td>
+            <td>{{ l.observacion or '' }}</td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              {% set registro = (l.producto or 'variante') ~ ' ' ~ (l.color or '') ~ ' ' ~ (l.talla or '') %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="{{ registro }}"
+                      data-valores='{{ {"idDetalleActualizar": l.id_detalle_pedido, "cantidadActualizar": l.cantidad, "precioUnitarioActualizar": l.precio_unitario, "observacionActualizar": l.observacion or ''} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar" data-modal="#borrarModal" data-registro="{{ registro }}"
+                      data-valores='{{ {"idDetalleBorrar": l.id_detalle_pedido} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot><tr><th colspan="6" class="text-end">Monto total del pedido</th><th class="text-end">{{ total|moneda }}</th><th colspan="{{ 2 if puede_editar else 1 }}"></th></tr></tfoot>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">El pedido todavía no tiene productos.{% if puede_editar %} Usa «Agregar producto».{% endif %}</div>
+    {% endif %}
+  </div>
 </div>
 
-<div class="modal" id="crearModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Crear Bodega</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+{% if puede_editar %}
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Agregar producto</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('crudDetallePedido', id_pedido=pedido.id_pedido) }}">
       <div class="modal-body">
-        <!-- form tiene que tener method POST y role form para que los datos se envíen.-->
-         <!-- Action es a dónde los manda, y # los manda a la misma página-->
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="post" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3">
-                <label for="descripcionForm" class="form-label">Descripción:</label>
-                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionCrear">
-            </div>
-            <button type="submit" class="btn btn-primary">Crear</button>
-        </form>
+        <input type="hidden" name="_method" value="post">
+        <div class="mb-3">
+          <label class="form-label" for="idVarianteCrear">Producto, color y talla</label>
+          <select class="form-select" id="idVarianteCrear" name="idVarianteCrear" required>
+            <option value="" selected disabled>Seleccione una variante</option>
+            {% for v in variantes %}<option value="{{ v.id_variante }}" data-precio="{{ v.precio_venta }}">{{ v.producto or ('Variante ' ~ v.id_variante) }} · {{ v.color or 'sin color' }} · {{ v.talla or 'sin talla' }}</option>{% endfor %}
+          </select>
+          <small class="text-muted">Si falta una combinación, créala en Productos.</small>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="cantidadCrear">Cantidad</label>
+            <input type="number" class="form-control" id="cantidadCrear" name="cantidadCrear" min="1" step="1" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="precioUnitarioCrear">Precio unitario</label>
+            <input type="number" class="form-control" id="precioUnitarioCrear" name="precioUnitarioCrear" min="0" step="1" required>
+          </div>
+        </div>
+        <div class="mt-3">
+          <label class="form-label" for="observacionCrear">Observación</label>
+          <input type="text" class="form-control" id="observacionCrear" name="observacionCrear" maxlength="256">
+        </div>
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Agregar</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="actualizarModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Actualizar Bodega</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('crudDetallePedido', id_pedido=pedido.id_pedido) }}">
       <div class="modal-body">
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="put" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="IDidBodegaActualizar" class="form-label">Id de la bodega a actualizar:</label>
-                <input type="text" class="form-control" id="IDidBodegaActualizar" placeholder="Inserte id de la bodega" name="IdBodegaActualizar">
-            </div>
-            <div class="mb-3">
-                <label for="descripcionForm" class="form-label">Descripción:</label>
-                <input type="text" class="form-control" id="descripcionForm" placeholder="Inserte descripción" name="descripcionActualizar">
-            </div>
-            <button type="submit" class="btn btn-primary">Actualizar</button>
-        </form>
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="idDetalleActualizar">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="cantidadActualizar">Cantidad</label>
+            <input type="number" class="form-control" id="cantidadActualizar" name="cantidadActualizar" min="1" step="1" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="precioUnitarioActualizar">Precio unitario</label>
+            <input type="number" class="form-control" id="precioUnitarioActualizar" name="precioUnitarioActualizar" min="0" step="1" required>
+          </div>
+        </div>
+        <div class="mt-3">
+          <label class="form-label" for="observacionActualizar">Observación</label>
+          <input type="text" class="form-control" id="observacionActualizar" name="observacionActualizar" maxlength="256">
+        </div>
+        <small class="text-muted d-block mt-2">Para cambiar el producto, color o talla, quita la línea y agrega otra.</small>
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
 
-<div class="modal" id="borrarModal">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <h4 class="modal-title">Borrar Bodega</h4>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- Modal body -->
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Quitar línea</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('crudDetallePedido', id_pedido=pedido.id_pedido) }}">
       <div class="modal-body">
-        <form method="POST" role="form" action="#">
-            <input type="hidden" name="_method" value="delete" />
-            <!--Desde aquí se ponen los datos. Hay que cambiar estos por los de cada entidad.-->
-            <div class="mb-3 mt-3">
-                <label for="idBodegaFormBorrar" class="form-label">Id de la bodega:</label>
-                <input type="text" class="form-control" id="idBodegaFormBorrar" placeholder="Inserte id de la bodega" name="idBodegaBorrar">
-            </div>
-            <button type="submit" class="btn btn-primary">Borrar</button>
-        </form>
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idDetalleBorrar">
+        <p>¿Seguro que quieres quitar <strong data-registro></strong> del pedido?</p>
       </div>
-
-      <!-- Modal footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Quitar</button>
       </div>
-
-    </div>
-  </div>
+    </form>
+  </div></div>
 </div>
-
-
+<script>
+  // Propone el precio de venta de la variante elegida (se puede cambiar).
+  document.getElementById('idVarianteCrear').addEventListener('change', function () {
+    const opcion = this.selectedOptions[0];
+    if (opcion && opcion.dataset.precio) document.getElementById('precioUnitarioCrear').value = opcion.dataset.precio;
+  });
+</script>
+{% endif %}
 </body>
-
 </html>

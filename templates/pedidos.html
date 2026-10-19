@@ -7,32 +7,187 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='3') }}" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
 <body>
 {% include '_flash_toast.html' %}
 {% include '_sidebar.html' %}
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('pedidos', 'editar') %}
 <div class="container-fluid">
-  <div class="page-heading"><div><div class="eyebrow">Ventas / Datos maestros</div><h1>Pedidos</h1><p>Consulta los pedidos y su disponibilidad para despacho.</p></div></div>
+  <div class="page-heading">
+    <div><div class="eyebrow">Ventas / Pedidos</div><h1>Pedidos</h1><p>Registra los pedidos de los clientes, sus productos y consulta su disponibilidad para despacho.</p></div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo pedido</span></button>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="data-card mb-4">
+    <div class="data-card-header"><div><h2>Filtros</h2><span>Por cliente, fecha del pedido y estado</span></div></div>
+    <form method="GET" action="{{ url_for('pedidos') }}" class="modal-body row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label" for="cliente">Cliente</label>
+        <input type="text" class="form-control" id="cliente" name="cliente" value="{{ filtros.cliente }}" placeholder="Nombre del cliente">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="desde">Desde</label>
+        <input type="date" class="form-control" id="desde" name="desde" value="{{ filtros.desde }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="hasta">Hasta</label>
+        <input type="date" class="form-control" id="hasta" name="hasta" value="{{ filtros.hasta }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="estado">Estado</label>
+        <select class="form-select" id="estado" name="estado">
+          <option value="">Todos</option>
+          {% for estado in ['pendiente', 'despachado', 'anulado'] %}<option value="{{ estado }}" {% if filtros.estado == estado %}selected{% endif %}>{{ estado|capitalize }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <a href="{{ url_for('pedidos') }}" class="btn btn-outline-secondary">Limpiar</a>
+        <button type="submit" class="btn btn-primary">Filtrar</button>
+      </div>
+    </form>
+  </div>
+
   <section class="data-card">
-    <div class="data-card-header"><div><h2>Listado de pedidos</h2><span>Abre el detalle para consultar el porcentaje cumplible con el inventario actual</span></div></div>
+    <div class="data-card-header"><div><h2>Listado de pedidos</h2><span>Abre el detalle para agregar productos o consultar el porcentaje cumplible con el inventario actual</span></div></div>
     {% if datos %}
-    <div class="data-table-wrap">
+    <div class="data-table-wrap data-table-wrap--scroll">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th scope="col">Pedido</th><th scope="col">Fecha</th><th scope="col">Fecha de entrega</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead>
+        <thead><tr><th scope="col">Pedido</th><th scope="col">Cliente</th><th scope="col">Vendedor</th><th scope="col">Fecha</th><th scope="col">Fecha de entrega</th><th scope="col" class="text-end">Unidades</th><th scope="col" class="text-end">Monto total</th><th scope="col">Estado</th><th scope="col" class="text-end">Acciones</th></tr></thead>
         <tbody>{% for pedido in datos %}
           <tr>
             <td>{{ pedido.numero_pedido or pedido.id_pedido }}</td>
-            <td>{{ pedido.fecha_pedido or '—' }}</td>
-            <td>{{ pedido.fecha_entrega or '—' }}</td>
-            <td>{{ pedido.estado or '—' }}</td>
-            <td><a class="btn btn-sm btn-outline-success icon-button" href="{{ url_for('verDetalle', id_pedido=pedido.id_pedido) }}"><i class="bi bi-eye" aria-hidden="true"></i><span>Ver detalle</span></a></td>
+            <td>{{ pedido.cliente }}</td>
+            <td>{{ pedido.vendedor }}</td>
+            <td>{{ pedido.fecha_pedido|fecha or '—' }}</td>
+            <td>{{ pedido.fecha_entrega|fecha or '—' }}</td>
+            <td class="text-end">{{ pedido.unidades }}</td>
+            <td class="text-end">{{ pedido.total|moneda }}</td>
+            <td><span class="badge {{ {'anulado': 'text-bg-secondary', 'despachado': 'text-bg-success'}.get(pedido.estado, 'text-bg-primary') }}">{{ pedido.estado or '—' }}</span></td>
+            <td class="text-end text-nowrap">
+              <a class="btn btn-sm btn-outline-secondary" title="Productos del pedido" href="{{ url_for('crudDetallePedido', id_pedido=pedido.id_pedido) }}"><i class="bi bi-list-ul" aria-hidden="true"></i></a>
+              <a class="btn btn-sm btn-outline-success" title="Porcentaje cumplible" href="{{ url_for('verDetalle', id_pedido=pedido.id_pedido) }}"><i class="bi bi-eye" aria-hidden="true"></i></a>
+              {% if puede_editar %}
+              {% if pedido.estado not in estados_cerrados %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="pedido {{ pedido.numero_pedido or pedido.id_pedido }}"
+                      data-valores='{{ {"IdPedidoActualizar": pedido.id_pedido, "IDClienteActualizar": pedido.cliente_asociado, "IDVendedorActualizar": pedido.vendedor_asociado, "fechaPedidoActualizar": pedido.fecha_pedido, "fechaLimiteActualizar": pedido.fecha_entrega} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-warning" title="Anular" data-modal="#anularModal" data-registro="pedido {{ pedido.numero_pedido or pedido.id_pedido }}"
+                      data-valores='{{ {"idPedidoAnular": pedido.id_pedido} | tojson }}'><i class="bi bi-x-octagon" aria-hidden="true"></i></button>
+              {% endif %}
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="pedido {{ pedido.numero_pedido or pedido.id_pedido }}"
+                      data-valores='{{ {"idPedidoBorrar": pedido.id_pedido} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}</tbody>
       </table>
     </div>
-    {% else %}<div class="empty-state">No hay pedidos disponibles.</div>{% endif %}
+    {% else %}<div class="empty-state">No hay pedidos{% if filtros.values()|select|list %} para los filtros aplicados{% else %} disponibles{% endif %}.</div>{% endif %}
   </section>
+</div>
+
+{% macro campos_pedido(sufijo) %}
+<div class="mb-3">
+  <label class="form-label" for="cliente{{ sufijo }}">Cliente</label>
+  <select class="form-select" id="cliente{{ sufijo }}" name="IDCliente{{ sufijo }}" required>
+    <option value="" selected disabled>Seleccione un cliente</option>
+    {% for c in clientes %}<option value="{{ c.id_cliente }}">{{ c.nombre }}</option>{% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label class="form-label" for="vendedor{{ sufijo }}">Vendedor</label>
+  <select class="form-select" id="vendedor{{ sufijo }}" name="IDVendedor{{ sufijo }}" required>
+    <option value="" selected disabled>Seleccione un vendedor</option>
+    {% for v in vendedores %}<option value="{{ v.id_vendedor }}">{{ v.nombre }}</option>{% endfor %}
+  </select>
+</div>
+<div class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label" for="fechaPedido{{ sufijo }}">Fecha del pedido</label>
+    <input type="date" class="form-control" id="fechaPedido{{ sufijo }}" name="fechaPedido{{ sufijo }}" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="fechaLimite{{ sufijo }}">Fecha de entrega</label>
+    <input type="date" class="form-control" id="fechaLimite{{ sufijo }}" name="fechaLimite{{ sufijo }}">
+  </div>
+</div>
+{% endmacro %}
+
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Nuevo pedido</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('pedidos') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="post">
+        {{ campos_pedido('Crear') }}
+        <small class="text-muted d-block mt-2">El número de pedido lo asigna el sistema. Después de crearlo podrás agregar sus productos.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear y agregar productos</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('pedidos') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="IdPedidoActualizar">
+        {{ campos_pedido('Actualizar') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="anularModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Anular <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('pedidos') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="anular">
+        <input type="hidden" name="idPedidoAnular">
+        <p>El pedido queda en estado <strong>anulado</strong> y se conserva para el historial (CU-25). Si tiene despachos emitidos, primero hay que anularlos.</p>
+        <label class="form-label" for="motivoAnulacion">Motivo de la anulación</label>
+        <input type="text" class="form-control" id="motivoAnulacion" name="motivoAnulacion" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-warning">Anular pedido</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('pedidos') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idPedidoBorrar">
+        <p>¿Seguro que quieres eliminar el <strong data-registro></strong> y todas sus líneas? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Un pedido con despachos, facturas o cortes asociados no se elimina: hay que anularlo.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
 </div>
 </body>
 </html>
