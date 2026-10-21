@@ -30,7 +30,7 @@
   <div class="data-card mb-4">
     <div class="data-card-header"><div><h2>Filtros</h2><span>Por cliente, fecha de emisión y estado</span></div></div>
     <form method="GET" action="{{ url_for('facturas') }}" class="modal-body row g-3 align-items-end">
-      <div class="col-md-3">
+      <div class="col-md">
         <label class="form-label" for="cliente">Cliente</label>
         <input type="text" class="form-control" id="cliente" name="cliente" value="{{ filtros.cliente }}" placeholder="Nombre del cliente">
       </div>
@@ -42,14 +42,14 @@
         <label class="form-label" for="hasta">Hasta</label>
         <input type="date" class="form-control" id="hasta" name="hasta" value="{{ filtros.hasta }}">
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label" for="estado">Estado</label>
         <select class="form-select" id="estado" name="estado">
           <option value="">Todos</option>
           {% for valor, texto in estados.items() %}<option value="{{ valor }}" {% if filtros.estado == valor %}selected{% endif %}>{{ texto }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-md-2 d-flex gap-2">
+      <div class="col-md-auto d-flex gap-2">
         <a href="{{ url_for('facturas') }}" class="btn btn-outline-secondary">Limpiar</a>
         <button type="submit" class="btn btn-primary">Filtrar</button>
       </div>
