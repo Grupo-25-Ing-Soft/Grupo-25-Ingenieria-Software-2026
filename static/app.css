@@ -8,7 +8,11 @@
   --accent-dark: #527d13;
   --accent-soft: #eff8df;
   --danger-soft: #fff1f1;
+  /* Ancho de la barra lateral; con body.sidebar-contraida queda solo con íconos. */
+  --sidebar-ancho: 252px;
 }
+
+body.sidebar-contraida { --sidebar-ancho: 72px; }
 
 body {
   min-height: 100vh;
@@ -20,7 +24,7 @@ body {
 
 /* Shared dashboard chrome for the legacy CRUD views. */
 body:not(:has(.app-shell)) {
-  padding-left: 252px;
+  padding-left: var(--sidebar-ancho);
   padding-top: 72px;
 }
 
@@ -30,7 +34,7 @@ body:not(:has(.app-shell)) {
   top: 0;
   bottom: 0;
   left: 0;
-  width: 252px;
+  width: var(--sidebar-ancho);
   padding: 22px 13px;
   overflow-y: auto;
   background: var(--surface);
@@ -125,7 +129,7 @@ body:not(:has(.app-shell)) {
   z-index: 1020;
   top: 0;
   right: 0;
-  left: 252px;
+  left: var(--sidebar-ancho);
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -464,14 +468,7 @@ body .form-control:focus { border-color: #add268; box-shadow: 0 0 0 .2rem rgba(1
 body .btn-danger { color: #a84949; background: #fff1f1; border-color: #f0d2d2; }
 
 @media (max-width: 600px) {
-  body:not(:has(.app-shell)) { padding-left: 70px; }
-  .shared-sidebar { width: 70px; padding: 22px 8px; }
-  .shared-brand { justify-content: center; padding: 0; }
-  .shared-brand-text, .shared-caption, .shared-sidebar a span:not(.shared-nav-icon) { display: none; }
-  .shared-sidebar a { justify-content: center; padding: 12px; }
-  .shared-sidebar::before { left: 18px; }
-  .shared-sidebar::after { display: none; }
-  .shared-topbar { left: 70px; padding: 0 16px; }
+  .shared-topbar { padding: 0 16px; }
   .page-heading { flex-direction: column; }
   .heading-actions { justify-content: flex-start; }
   .data-card-header { align-items: flex-start; flex-direction: column; }
@@ -496,7 +493,7 @@ body .btn-danger { color: #a84949; background: #fff1f1; border-color: #f0d2d2; }
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 252px;
+  width: var(--sidebar-ancho);
   height: 71px;
   padding: 0 14px 0 21px;
   background: var(--surface);
@@ -529,10 +526,37 @@ body .btn-danger { color: #a84949; background: #fff1f1; border-color: #f0d2d2; }
 }
 .shared-session-salir:hover { color: var(--accent-dark); background: var(--accent-soft); }
 
-@media (max-width: 600px) {
-  .shared-session { width: 70px; justify-content: center; padding: 0; }
-  .shared-session-avatar, .shared-session-text { display: none; }
+/* Botón para contraer o expandir la barra lateral (_sidebar.html). */
+.shared-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: -14px 0 14px;
+  padding: 9px 14px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 9px;
+  font-size: .8rem;
+  text-align: left;
 }
+.shared-toggle:hover { color: var(--accent-dark); background: var(--accent-soft); }
+
+/* Barra contraída: solo íconos (cada enlace tiene title con su nombre). En pantallas de
+   menos de 992 px empieza así (script de _sidebar.html). */
+body.sidebar-contraida .shared-sidebar { padding: 22px 10px 90px; overflow-x: hidden; }
+body.sidebar-contraida .shared-brand { justify-content: center; padding: 0; }
+body.sidebar-contraida .shared-brand-text,
+body.sidebar-contraida .shared-caption,
+body.sidebar-contraida .shared-sidebar a > span:not(.shared-nav-icon),
+body.sidebar-contraida .shared-toggle > span:not(.shared-nav-icon),
+body.sidebar-contraida .shared-session-avatar,
+body.sidebar-contraida .shared-session-text { display: none; }
+body.sidebar-contraida .shared-sidebar a,
+body.sidebar-contraida .shared-toggle { justify-content: center; padding: 11px 0; }
+body.sidebar-contraida .shared-brand-mark { width: 40px; height: 40px; }
+body.sidebar-contraida .shared-session { justify-content: center; padding: 0; }
 
 /* Inicio de sesión y creación del primer usuario. */
 body.login-page {

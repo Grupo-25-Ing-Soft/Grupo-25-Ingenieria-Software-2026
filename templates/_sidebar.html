@@ -1,10 +1,25 @@
 {# Barra lateral común a todas las páginas. El enlace activo se elige según request.endpoint. #}
 {% macro enlace(endpoint, icono, texto, activo=False) %}
-<a href="{{ url_for(endpoint) }}"{% if activo or request.endpoint == endpoint %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi {{ icono }}" aria-hidden="true"></i></span><span>{{ texto }}</span></a>
+<a href="{{ url_for(endpoint) }}" title="{{ texto }}"{% if activo or request.endpoint == endpoint %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi {{ icono }}" aria-hidden="true"></i></span><span>{{ texto }}</span></a>
 {% endmacro %}
 {% set ep = request.endpoint or '' %}
-<aside class="shared-sidebar">
+<script>
+  // Barra contraída o expandida (body.sidebar-contraida, app.css). Se aplica aquí, antes de
+  // dibujar la barra y la página, para que no parpadee. En pantallas de menos de 992 px
+  // empieza contraída; en las demás se recuerda la última elección del usuario.
+  (function () {
+    var contraida = window.matchMedia('(max-width: 991.98px)').matches;
+    if (!contraida) {
+      try { contraida = window.localStorage.getItem('barraLateralContraida') === '1'; } catch (e) { contraida = false; }
+    }
+    if (contraida) document.body.classList.add('sidebar-contraida');
+  })();
+</script>
+<aside class="shared-sidebar" id="barraLateral">
   <div class="shared-brand"><img class="shared-brand-mark" src="{{ url_logotipo() }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div>
+  <button type="button" class="shared-toggle" id="alternarBarraLateral" aria-controls="barraLateral" aria-expanded="true" title="Contraer menú">
+    <span class="shared-nav-icon"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></span><span>Contraer menú</span>
+  </button>
 
   <div class="shared-caption">Operación</div>
   {{ enlace('index', 'bi-grid-1x2-fill', 'Panel de control') }}
@@ -36,6 +51,27 @@
   {% include '_sesion_usuario.html' %}
 </aside>
 <datalist id="secciones-sistema"></datalist>
+<script>
+  // Botón «Contraer menú»: cambia la clase del body y recuerda la elección (si el navegador
+  // no permite localStorage, igual funciona mientras dure la página).
+  (function () {
+    var boton = document.getElementById('alternarBarraLateral');
+    function mostrar() {
+      var contraida = document.body.classList.contains('sidebar-contraida');
+      var texto = contraida ? 'Expandir menú' : 'Contraer menú';
+      boton.setAttribute('aria-expanded', String(!contraida));
+      boton.title = texto;
+      boton.querySelector('span:last-child').textContent = texto;
+      boton.querySelector('i').className = 'bi ' + (contraida ? 'bi-chevron-double-right' : 'bi-chevron-double-left');
+    }
+    boton.addEventListener('click', function () {
+      var contraida = document.body.classList.toggle('sidebar-contraida');
+      try { window.localStorage.setItem('barraLateralContraida', contraida ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
+      mostrar();
+    });
+    mostrar();
+  })();
+</script>
 <script>
   // Barra «Buscar en el sistema» de cada página: lleva a la sección del menú cuyo nombre
   // coincide (RF-061: menos clics). Solo ofrece las secciones que el rol puede ver.
