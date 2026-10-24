@@ -181,6 +181,9 @@ body:not(:has(.app-shell)) {
 
 .heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
+/* Los avisos flotan sobre la página: el contenedor no recibe clics (pointer-events: none),
+   solo cada aviso visible. Antes, al desvanecerse quedaban con opacidad 0 encima de los
+   botones de la parte superior derecha y se «comían» el clic. */
 .flash-toasts {
   position: fixed;
   z-index: 1100;
@@ -189,7 +192,10 @@ body:not(:has(.app-shell)) {
   display: grid;
   gap: 10px;
   width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
 }
+
+.flash-toast { pointer-events: auto; cursor: pointer; }
 
 .flash-toast {
   padding: 13px 17px;
@@ -213,6 +219,7 @@ body:not(:has(.app-shell)) {
 .flash-toast-hidden {
   opacity: 0;
   transform: translateY(-8px);
+  pointer-events: none;
 }
 
 .dashboard-grid {

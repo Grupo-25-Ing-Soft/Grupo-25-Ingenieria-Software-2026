@@ -9,11 +9,25 @@
       {% endfor %}
     </div>
     <script>
-      window.setTimeout(function () {
-        document.querySelectorAll('.flash-toast').forEach(function (toast) {
+      // Cada aviso se desvanece a los 3,5 s (o al hacer clic) y luego se quita del DOM, para
+      // que no quede invisible encima de los botones de la página.
+      (function () {
+        function ocultar(toast) {
+          if (toast.classList.contains('flash-toast-hidden')) return;
           toast.classList.add('flash-toast-hidden');
+          window.setTimeout(function () {
+            var contenedor = toast.parentNode;
+            toast.remove();
+            if (contenedor && !contenedor.querySelector('.flash-toast')) contenedor.remove();
+          }, 400);  // un poco más que la transición de .flash-toast (0,35 s)
+        }
+        document.querySelectorAll('.flash-toast').forEach(function (toast) {
+          toast.addEventListener('click', function () { ocultar(toast); });
         });
-      }, 3500);
+        window.setTimeout(function () {
+          document.querySelectorAll('.flash-toast').forEach(ocultar);
+        }, 3500);
+      })();
     </script>
   {% endif %}
 {% endwith %}
