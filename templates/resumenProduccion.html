@@ -1,64 +1,36 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <title>Resumen de Producción - Comercial D Nix</title>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Resumen de producción{% endblock %}
+{% block descripcion %}Cantidad producida por producto, color y talla entre las fechas elegidas: guías de cortes ingresadas a bodega (CU-55).{% endblock %}
 
- <script>
-function renderTabla(inputId, containerId) {
-  const input = document.getElementById(inputId);
-  const container = document.getElementById(containerId);
-  if (!input || !container || !input.value) return;
-  const rows = JSON.parse(input.value);
-  if (!Array.isArray(rows) || rows.length === 0) return;
-  const table = document.createElement('table');
-  table.className = 'table table-striped';
-  const thead = document.createElement('thead');
-  const tbody = document.createElement('tbody');
-  const headerRow = document.createElement('tr');
-  const headers = Object.keys(rows[0]);
-  headers.forEach(key => {
-    const th = document.createElement('th');
-    th.textContent = key;
-    headerRow.appendChild(th);
-  });
-  thead.appendChild(headerRow);
-  rows.forEach(row => {
-    const tr = document.createElement('tr');
-    headers.forEach(key => {
-      const td = document.createElement('td');
-      const value = row[key];
-      td.textContent = value !== null && typeof value === 'object' ? JSON.stringify(value) : (value ?? '');
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  table.appendChild(thead);
-  table.appendChild(tbody);
-  container.appendChild(table);
-}
-document.addEventListener('DOMContentLoaded', () => {
-  renderTabla('my_variable', 'tablaResumenProduccion');
-});
-</script></head>
-<body>
-{% include '_flash_toast.html' %}
-{% if datos %}<input type="hidden" id="my_variable" value='{{ datos | tojson}}'>{% endif %}
-{% include '_sidebar.html' %}
-<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
-<div class="container-fluid">
-  <div class="page-heading"><div><div class="eyebrow">Reportes / Resumen de producción</div><h1>Resumen de producción</h1><p>Consulta un resumen de la producción dentro de un periodo.</p></div></div>
-  <div class="data-card"><div class="data-card-header"><div><h2>Filtros</h2><span>Selecciona el rango a consultar</span></div></div>
-    <div class="p-3 p-md-4"><form method="POST" action="#"><button type="submit" class="btn btn-success icon-button"><i class="bi bi-play-fill" aria-hidden="true"></i><span>Generar informe</span></button></form></div>
-  </div>
-  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Resultados</h2><span>Resumen del periodo de producción</span></div></div>
-    <div class="data-table-wrap" id="tablaResumenProduccion"></div>{% if not datos %}<div class="empty-state">Sin resultados todavía</div>{% endif %}
-  </div>
+{% block filtros %}
+{{ inf.fecha('desde', 'Desde', filtros) }}
+{{ inf.fecha('hasta', 'Hasta', filtros) }}
+{{ inf.lista('articulo', 'Producto', articulos, filtros) }}
+{{ inf.lista('cliente', 'Cliente (pedido del corte)', clientes, filtros) }}
+{% endblock %}
+
+{% block resultados %}
+<div class="data-card-header"><div><h2>Resultados</h2><span>{{ guias }} guía{{ '' if guias == 1 else 's' }} de cortes · {{ totales.cantidad }} unidad{{ '' if totales.cantidad == 1 else 'es' }} producida{{ '' if totales.cantidad == 1 else 's' }}</span></div></div>
+{% if grupos %}
+<div class="data-table-wrap data-table-wrap--scroll">
+  <table class="table table-striped align-middle mb-0">
+    <thead><tr><th>Producto</th><th>Color</th><th>Talla</th><th class="text-end">Guías de cortes</th><th class="text-end">Unidades producidas</th></tr></thead>
+    <tbody>
+      {% for g in grupos %}
+      <tr>
+        <td>{{ g.producto or 'Sin producto' }}</td>
+        <td>{{ g.color or '' }}</td>
+        <td>{{ g.talla or '' }}</td>
+        <td class="text-end">{{ g.distintos }}</td>
+        <td class="text-end">{{ g.cantidad }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th colspan="4" class="text-end">Total</th><th class="text-end">{{ totales.cantidad }}</th></tr></tfoot>
+  </table>
 </div>
-</body>
-</html>
+{% else %}
+{{ inf.sin_resultados(filtros) }}
+{% endif %}
+{% endblock %}

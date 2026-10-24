@@ -4,10 +4,10 @@
   <title>Facturas - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
   <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
 <body>
@@ -177,7 +177,8 @@
       <div class="modal-body">
         <input type="hidden" name="_method" value="anular">
         <input type="hidden" name="idFacturaAnular">
-        <p>La factura queda en estado <strong>anulada</strong>: no recibe más pagos ni notas de crédito y sale del informe de cobranza. Sus pagos y notas se conservan como historial.</p>
+        <p>La factura queda en estado <strong>anulada</strong>: no recibe más pagos ni notas de crédito y sale del informe de cobranza.</p>
+        <small class="text-muted">Si tiene pagos o notas de crédito vigentes no se anula: primero hay que anularlos en Pagos o Notas de crédito.</small>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>

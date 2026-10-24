@@ -65,7 +65,15 @@ def test_editar_anular_y_eliminar_ajustan_el_saldo(admin, base):
     admin.post('/notasCredito.html', data={'_method': 'anular', 'idNotaAnular': 2})
     assert factura(base)['saldo_pendiente'] == 11900 and factura(base)['estado'] == 'vigente'
 
+    # AUD-026: una nota vigente no se borra; se anula primero y después se puede eliminar.
     crear(admin, folioCrear=9)
+    r = admin.post('/notasCredito.html', data={'_method': 'delete', 'idNotaBorrar': 3}, follow_redirects=True)
+    assert 'está vigente: anúlala primero' in r.get_data(as_text=True)
+    assert [n['folio'] for n in base.tablas['notas_credito']] == [7, 8, 9] and factura(base)['saldo_pendiente'] == 5950
+    html = admin.get('/notasCredito.html').get_data(as_text=True)
+    assert '"idNotaBorrar": 3' not in html and '"idNotaBorrar": 2' in html  # solo las anuladas tienen el botón
+
+    admin.post('/notasCredito.html', data={'_method': 'anular', 'idNotaAnular': 3})
     admin.post('/notasCredito.html', data={'_method': 'delete', 'idNotaBorrar': 3})
     assert factura(base)['saldo_pendiente'] == 11900
     assert [n['folio'] for n in base.tablas['notas_credito']] == [7, 8]

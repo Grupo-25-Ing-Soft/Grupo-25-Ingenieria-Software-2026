@@ -87,8 +87,16 @@ begin
   return new;
 end $$;
 
+-- El trigger ya existía en la base (definición exportada el 21/10/2026); se deja
+-- aquí para que una base nueva registre los movimientos.
+drop trigger if exists trg_inventario_movimiento on public.inventario;
+create trigger trg_inventario_movimiento
+  after insert or delete or update on public.inventario
+  for each row execute function public.fn_inventario_movimiento();
+
 -- ---------------------------------------------------------------------
--- 2. Ingreso de una guía de cortes a bodega (RF-021).
+-- 2. Ingreso de una guía de cortes a bodega (RF-021). REEMPLAZADA por la versión con
+--    color, talla y cantidad de incremento4_ingreso_produccion.sql (CU-21, paso 3).
 --    El corte apunta a un producto con su color y talla; se usa (o crea) la
 --    variante con obtener_variante() y se suma a su fila de inventario.
 -- ---------------------------------------------------------------------

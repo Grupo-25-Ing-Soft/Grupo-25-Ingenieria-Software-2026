@@ -4,10 +4,10 @@
   <title>Informe de cobranza - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
 </head>
 <body>
 {% include '_flash_toast.html' %}
@@ -61,7 +61,7 @@
     </div>
 
     {% if not datos %}
-      <div class="empty-state">Excepción 1: no hay cobranza pendiente para el criterio seleccionado.</div>
+      <div class="empty-state">No hay cobranza pendiente para el criterio seleccionado.</div>
     {% else %}
       <div class="data-table-wrap data-table-wrap--scroll">
         <table class="table table-striped align-middle mb-0">
@@ -75,6 +75,7 @@
               <th class="text-end">Pagos aplicados</th>
               <th class="text-end">Notas de crédito</th>
               <th class="text-end">Saldo</th>
+              <th class="text-end">Saldo a favor del cliente</th>
               <th>Días de mora</th>
             </tr>
           </thead>
@@ -89,11 +90,17 @@
               <td class="text-end">{{ fila.pagos_aplicados|moneda }}</td>
               <td class="text-end">{{ fila.notas_credito|moneda }}</td>
               <td class="text-end">{{ fila.saldo|moneda }}</td>
+              <td class="text-end">{% if fila.primera_del_cliente and fila.saldo_a_favor %}{{ fila.saldo_a_favor|moneda }}{% endif %}</td>
               <td>{{ fila.dias_morosidad }}</td>
             </tr>
             {% endfor %}
           </tbody>
-          <tfoot><tr><th colspan="7" class="text-end">Total por cobrar</th><th class="text-end">{{ datos|sum(attribute='saldo')|moneda }}</th><th></th></tr></tfoot>
+          {% set por_cobrar = datos|sum(attribute='saldo') %}
+          {% set a_favor = datos|selectattr('primera_del_cliente')|sum(attribute='saldo_a_favor') %}
+          <tfoot>
+            <tr><th colspan="7" class="text-end">Total por cobrar</th><th class="text-end">{{ por_cobrar|moneda }}</th><th class="text-end">{{ a_favor|moneda }}</th><th></th></tr>
+            {% if a_favor %}<tr><th colspan="7" class="text-end">Por cobrar descontando saldos a favor</th><th class="text-end">{{ (por_cobrar - a_favor)|moneda }}</th><th colspan="2"></th></tr>{% endif %}
+          </tfoot>
         </table>
       </div>
     {% endif %}

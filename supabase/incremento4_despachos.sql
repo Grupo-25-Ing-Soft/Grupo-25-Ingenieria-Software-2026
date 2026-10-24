@@ -1,24 +1,40 @@
 -- =====================================================================
--- Despachos con inventario por variante (CRUD de despachos.html).
+-- Incremento 4: despachos con inventario por variante.
 --
--- incremento3_despachos.sql buscaba el stock por inventario.id_producto,
--- pero la tabla inventario de Supabase ahora se identifica por id_variante
--- (id_producto ya no existe), así que registrar_despacho fallaba con
--- 'column "id_producto" does not exist'. Este script reemplaza solo las dos
--- funciones; no toca tablas ni datos.
+-- Reúne lo que antes estaba en despachos_variantes.sql y
+-- vista_pendientes_despacho.sql, y corrige v_inventario_analisis:
 --
--- Los estados de pedido siguen el glosario del Documento 0 (tt): un pedido
--- despachado, pagado, anulado o finalizado ya no se despacha, y al anular su
--- despacho vuelve a 'pendiente'. Los mensajes de error nombran el producto y
--- la bodega en vez de ids internos (RNF-006).
+--   1. registrar_despacho y anular_despacho (como en despachos_variantes.sql,
+--      que ya se ejecutó en Supabase). La tabla
+--      inventario se identifica por id_variante: las versiones de
+--      incremento3_despachos.sql usaban inventario.id_producto y fallaban.
+--      Un pedido despachado, entregado o anulado ya no se despacha (antes la lista
+--      decía 'pagado' y 'finalizado', que pedidos_estado_check no admite, y no
+--      incluía 'entregado'); al anular su despacho vuelve a 'pendiente'. Los mensajes de error nombran el producto y
+--      la bodega en vez de ids internos (RNF-006). La factura opcional se valida
+--      con facturas.pedido_asociado (incremento4_feedback.sql).
 --
--- La factura opcional se valida con facturas.pedido_asociado (columna de
--- facturas.sql que agrega incremento4_feedback.sql).
+--   2. v_pendientes_despacho (la usan despachos() y verDetalle()). La versión
+--      que tenía Supabase (exportada el 21/10/2026 con pg_get_viewdef) buscaba el
+--      stock con producto_variantes.id_producto = inventario.id_variante (un id de
+--      producto contra un id de variante) y no excluía los pedidos anulados.
 --
--- Se ejecuta completo en el SQL Editor; si algo falla, no se aplica nada.
+--   3. v_inventario_analisis (RF-053). Tenía el mismo error: unía
+--      productos.id_producto = inventario.id_variante y comparaba las unidades
+--      pendientes por id_producto contra inventario.id_variante.
+--
+-- Las dos vistas conservan sus columnas (nombres, tipos y orden), así que la app
+-- no cambia; v_inventario_analisis agrega id_variante al final. Se mantienen
+-- las opciones que tuviera cada vista (por ejemplo security_invoker).
+--
+-- Se ejecuta completo en el SQL Editor; si algo falla, no se aplica nada. Volver
+-- a ejecutarlo no cambia nada.
 -- =====================================================================
 begin;
 
+-- ---------------------------------------------------------------------
+-- 1. Funciones de despacho
+-- ---------------------------------------------------------------------
 -- Registra un despacho completo: valida cantidades pendientes y stock,
 -- descuenta inventario (queda en movimientos_inventario como 'despacho')
 -- y marca el pedido como 'despachado' cuando no le queda nada pendiente.
@@ -57,7 +73,7 @@ begin
   if not found then
     raise exception 'No existe el pedido %', p_id_pedido;
   end if;
-  if v_pedido.estado in ('despachado', 'pagado', 'anulado', 'finalizado') then
+  if v_pedido.estado in ('despachado', 'entregado', 'anulado') then
     raise exception 'El pedido % está %, no se puede despachar', v_pedido.numero_pedido, v_pedido.estado;
   end if;
   select descripcion into v_bodega from bodegas where id_bodega = p_id_bodega;
@@ -226,4 +242,108 @@ begin
    where id_pedido = v_despacho.id_pedido and estado = 'despachado';
 end $$;
 
+-- ---------------------------------------------------------------------
+-- 2 y 3. Vistas. create or replace view deja la vista sin opciones: se guardan
+-- antes y se restauran después. to_regclass da null si la vista aún no existe.
+-- ---------------------------------------------------------------------
+create temp table opciones_vistas on commit drop as
+  select c.relname, c.reloptions
+    from pg_class c
+   where c.oid in (to_regclass('public.v_pendientes_despacho'), to_regclass('public.v_inventario_analisis'));
+
+-- 2. Líneas de pedidos no anulados con unidades pendientes de despacho y el stock
+-- de su variante en todas las bodegas, con el mismo criterio que
+-- registrar_despacho (suma por id_variante). stock_bodega conserva su nombre por
+-- compatibilidad, pero es el total de todas las bodegas.
+create or replace view public.v_pendientes_despacho as
+select p.id_pedido,
+       p.numero_pedido,
+       p.fecha_pedido,
+       p.estado            as estado_pedido,
+       c.id_cliente,
+       c.nombre            as nombre_cliente,
+       v.id_vendedor,
+       v.nombre            as nombre_vendedor,
+       dp.id_detalle_pedido,
+       dp.id_variante,
+       dp.cantidad         as cantidad_pedida,
+       dp.cantidad_anulada,
+       coalesce(desp.total_despachado, 0::bigint) as cantidad_despachada,
+       dp.cantidad - dp.cantidad_anulada - coalesce(desp.total_despachado, 0::bigint) as cantidad_pendiente,
+       coalesce(inv.stock_disponible, 0::bigint)  as stock_bodega
+  from pedidos p
+  join detalle_pedidos dp on p.id_pedido = dp.id_pedido
+  left join clientes c    on p.cliente_asociado = c.id_cliente
+  left join vendedores v  on p.vendedor_asociado = v.id_vendedor
+  left join (
+    select dd.id_detalle_pedido, sum(dd.cantidad) as total_despachado
+      from detalle_despachos dd
+      join despachos d on dd.id_despacho = d.id_despacho
+     where d.estado = 'emitido'::text
+     group by dd.id_detalle_pedido
+  ) desp on dp.id_detalle_pedido = desp.id_detalle_pedido
+  left join (
+    select i.id_variante, sum(i.cantidad) as stock_disponible
+      from inventario i
+     group by i.id_variante
+  ) inv on dp.id_variante = inv.id_variante
+ where p.estado <> 'anulado'
+   and (dp.cantidad - dp.cantidad_anulada - coalesce(desp.total_despachado, 0::bigint)) > 0;
+
+-- 3. Stock, defectuosos y unidades comprometidas en pedidos de cada fila de
+-- inventario. id_producto es el producto de la variante (antes era el id de la
+-- variante); unidades_comprometidas es lo pendiente de esa variante en todos los
+-- pedidos, sin distinguir bodega.
+create or replace view public.v_inventario_analisis as
+select i.id_inventario,
+       i.id_bodega,
+       b.descripcion          as bodega,
+       pv.id_producto,
+       pr.descripcion         as producto,
+       i.id_talla,
+       t.talla,
+       i.id_color,
+       co.descripcion         as color,
+       i.cantidad             as stock_disponible,
+       i.cantidad_defectuosa,
+       coalesce(pp.pendiente, 0::numeric)              as unidades_comprometidas,
+       coalesce(pp.pendiente, 0::numeric) > 0::numeric as asociado_a_pedidos,
+       i.fecha_actualizacion,
+       i.id_variante
+  from inventario i
+  left join producto_variantes pv on pv.id_variante = i.id_variante
+  left join bodegas b    on b.id_bodega = i.id_bodega
+  left join productos pr on pr.id_producto = pv.id_producto
+  left join tallas t     on t.id_talla = i.id_talla
+  left join colores co   on co.id_color = i.id_color
+  left join (
+    select id_variante, sum(cantidad_pendiente) as pendiente
+      from v_detalle_pedido_pendiente
+     where cantidad_pendiente > 0
+     group by id_variante
+  ) pp on pp.id_variante = i.id_variante;
+
+do $$
+declare
+  v_fila record;
+begin
+  for v_fila in select relname, reloptions from opciones_vistas where reloptions is not null loop
+    execute format('alter view public.%I set (%s)', v_fila.relname, array_to_string(v_fila.reloptions, ', '));
+  end loop;
+end $$;
+
 commit;
+
+-- Comprobación (es lo que muestra el SQL Editor): la columna "coincide" debe ser
+-- true en todas las filas.
+select 'v_pendientes_despacho' as vista, 'línea ' || vp.id_detalle_pedido as fila,
+       vp.stock_bodega::text as valor_vista,
+       coalesce((select sum(i.cantidad) from public.inventario i where i.id_variante = vp.id_variante), 0)::text as esperado,
+       vp.stock_bodega = coalesce((select sum(i.cantidad) from public.inventario i where i.id_variante = vp.id_variante), 0) as coincide
+  from public.v_pendientes_despacho vp
+union all
+select 'v_inventario_analisis', 'inventario ' || ia.id_inventario,
+       ia.id_producto::text, pv.id_producto::text, ia.id_producto is not distinct from pv.id_producto
+  from public.v_inventario_analisis ia
+  left join public.producto_variantes pv on pv.id_variante = ia.id_variante
+ order by 1, 2;

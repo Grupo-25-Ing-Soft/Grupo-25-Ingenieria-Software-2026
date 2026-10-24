@@ -4,10 +4,10 @@
   <title>Pagos - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
 </head>
 <body>
 {% include '_flash_toast.html' %}
@@ -60,13 +60,30 @@
     </div>
   </div>
 
+  {% if saldos_a_favor %}
+  <div class="data-card mb-4">
+    <div class="data-card-header"><div><h2>Saldos a favor</h2><span>Montos de pagos vigentes que no se alcanzaron a aplicar a facturas</span></div></div>
+    <div class="data-table-wrap">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Cliente</th><th>Pagos N°</th><th class="text-end">Saldo a favor</th></tr></thead>
+        <tbody>
+          {% for saldo in saldos_a_favor %}
+          <tr><td>{{ saldo.cliente }}</td><td>{{ saldo.pagos|join(', ') }}</td><td class="text-end">{{ saldo.monto|moneda }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted small m-3">Para usarlo, edita el pago y marca las facturas pendientes del cliente a las que se aplica.</p>
+  </div>
+  {% endif %}
+
   <div class="data-card">
     <div class="data-card-header">
       <div><h2>Resultados</h2><span>Listado de pagos registrados</span></div>
     </div>
 
     {% if not datos %}
-      <div class="empty-state">Excepción 1: no hay pagos registrados para el criterio seleccionado.</div>
+      <div class="empty-state">{% if cliente_filter or fecha_desde or fecha_hasta or referencia_filter %}No se encontraron pagos para los filtros aplicados.{% else %}No hay pagos registrados.{% endif %}</div>
     {% else %}
       <div class="data-table-wrap data-table-wrap--scroll">
         <table class="table table-striped align-middle mb-0">
@@ -76,6 +93,7 @@
               <th>Cliente</th>
               <th>Fecha</th>
               <th class="text-end">Monto</th>
+              <th class="text-end">Sin aplicar</th>
               <th>Medio</th>
               <th>Referencia</th>
               <th>Estado</th>
@@ -90,6 +108,7 @@
               <td>{{ pago.cliente }}</td>
               <td>{{ pago.fecha_pago|fecha }}</td>
               <td class="text-end">{{ pago.monto|moneda }}</td>
+              <td class="text-end">{% if pago.sin_aplicar %}<span class="text-warning-emphasis fw-semibold">{{ pago.sin_aplicar|moneda }}</span>{% else %}—{% endif %}</td>
               <td>{{ pago.medio_pago }}</td>
               <td>{{ pago.referencia or '-' }}</td>
               <td>

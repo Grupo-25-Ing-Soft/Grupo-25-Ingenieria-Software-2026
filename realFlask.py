@@ -1,9 +1,12 @@
+import hmac
+import io
 import os
 import re
-import io
-import json
+import secrets
+import time
 from datetime import datetime, timezone
-from flask import Flask, jsonify
+from decimal import ROUND_HALF_UP, Decimal
+from flask import Flask
 from flask import flash
 from flask import request
 from flask import render_template
@@ -19,7 +22,7 @@ from postgrest.exceptions import APIError
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
 
@@ -33,7 +36,35 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, 'templates'),
     static_folder=os.path.join(BASE_DIR, 'static'),
 )
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
+
+
+def _clave_secreta():
+    """FLASK_SECRET_KEY del .env. Si falta, se genera una sola vez y se guarda en
+    .flask_secret_key (ignorado por git): con una clave al azar en cada arranque, cada
+    reinicio cerraba todas las sesiones."""
+    if os.environ.get('FLASK_SECRET_KEY'):
+        return os.environ['FLASK_SECRET_KEY']
+    ruta = os.path.join(BASE_DIR, '.flask_secret_key')
+    if os.path.exists(ruta):
+        with open(ruta, encoding='utf-8') as archivo:
+            clave = archivo.read().strip()
+        if clave:
+            return clave
+    clave = secrets.token_hex(32)
+    with open(ruta, 'w', encoding='utf-8') as archivo:
+        archivo.write(clave)
+    return clave
+
+
+app.secret_key = _clave_secreta()
+ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+MAX_LOGO_SIZE = 2 * 1024 * 1024
+app.config.update(
+    # Flask rechaza (413) una petición más grande que esto antes de leerla completa.
+    MAX_CONTENT_LENGTH=MAX_LOGO_SIZE + 256 * 1024,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+)
 
 # Hasta aquí es solo formato.
 # Esto es para conectarse a la base de datos en supabase.
@@ -59,19 +90,42 @@ SYSTEM_PARAMETER_DEFAULTS = {
     "fecha_actualizacion": None,
     "usuario_actualizacion": "Admin"
 }
-ALLOWED_LOGO_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
-MAX_LOGO_SIZE = 2 * 1024 * 1024
 
 
 # El rollo de la impresora SATO trae 3 etiquetas por fila.
 ETIQUETAS_POR_FILA = 3
 
 
+# Mensajes para los códigos de error de PostgreSQL más comunes al guardar.
+MENSAJES_BASE_DATOS = {
+    '23505': 'ya existe un registro con esos datos',
+    '23503': 'el registro está relacionado con otros datos',
+    '23514': 'algún dato no cumple las reglas de la base (por ejemplo, un número fuera de rango)',
+    '23502': 'falta completar un dato obligatorio',
+    '22P02': 'algún dato tiene un formato no válido',
+    '22007': 'alguna fecha no es válida',
+    '428C9': 'se intentó guardar un dato que calcula la base',
+}
+
+
 @app.errorhandler(APIError)
 def error_base_datos(error):
-    # Errores de Supabase que ninguna ruta capturó (por ejemplo, un código EAN
-    # más largo de lo permitido): se muestra el mensaje en vez de un error 500.
-    return f"Error de base de datos: {error.message}", 400
+    # Errores de Supabase que ninguna ruta capturó. En un POST se vuelve a la misma
+    # pantalla con el aviso; en un GET se muestra la página de error del sistema (antes
+    # era texto plano con el mensaje interno). Los mensajes de las funciones de la base
+    # (código P0001, 'raise exception') ya están escritos para el usuario.
+    app.logger.error('Error de base de datos en %s %s: %s %s', request.method, request.path, error.code, error.message)
+    mensaje = MENSAJES_BASE_DATOS.get(error.code) or error.message or 'error de la base de datos'
+    if request.method == 'POST':
+        flash(f'No se pudo guardar: {mensaje}.', 'error')
+        return redirect(request.full_path if request.query_string else request.path)
+    return render_template('error.html', mensaje=mensaje), 500
+
+
+@app.errorhandler(413)
+def peticion_muy_grande(error):
+    flash('El archivo supera el tamaño permitido (2 MB).', 'error')
+    return redirect(request.path)
 
 
 def _texto_o_nulo(valor):
@@ -93,16 +147,13 @@ def obtener_porcentaje_impuesto():
     return float(obtener_parametros_sistema().get("porcentaje_impuesto", 0))
 
 
-def obtener_moneda_sistema():
-    """Shared accessor for future amount formatting and generated documents."""
-    parametros = obtener_parametros_sistema()
-    return parametros.get("moneda", "CLP"), parametros.get("formato_moneda", "$#,##0")
-
-
 def obtener_url_logotipo():
-    """Builds the static URL for the configured logo, with the current logo as fallback."""
-    parametros = obtener_parametros_sistema()
-    return url_for("static", filename=parametros.get("logotipo", "img/logo.png"))
+    """URL del logotipo configurado (RF-056); si la base no responde, el logo por defecto."""
+    try:
+        logotipo = obtener_parametros_sistema().get("logotipo") or "img/logo.png"
+    except APIError:
+        logotipo = "img/logo.png"
+    return url_for("static", filename=logotipo)
 
 
 # ---------------------------------------------------------------------
@@ -150,6 +201,7 @@ ENDPOINTS_PUBLICOS = {'static', 'login', 'primerUsuario'}
 ENDPOINTS_SOLO_SESION = {'index', 'archivosMaestros', 'logout'}
 
 # En estas pantallas el POST solo filtra o arma una vista, no modifica datos.
+# emisionEAN solo crea variantes si el rol puede editar Códigos EAN (lo revisa la ruta).
 ENDPOINTS_POST_LECTURA = set(dict((c, e) for c, _, e in MODULOS_SISTEMA)['reportes']) | {
     'resumenProduccion', 'inventario', 'emisionEAN',
 }
@@ -224,6 +276,26 @@ def _destino_seguro(destino):
     return url_for('index')
 
 
+def _token_csrf():
+    if 'csrf' not in session:
+        session['csrf'] = secrets.token_hex(32)
+    return session['csrf']
+
+
+@app.before_request
+def verificar_csrf():
+    # Todo POST debe traer el token de la sesión; _csrf.html lo agrega a cada formulario.
+    # Así otra página no puede enviar formularios (anular, eliminar...) con la sesión del usuario.
+    if request.method != 'POST' or (app.testing and not app.config.get('PROBAR_CSRF')):
+        return None
+    enviado = request.form.get('_csrf') or request.headers.get('X-CSRF-Token') or ''
+    esperado = session.get('csrf') or ''
+    if not enviado or not esperado or not hmac.compare_digest(enviado, esperado):
+        flash('El formulario venció o no es válido. Vuelve a intentarlo.', 'error')
+        return redirect(request.full_path if request.query_string else request.path)
+    return None
+
+
 @app.before_request
 def verificar_acceso():
     if request.endpoint is None or request.endpoint in ENDPOINTS_PUBLICOS:
@@ -241,6 +313,10 @@ def verificar_acceso():
         raise
 
     modulo = MODULO_POR_ENDPOINT.get(request.endpoint)
+    # Las existencias se editan desde bodegas.html, pero son del módulo Inventario (RF-037, CU-58).
+    if (request.endpoint == 'bodegas' and request.method == 'POST'
+            and (request.form.get('_method') or '').startswith('inventario_')):
+        modulo = 'inventario'
     if modulo is None:
         if request.endpoint in ENDPOINTS_SOLO_SESION or g.usuario.get('es_superusuario'):
             return None
@@ -268,7 +344,8 @@ def datos_sesion_plantillas():
         for codigo, _, endpoints in MODULOS_SISTEMA:
             if not usuario_puede(codigo, 'ver'):
                 rutas_bloqueadas += [url_for(e) for e in endpoints if e in app.view_functions]
-    return {'usuario_actual': usuario, 'puede': usuario_puede, 'rutas_bloqueadas': rutas_bloqueadas}
+    return {'usuario_actual': usuario, 'puede': usuario_puede, 'rutas_bloqueadas': rutas_bloqueadas,
+            'csrf_token': _token_csrf, 'url_logotipo': obtener_url_logotipo}
 
 
 def _leer_usuario_formulario(nuevo):
@@ -293,6 +370,13 @@ def _leer_usuario_formulario(nuevo):
     return datos, None
 
 
+# Intentos fallidos por nombre de usuario: tras 5 seguidos, la cuenta espera 5 minutos.
+# Vive en la memoria del proceso (el sistema corre en un solo servidor de la red local).
+INTENTOS_LOGIN = {}
+MAX_INTENTOS_LOGIN = 5
+ESPERA_LOGIN_SEGUNDOS = 300
+
+
 @app.route('/login.html', methods=['GET', 'POST'])
 def login():
     try:
@@ -304,13 +388,21 @@ def login():
         raise
     if request.method == 'POST':
         nombre_usuario = request.form.get('nombre_usuario', '').strip().lower()
+        fallidos, bloqueado_hasta = INTENTOS_LOGIN.get(nombre_usuario, (0, 0))
+        if bloqueado_hasta > time.monotonic():
+            flash('Demasiados intentos fallidos. Espera unos minutos antes de volver a intentarlo.', 'error')
+            return render_template('login.html', modo='login', siguiente=request.values.get('next', ''))
         filas = supabase.table('usuarios').select(
             'id_usuario, password_hash, activo'
         ).eq('nombre_usuario', nombre_usuario).execute().data
         if filas and filas[0].get('activo') and check_password_hash(filas[0]['password_hash'], request.form.get('password', '')):
+            INTENTOS_LOGIN.pop(nombre_usuario, None)
             session.clear()
             session['id_usuario'] = filas[0]['id_usuario']
             return redirect(_destino_seguro(request.form.get('next')))
+        fallidos += 1
+        INTENTOS_LOGIN[nombre_usuario] = (0, time.monotonic() + ESPERA_LOGIN_SEGUNDOS) \
+            if fallidos >= MAX_INTENTOS_LOGIN else (fallidos, 0)
         flash('Usuario o contraseña incorrectos, o la cuenta está desactivada.', 'error')
     return render_template('login.html', modo='login', siguiente=request.values.get('next', ''))
 
@@ -356,12 +448,55 @@ def _leer_permisos_formulario():
     return permisos
 
 
+def _permisos_de_rol(id_rol):
+    return supabase.table('rol_permisos').select('modulo, puede_ver, puede_editar') \
+        .eq('id_rol', id_rol).execute().data or [] if id_rol else []
+
+
+def _excede_permisos_propios(permisos):
+    """Nombres de los módulos de 'permisos' que dan más de lo que puede quien tiene la sesión.
+    Solo el administrador (superusuario) gestiona sin límite (CU-57); el resto no puede otorgar
+    ni administrar permisos que su rol no tiene, para no ampliarse los propios (CU-58)."""
+    if g.usuario.get('es_superusuario'):
+        return []
+    nombres = {codigo: nombre for codigo, nombre, _ in MODULOS_SISTEMA}
+    return [nombres.get(p['modulo'], p['modulo']) for p in permisos
+            if (p.get('puede_editar') and not usuario_puede(p['modulo'], 'editar'))
+            or ((p.get('puede_ver') or p.get('puede_editar')) and not usuario_puede(p['modulo'], 'ver'))]
+
+
+def _guardar_permisos_rol(id_rol, permisos):
+    """Deja en rol_permisos solo los permisos elegidos: actualiza los que ya estaban, agrega
+    los nuevos y al final quita los que sobran. Si algo falla a mitad, el rol no queda sin
+    permisos (antes se borraban todos y después se insertaban)."""
+    actuales = {p['modulo'] for p in _permisos_de_rol(id_rol)}
+    for permiso in permisos:
+        if permiso['modulo'] in actuales:
+            supabase.table('rol_permisos').update({'puede_ver': permiso['puede_ver'], 'puede_editar': permiso['puede_editar']}) \
+                .eq('id_rol', id_rol).eq('modulo', permiso['modulo']).execute()
+        else:
+            supabase.table('rol_permisos').insert({**permiso, 'id_rol': id_rol}).execute()
+    sobran = actuales - {p['modulo'] for p in permisos}
+    if sobran:
+        supabase.table('rol_permisos').delete().eq('id_rol', id_rol).in_('modulo', list(sobran)).execute()
+
+
 @app.route('/roles.html', methods=['GET', 'POST'])
 def roles():
     if request.method == 'POST':
         metodo = request.form.get('_method')
         id_rol = request.form.get('id_rol')
+        propio = not g.usuario.get('es_superusuario') and metodo in ('put', 'delete') \
+            and str(id_rol) == str(g.usuario.get('id_rol'))
+        excedidos = _excede_permisos_propios(_permisos_de_rol(id_rol) if metodo in ('put', 'delete') else [])
         if metodo in ('post', 'put'):
+            excedidos = excedidos or _excede_permisos_propios(_leer_permisos_formulario())
+        if propio:
+            flash('No puedes modificar ni eliminar tu propio rol; pídeselo a un superusuario.', 'error')
+        elif excedidos:
+            flash('Tu rol no tiene esos permisos, así que no puedes otorgarlos ni administrar un rol que los '
+                  f'tenga: {", ".join(excedidos)}.', 'error')
+        elif metodo in ('post', 'put'):
             nombre = request.form.get('nombre', '').strip()
             datos_rol = {'nombre': nombre, 'descripcion': _texto_o_nulo(request.form.get('descripcion'))}
             repetidos = supabase.table('roles').select('id_rol').eq('nombre', nombre).execute().data
@@ -375,13 +510,8 @@ def roles():
                     flash(f'Rol "{nombre}" creado.')
                 else:
                     supabase.table('roles').update(datos_rol).eq('id_rol', id_rol).execute()
-                    supabase.table('rol_permisos').delete().eq('id_rol', id_rol).execute()
                     flash(f'Rol "{nombre}" actualizado.')
-                permisos = _leer_permisos_formulario()
-                if permisos:
-                    supabase.table('rol_permisos').insert(
-                        [{**permiso, 'id_rol': id_rol} for permiso in permisos]
-                    ).execute()
+                _guardar_permisos_rol(id_rol, _leer_permisos_formulario())
         elif metodo == 'delete':
             if supabase.table('usuarios').select('id_usuario').eq('id_rol', id_rol).execute().data:
                 flash('No se puede eliminar un rol con usuarios asignados; asígnales otro rol primero.', 'error')
@@ -407,10 +537,14 @@ def usuarios():
     if request.method == 'POST':
         metodo = request.form.get('_method')
         id_rol = request.form.get('id_rol') or None
+        # Quien no es superusuario no asigna un rol con más permisos que el suyo (CU-57, CU-58).
+        excedidos = _excede_permisos_propios(_permisos_de_rol(id_rol))
         if metodo == 'post':
             datos, error = _leer_usuario_formulario(nuevo=True)
             if not error and not id_rol:
                 error = 'Asigna un rol al usuario.'
+            if not error and excedidos:
+                error = f'No puedes asignar un rol con permisos que tu rol no tiene: {", ".join(excedidos)}.'
             if not error and supabase.table('usuarios').select('id_usuario').eq('nombre_usuario', datos['nombre_usuario']).execute().data:
                 error = 'Ese nombre de usuario ya está en uso.'
             if error:
@@ -421,13 +555,19 @@ def usuarios():
         elif metodo in ('put', 'delete'):
             id_usuario = request.form.get('id_usuario')
             filas = supabase.table('usuarios').select(
-                'id_usuario, nombre_usuario, es_superusuario'
+                'id_usuario, nombre_usuario, es_superusuario, id_rol'
             ).eq('id_usuario', id_usuario).execute().data
             es_propio = str(id_usuario) == str(g.usuario['id_usuario'])
+            # Un usuario con más permisos que quien edita no se modifica (por ejemplo, cambiándole
+            # la contraseña para entrar con su cuenta).
+            mayor = _excede_permisos_propios(_permisos_de_rol(filas[0].get('id_rol'))) if filas and not es_propio else []
             if not filas:
                 flash('El usuario ya no existe.', 'error')
             elif filas[0]['es_superusuario'] and not g.usuario.get('es_superusuario'):
                 flash('Solo un superusuario puede modificar a otro superusuario.', 'error')
+            elif mayor:
+                flash(f'"{filas[0]["nombre_usuario"]}" tiene permisos que tu rol no tiene ({", ".join(mayor)}): '
+                      'solo un superusuario puede modificarlo.', 'error')
             elif metodo == 'delete':
                 if es_propio:
                     flash('No puedes eliminar tu propia cuenta.', 'error')
@@ -444,6 +584,12 @@ def usuarios():
                         # El superusuario no usa rol; el resto siempre necesita uno.
                         if not id_rol:
                             error = 'Asigna un rol al usuario.'
+                        elif es_propio and not g.usuario.get('es_superusuario') \
+                                and str(id_rol) != str(filas[0].get('id_rol')):
+                            error = 'No puedes cambiar tu propio rol; pídeselo a un superusuario.'
+                        elif excedidos:
+                            error = ('No puedes asignar un rol con permisos que tu rol no tiene: '
+                                     f'{", ".join(excedidos)}.')
                         datos['id_rol'] = id_rol
                 if error:
                     flash(error, 'error')
@@ -463,8 +609,11 @@ def usuarios():
 
 # NOTA: las páginas html tienen que estar dentro de templates
 
-# Estados en que un pedido ya no se modifica (CU-22.3) ni se anula (CU-25).
-ESTADOS_PEDIDO_CERRADOS = ('despachado', 'anulado')
+# Estados de pedido: los que admite el check pedidos_estado_check (supabase/00_esquema_base.sql).
+ESTADOS_PEDIDO = {'pendiente': 'Pendiente', 'confirmado': 'Confirmado', 'en_produccion': 'En producción',
+                  'despachado': 'Despachado', 'entregado': 'Entregado', 'anulado': 'Anulado'}
+# Un pedido cerrado ya no se modifica (CU-22.3), no se anula (CU-25) ni se despacha.
+ESTADOS_PEDIDO_CERRADOS = ('despachado', 'entregado', 'anulado')
 
 
 def _pedido_o_none(id_pedido):
@@ -492,7 +641,7 @@ def _leer_pedido_formulario(sufijo):
             'fecha_pedido': fecha_pedido, 'fecha_entrega': fecha_entrega}, None
 
 
-@app.route('/pedidos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/pedidos.html', methods=['GET', 'POST'])
 def pedidos():
     # RF-022/023/025/026 y CU-22.1 a CU-22.4, CU-25. Un pedido con despachos o
     # facturas no se elimina: se anula (queda en la base como historial).
@@ -561,7 +710,7 @@ def pedidos():
                 flash(f"El pedido {nombre} tiene {', '.join(asociados)} asociados: no se puede eliminar, solo anular",
                       'error')
                 return redirect(url_for('pedidos'))
-            supabase.table('detalle_pedidos').delete().eq('id_pedido', pedido['id_pedido']).execute()
+            # Sus líneas se borran en cascada (detalle_pedidos_pedido_fkey ... on delete cascade).
             supabase.table('pedidos').delete().eq('id_pedido', pedido['id_pedido']).execute()
             flash(f'Pedido {nombre} borrado exitosamente', 'success')
         return redirect(url_for('pedidos'))
@@ -579,18 +728,18 @@ def pedidos():
         query = query.gte('fecha_pedido', filtros['desde'])
     if filtros['hasta']:
         query = query.lte('fecha_pedido', filtros['hasta'])
-    if filtros['estado']:
+    if filtros['estado'] in ESTADOS_PEDIDO:
         query = query.eq('estado', filtros['estado'])
     filas = query.order('id_pedido', desc=True).execute().data or []
 
-    # RF-026: monto total de cada pedido = suma de cantidad x precio de sus líneas.
+    # RF-026: monto total de cada pedido = suma de sus líneas (_monto_linea, sin anuladas).
     lineas = supabase.table('detalle_pedidos').select('id_pedido, cantidad, cantidad_anulada, precio_unitario') \
         .in_('id_pedido', [p['id_pedido'] for p in filas]).execute().data if filas else []
     totales, unidades = {}, {}
     for linea in lineas or []:
-        cantidad = int(linea.get('cantidad') or 0) - int(linea.get('cantidad_anulada') or 0)
-        totales[linea['id_pedido']] = totales.get(linea['id_pedido'], 0) + cantidad * int(linea.get('precio_unitario') or 0)
-        unidades[linea['id_pedido']] = unidades.get(linea['id_pedido'], 0) + cantidad
+        totales[linea['id_pedido']] = totales.get(linea['id_pedido'], 0) + _monto_linea(linea)
+        unidades[linea['id_pedido']] = (unidades.get(linea['id_pedido'], 0)
+                                        + int(linea.get('cantidad') or 0) - int(linea.get('cantidad_anulada') or 0))
 
     datos = []
     for pedido in filas:
@@ -601,7 +750,7 @@ def pedidos():
                       'total': totales.get(pedido['id_pedido'], 0), 'unidades': unidades.get(pedido['id_pedido'], 0)})
 
     return render_template('pedidos.html', datos=datos, filtros=filtros, clientes=clientes, vendedores=vendedores,
-                           estados_cerrados=ESTADOS_PEDIDO_CERRADOS)
+                           estados=ESTADOS_PEDIDO, estados_cerrados=ESTADOS_PEDIDO_CERRADOS)
 
 
 @app.route('/verDetalle.html', methods=['GET'])
@@ -646,18 +795,24 @@ def verDetalle():
                 flash("No se encontró el pedido o no tiene líneas disponibles", "error")
             return redirect(url_for('pedidos'))
 
+    # La vista real v_pendientes_despacho trae stock_bodega (stock de la variante en
+    # todas las bodegas), sin producto, color ni talla: se calcula lo cumplible y los
+    # nombres salen de la variante, como en despachos().
+    variantes = _variantes_por_id({f.get('id_variante') for f in filas} - {None})
     detalle = []
     unidades_pendientes = 0
     unidades_cumplibles = 0
     for fila in filas:
         pendiente = int(fila.get('cantidad_pendiente') or 0)
-        cumplible = int(fila.get('cantidad_lista_para_despacho') or 0)
+        stock = fila.get('stock_bodega')
+        cumplible = min(pendiente, max(int(stock or 0), 0))
         faltante = max(pendiente - cumplible, 0)
         porcentaje_linea = round(cumplible / pendiente * 100, 1) if pendiente else 100.0
         detalle.append({
             **fila,
+            **variantes.get(fila.get('id_variante'), {}),
             'cantidad_pendiente': pendiente,
-            'stock_disponible': fila.get('stock_disponible'),
+            'stock_disponible': stock,
             'cantidad_cumplible': cumplible,
             'cantidad_faltante': faltante,
             'porcentaje_cumplible': porcentaje_linea,
@@ -778,12 +933,21 @@ def _leer_factura_formulario(sufijo):
     return datos, None
 
 
+def _asociados_factura(id_factura):
+    """Registros que apuntan a la factura (aunque estén anulados): pagos, notas de crédito
+    y despachos. Con alguno, la factura no se elimina ni cambia de pedido."""
+    return [nombre for nombre, tabla, columna in (
+        ('pagos', 'pago_facturas', 'id_factura'), ('notas de crédito', 'notas_credito', 'factura_referencia'),
+        ('despachos', 'despachos', 'id_factura'))
+        if supabase.table(tabla).select(columna).eq(columna, id_factura).limit(1).execute().data]
+
+
 def _folio_repetido(tabla, clave, folio, id_actual=None):
     filas = supabase.table(tabla).select(f'{clave}, folio').eq('folio', folio).execute().data or []
     return any(str(f.get(clave)) != str(id_actual) for f in filas)
 
 
-@app.route('/facturas.html', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@app.route('/facturas.html', methods=['GET', 'POST'])
 def facturas():
     # RF-029/030. Esquema de supabase/facturas.sql. Una factura con pagos, notas de
     # crédito o despachos no se elimina: se anula (estado 'anulada').
@@ -809,7 +973,7 @@ def facturas():
         id_factura = _entero_positivo(request.form.get('idFacturaActualizar')
                                       or request.form.get('idFacturaBorrar')
                                       or request.form.get('idFacturaAnular'))
-        actual = supabase.table('facturas').select('id_factura, folio, estado') \
+        actual = supabase.table('facturas').select('id_factura, folio, estado, pedido_asociado') \
             .eq('id_factura', id_factura).execute().data if id_factura else []
         if not actual:
             flash('La factura no existe', 'error')
@@ -823,6 +987,13 @@ def facturas():
             datos, error = _leer_factura_formulario('Actualizar')
             if not error and _folio_repetido('facturas', 'id_factura', datos['folio'], id_factura):
                 error = f"Ya existe otra factura con el folio {datos['folio']}."
+            # Cambiar el pedido cambia también el cliente: los pagos, notas y despachos
+            # quedarían ligados a otro cliente u otro pedido.
+            if not error and str(datos['pedido_asociado']) != str(actual.get('pedido_asociado')):
+                asociados = _asociados_factura(id_factura)
+                if asociados:
+                    error = (f"La factura {actual['folio']} tiene {', '.join(asociados)} asociados: no se puede "
+                             'cambiar su pedido. Anúlala y emite una nueva para el otro pedido.')
             if not error:
                 pagado, notas = _descuentos_factura(id_factura)
                 if datos['monto_total'] < pagado + notas:
@@ -836,24 +1007,26 @@ def facturas():
             flash(f"Factura {datos['folio']} actualizada exitosamente", 'success')
 
         elif metodo == 'delete':
-            tiene_pagos = supabase.table('pago_facturas').select('id_pago_factura') \
-                .eq('id_factura', id_factura).limit(1).execute().data
-            tiene_notas = supabase.table('notas_credito').select('id_nota_credito') \
-                .eq('factura_referencia', id_factura).limit(1).execute().data
-            tiene_despachos = supabase.table('despachos').select('id_despacho') \
-                .eq('id_factura', id_factura).limit(1).execute().data
-            if tiene_pagos or tiene_notas or tiene_despachos:
-                asociados = ', '.join(nombre for nombre, hay in (
-                    ('pagos', tiene_pagos), ('notas de crédito', tiene_notas), ('despachos', tiene_despachos)) if hay)
-                flash(f"La factura {actual['folio']} tiene {asociados} asociados: no se puede eliminar, solo anular.",
-                      'error')
+            asociados = _asociados_factura(id_factura)
+            if asociados:
+                flash(f"La factura {actual['folio']} tiene {', '.join(asociados)} asociados: no se puede eliminar, "
+                      'solo anular.', 'error')
                 return redirect(url_for('facturas'))
             supabase.table('facturas').delete().eq('id_factura', id_factura).execute()
             flash(f"Factura {actual['folio']} borrada exitosamente", 'success')
 
         elif metodo == 'anular':
+            # Una factura anulada no se recalcula: si conservara pagos o notas vigentes,
+            # ese dinero quedaría aplicado a una deuda que ya no existe.
+            pagado, notas = _descuentos_factura(id_factura)
+            vigentes = [(texto, seccion) for texto, seccion, monto in (
+                ('pagos', 'Pagos', pagado), ('notas de crédito', 'Notas de crédito', notas)) if monto]
             if actual.get('estado') == 'anulada':
                 flash(f"La factura {actual['folio']} ya está anulada", 'error')
+            elif vigentes:
+                flash(f"La factura {actual['folio']} tiene {' y '.join(t for t, _ in vigentes)} vigentes por "
+                      f"{formatear_moneda(pagado + notas)}: anúlalos primero en {' y '.join(s for _, s in vigentes)}",
+                      'error')
             else:
                 supabase.table('facturas').update({'estado': 'anulada'}).eq('id_factura', id_factura).execute()
                 flash(f"Factura {actual['folio']} anulada", 'success')
@@ -886,6 +1059,28 @@ def facturas():
                            porcentaje_impuesto=obtener_porcentaje_impuesto())
 
 
+def _monto_linea(linea):
+    """Monto de una línea de pedido: (cantidad - anulada) x precio unitario. Es el que
+    suman la lista de pedidos y su detalle; detalle_pedidos.subtotal de la base no resta
+    las unidades anuladas. Los descuentos del cliente se aplican al despachar."""
+    cantidad = int(linea.get('cantidad') or 0) - int(linea.get('cantidad_anulada') or 0)
+    return cantidad * int(linea.get('precio_unitario') or 0)
+
+
+def _descuento_cliente(cliente):
+    """Porcentaje de los tres descuentos del cliente aplicados en cascada, con 2 decimales:
+    el mismo que registrar_despacho() guarda en cada línea de despacho."""
+    factor = Decimal(1)
+    for campo in ('descuento_1', 'descuento_2', 'descuento_3'):
+        factor *= 1 - Decimal(str(cliente.get(campo) or 0)) / 100
+    return (100 * (1 - factor)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def _monto_descuento(monto, porcentaje):
+    """Pesos que se descuentan de un monto, redondeados como en v_despachos_detalle."""
+    return int((Decimal(monto) * porcentaje / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
+
 def _leer_linea_formulario(sufijo):
     """Cantidad, precio y observación de una línea de detalle (CU-24.1). Devuelve (datos, error)."""
     cantidad = _entero_positivo(request.form.get('cantidad' + sufijo))
@@ -900,9 +1095,9 @@ def _leer_linea_formulario(sufijo):
     observacion = _texto_o_nulo(request.form.get('observacion' + sufijo))
     if observacion and len(observacion) > 256:
         return None, 'La observación admite hasta 256 caracteres.'
-    # Números, no texto: antes el subtotal multiplicaba los valores del formulario como cadenas.
-    return {'cantidad': cantidad, 'precio_unitario': precio, 'subtotal': cantidad * precio,
-            'observacion': observacion}, None
+    # detalle_pedidos.subtotal es una columna generada (cantidad * precio_unitario): la
+    # calcula la base y no se envía, porque PostgreSQL rechaza un valor explícito (428C9).
+    return {'cantidad': cantidad, 'precio_unitario': precio, 'observacion': observacion}, None
 
 
 def _precios_de_lista(lista):
@@ -1003,7 +1198,7 @@ def crudDetallePedido():
     descripcion = _variantes_por_id({v['id_variante'] for v in variantes_activas} | {l['id_variante'] for l in lineas})
     for linea in lineas:
         linea.update(descripcion.get(linea['id_variante'], {}))
-        linea['subtotal'] = int(linea.get('cantidad') or 0) * int(linea.get('precio_unitario') or 0)
+        linea['subtotal'] = _monto_linea(linea)
     precios_lista = _precios_de_lista(lista_cliente)
     opciones = sorted(
         ({'id_variante': v['id_variante'], 'precio_venta': _precio_sugerido(v, lista_cliente, precios_lista),
@@ -1011,15 +1206,17 @@ def crudDetallePedido():
           **descripcion.get(v['id_variante'], {})} for v in variantes_activas if v.get('activo') is not False),
         key=lambda v: (str(v.get('producto') or ''), str(v.get('color') or ''), str(v.get('talla') or '')))
     clientes = _obtener_clientes_map()
+    descuento = _descuento_cliente(cliente_pedido[0])
     return render_template('crudDetallePedido.html', pedido=pedido, nombre=nombre,
                            cliente=clientes.get(pedido.get('cliente_asociado'), 'Sin cliente'),
                            lineas=lineas, variantes=opciones, lista_cliente=lista_cliente,
                            total=sum(l['subtotal'] for l in lineas),
-                           editable=pedido.get('estado') not in ESTADOS_PEDIDO_CERRADOS)
+                           descuentos=[float(cliente_pedido[0].get(f'descuento_{n}') or 0) for n in (1, 2, 3)],
+                           descuento=descuento,
+                           total_con_descuentos=sum(l['subtotal'] - _monto_descuento(l['subtotal'], descuento)
+                                                    for l in lineas),
+                           estados=ESTADOS_PEDIDO, editable=pedido.get('estado') not in ESTADOS_PEDIDO_CERRADOS)
 
-
-# Estados de pedido del glosario del Documento 0 (tt) en los que ya no se despacha.
-ESTADOS_PEDIDO_NO_DESPACHABLES = ('despachado', 'pagado', 'anulado', 'finalizado')
 
 
 @app.template_filter('fecha')
@@ -1063,7 +1260,7 @@ def _variantes_por_id(ids_variante):
 @app.route('/despachos.html', methods=['GET', 'POST'])
 def despachos():
     # RF-039 y RF-042 a RF-051. Crear y anular pasan por las funciones de la base
-    # (supabase/despachos_variantes.sql), que validan pendientes y stock y mueven
+    # (supabase/incremento4_despachos.sql), que validan pendientes y stock y mueven
     # el inventario. Un despacho no se borra: se anula y el stock vuelve a la bodega.
     if request.method == 'POST':
         metodo = request.form.get('_method')
@@ -1157,7 +1354,7 @@ def despachos():
     ).gt('cantidad_pendiente', 0).execute().data or []
     pedidos_pendientes = {}
     for fila in pendientes:
-        if fila.get('estado_pedido') not in ESTADOS_PEDIDO_NO_DESPACHABLES:
+        if fila.get('estado_pedido') not in ESTADOS_PEDIDO_CERRADOS:
             pedidos_pendientes[fila['id_pedido']] = fila
     pedidos_pendientes = sorted(pedidos_pendientes.values(), key=lambda p: p['numero_pedido'] or '')
 
@@ -1172,7 +1369,7 @@ def despachos():
             .order('id_detalle_pedido').execute().data or []
         if not lineas:
             flash("Ese pedido no tiene unidades pendientes de despacho", "error")
-        elif lineas[0].get('estado_pedido') in ESTADOS_PEDIDO_NO_DESPACHABLES:
+        elif lineas[0].get('estado_pedido') in ESTADOS_PEDIDO_CERRADOS:
             flash(f"El pedido está {lineas[0]['estado_pedido']} y no se puede despachar", "error")
         else:
             variantes = _variantes_por_id({l['id_variante'] for l in lineas})
@@ -1311,7 +1508,7 @@ def _leer_nota_formulario(sufijo, id_nota=None):
     }, None
 
 
-@app.route('/notasCredito.html', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@app.route('/notasCredito.html', methods=['GET', 'POST'])
 def notasCredito():
     # RF-035/036. Esquema de supabase/notas_credito.sql.
     if request.method == 'POST':
@@ -1359,9 +1556,15 @@ def notasCredito():
                 _recalcular_factura(actual.get('factura_referencia'))
                 flash(f"Nota de crédito {actual['folio']} anulada: su monto vuelve al saldo de la factura", 'success')
         elif metodo == 'delete':
-            supabase.table('notas_credito').delete().eq('id_nota_credito', id_nota).execute()
-            _recalcular_factura(actual.get('factura_referencia'))
-            flash(f"Nota de crédito {actual['folio']} borrada exitosamente", 'success')
+            # Una nota vigente es un documento tributario que rebaja el saldo de su factura:
+            # se anula (queda como historial). Solo se elimina una nota ya anulada.
+            if actual.get('estado') == 'vigente':
+                flash(f"La nota de crédito {actual['folio']} está vigente: anúlala primero; su monto vuelve al "
+                      'saldo de la factura y el registro se conserva.', 'error')
+            else:
+                supabase.table('notas_credito').delete().eq('id_nota_credito', id_nota).execute()
+                _recalcular_factura(actual.get('factura_referencia'))
+                flash(f"Nota de crédito {actual['folio']} borrada exitosamente", 'success')
         return redirect(url_for('notasCredito'))
 
     allowed_sort = {
@@ -1384,7 +1587,8 @@ def notasCredito():
         rows = supabase.table('notas_credito').select('*').execute().data or []
         facturas_rows = supabase.table('facturas').select(
             'id_factura, folio, cliente_asociado, saldo_pendiente, estado').execute().data or []
-    except Exception:
+    except APIError:
+        app.logger.exception('No se pudo cargar el listado de notas de crédito')
         flash("No se pudo cargar el listado de notas de crédito. Intenta nuevamente.", "error")
         rows, facturas_rows = [], []
     clientes_map = _obtener_clientes_map()
@@ -1444,11 +1648,7 @@ def notasCredito():
 
 
 def _obtener_clientes_map():
-    try:
-        response = supabase.table('clientes').select('id_cliente, nombre').execute()
-        rows = response.data or []
-    except Exception:
-        rows = []
+    rows = supabase.table('clientes').select('id_cliente, nombre').execute().data or []
     return {int(row.get('id_cliente')): (row.get('nombre') or 'Sin cliente') for row in rows if row.get('id_cliente') is not None}
 
 
@@ -1458,10 +1658,8 @@ def _facturas_pendientes(cliente_id=None):
         'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado')
     if cliente_id is not None:
         query = query.eq('cliente_asociado', cliente_id)
-    try:
-        rows = query.execute().data or []
-    except Exception:
-        rows = []
+    # Sin try: si la base falla, se informa el error en vez de decir que no hay facturas.
+    rows = query.execute().data or []
     pendientes = [{**row, 'monto_total': float(row.get('monto_total') or 0),
                    'saldo_pendiente': float(row.get('saldo_pendiente') or 0)}
                   for row in rows
@@ -1481,11 +1679,14 @@ def _estado_para_saldo(monto_total, saldo_pendiente):
 
 
 def _pago_facturas_disponible():
+    # Solo falta si pagos.sql no se ejecutó (tabla inexistente); otro error se informa.
     try:
         supabase.table('pago_facturas').select('id_pago_factura').limit(1).execute()
         return True
-    except Exception:
-        return False
+    except APIError as error:
+        if _es_tabla_faltante(error):
+            return False
+        raise
 
 
 def _leer_pago_formulario(sufijo):
@@ -1507,31 +1708,66 @@ def _leer_pago_formulario(sufijo):
             'medio_pago': medio_pago, 'referencia': _texto_o_nulo(request.form.get('referencia' + sufijo))}, ids, None
 
 
-def _aplicar_pago(pago_id, cliente_id, monto, ids_facturas):
-    """Reparte el monto entre las facturas elegidas (en ese orden, hasta su saldo),
-    guarda pago_facturas y recalcula cada factura. Devuelve el saldo a favor que sobra.
-    Lanza ValueError si alguna factura no es del cliente o no tiene saldo."""
-    facturas = {f['id_factura']: f for f in _facturas_pendientes(cliente_id)}
-    elegidas = [facturas[i] for i in ids_facturas if i in facturas]
-    if len(elegidas) != len(ids_facturas):
+def _repartir_pago(cliente_id, monto, ids_facturas, liberado=None):
+    """Reparte el monto entre las facturas elegidas (en ese orden, hasta su saldo) sin
+    escribir nada, para validar todo antes de tocar la base. 'liberado' es lo que este mismo
+    pago ya tenía aplicado a cada factura (al editarlo), que vuelve a estar disponible.
+    Devuelve ([(id_factura, monto)], sobrante). Lanza ValueError si alguna factura no es
+    del cliente o no tiene saldo."""
+    liberado = liberado or {}
+    saldos = {f['id_factura']: f['saldo_pendiente'] for f in _facturas_pendientes(cliente_id)}
+    if liberado:
+        for f in supabase.table('facturas').select('id_factura, cliente_asociado, saldo_pendiente, estado') \
+                .in_('id_factura', list(liberado)).execute().data or []:
+            if str(f.get('cliente_asociado')) == str(cliente_id) and f.get('estado') != 'anulada':
+                saldos[f['id_factura']] = float(f.get('saldo_pendiente') or 0) + liberado[f['id_factura']]
+    if any(i not in saldos for i in ids_facturas):
         raise ValueError('Las facturas elegidas deben ser del cliente del pago y tener saldo pendiente.')
-    restante = monto
-    for factura in elegidas:
-        asignado = round(min(factura['saldo_pendiente'], restante), 2)
-        if asignado <= 0:
-            continue
-        supabase.table('pago_facturas').insert({'id_pago': pago_id, 'id_factura': factura['id_factura'],
-                                                'monto_aplicado': asignado}).execute()
-        _recalcular_factura(factura['id_factura'])
-        restante = round(restante - asignado, 2)
-    return restante
+    reparto, restante = [], monto
+    for id_factura in ids_facturas:
+        asignado = round(min(saldos[id_factura], restante), 2)
+        if asignado > 0:
+            reparto.append((id_factura, asignado))
+            restante = round(restante - asignado, 2)
+    return reparto, restante
+
+
+def _guardar_reparto(pago_id, reparto):
+    for id_factura, monto in reparto:
+        supabase.table('pago_facturas').insert({'id_pago': pago_id, 'id_factura': id_factura,
+                                                'monto_aplicado': monto}).execute()
+
+
+def _saldo_sin_aplicar(pagos, aplicaciones):
+    """Saldo a favor de cada pago vigente (id_pago -> monto): su monto menos lo aplicado
+    en pago_facturas. Es lo que el pago no alcanzó a cubrir; al editarlo se aplica a otras
+    facturas del cliente, así que no necesita otra tabla."""
+    aplicado = {}
+    for aplicacion in aplicaciones or []:
+        aplicado[aplicacion['id_pago']] = (aplicado.get(aplicacion['id_pago'], 0.0)
+                                           + float(aplicacion.get('monto_aplicado') or 0))
+    return {p['id_pago']: max(round(float(p.get('monto') or 0) - aplicado.get(p['id_pago'], 0.0), 2), 0.0)
+            for p in pagos or [] if (p.get('estado') or 'vigente') == 'vigente'}
+
+
+def _saldos_a_favor_por_cliente():
+    """Saldo a favor total de cada cliente (id_cliente -> monto)."""
+    pagos = supabase.table('pagos').select('id_pago, cliente_asociado, monto, estado').execute().data or []
+    aplicaciones = supabase.table('pago_facturas').select('id_pago, monto_aplicado').execute().data or []
+    saldos = {}
+    sin_aplicar = _saldo_sin_aplicar(pagos, aplicaciones)
+    for pago in pagos:
+        if sin_aplicar.get(pago['id_pago'], 0.0) > 0:
+            cliente = pago.get('cliente_asociado')
+            saldos[cliente] = round(saldos.get(cliente, 0.0) + sin_aplicar[pago['id_pago']], 2)
+    return saldos
 
 
 def _facturas_del_pago(pago_id):
     return supabase.table('pago_facturas').select('id_factura, monto_aplicado').eq('id_pago', pago_id).execute().data or []
 
 
-@app.route('/pagos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/pagos.html', methods=['GET', 'POST'])
 def pagos():
     # RF-032/033/034. Esquema de supabase/pagos.sql: el folio es identity (lo asigna la
     # base) y cada pago se reparte entre facturas en pago_facturas. Al registrar,
@@ -1553,8 +1789,10 @@ def pagos():
                 flash('El cliente no tiene facturas con saldo pendiente.', 'error')
                 return redirect(url_for('pagos'))
             # Se valida antes de insertar para no gastar un folio (identity) en un pago rechazado.
-            if not set(ids) <= pendientes:
-                flash('Las facturas elegidas deben ser del cliente del pago y tener saldo pendiente.', 'error')
+            try:
+                reparto, sobrante = _repartir_pago(datos['cliente_asociado'], datos['monto'], ids)
+            except ValueError as error:
+                flash(str(error), 'error')
                 return redirect(url_for('pagos'))
             try:
                 creado = supabase.table('pagos').insert({
@@ -1567,14 +1805,21 @@ def pagos():
                 return redirect(url_for('pagos'))
             pago = creado[0]
             try:
-                sobrante = _aplicar_pago(pago['id_pago'], datos['cliente_asociado'], datos['monto'], ids)
-            except ValueError as error:
+                _guardar_reparto(pago['id_pago'], reparto)
+                for id_factura, _ in reparto:
+                    _recalcular_factura(id_factura)
+            except APIError as error:
+                # La API no tiene transacciones: si la base rechaza algo, el pago no queda a medias.
+                supabase.table('pago_facturas').delete().eq('id_pago', pago['id_pago']).execute()
                 supabase.table('pagos').delete().eq('id_pago', pago['id_pago']).execute()
-                flash(str(error), 'error')
+                for id_factura, _ in reparto:
+                    _recalcular_factura(id_factura)
+                flash(f'No se pudo registrar el pago: {error.message}', 'error')
                 return redirect(url_for('pagos'))
             flash(f"Pago N° {pago.get('folio') or pago['id_pago']} registrado exitosamente.", 'success')
             if sobrante > 0:
-                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)}.', 'warning')
+                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)} sin aplicar en este pago: '
+                      'edita el pago para aplicarlo a otra factura del cliente.', 'warning')
             return redirect(url_for('pagos'))
 
         pago_id = _entero_positivo(request.form.get('id_pago_actualizar') or request.form.get('id_pago_anular'))
@@ -1594,22 +1839,38 @@ def pagos():
                 flash(error, 'error')
                 return redirect(url_for('pagos'))
             anteriores = _facturas_del_pago(pago_id)
-            # Se quita la aplicación anterior, se recalculan esas facturas y se vuelve a repartir.
-            supabase.table('pago_facturas').delete().eq('id_pago', pago_id).execute()
+            liberado = {}
             for detalle in anteriores:
-                _recalcular_factura(detalle['id_factura'])
+                liberado[detalle['id_factura']] = (liberado.get(detalle['id_factura'], 0.0)
+                                                   + float(detalle.get('monto_aplicado') or 0))
+            # Se valida y reparte antes de escribir: si algo no corresponde, el pago no cambia.
             try:
-                sobrante = _aplicar_pago(pago_id, datos['cliente_asociado'], datos['monto'], ids)
+                reparto, sobrante = _repartir_pago(datos['cliente_asociado'], datos['monto'], ids, liberado)
             except ValueError as error:
-                for detalle in anteriores:  # se restaura la aplicación anterior
-                    supabase.table('pago_facturas').insert({'id_pago': pago_id, **detalle}).execute()
-                    _recalcular_factura(detalle['id_factura'])
                 flash(str(error), 'error')
                 return redirect(url_for('pagos'))
-            supabase.table('pagos').update(datos).eq('id_pago', pago_id).execute()
+            tocadas = set(liberado) | {id_factura for id_factura, _ in reparto}
+            try:
+                supabase.table('pago_facturas').delete().eq('id_pago', pago_id).execute()
+                _guardar_reparto(pago_id, reparto)
+                supabase.table('pagos').update(datos).eq('id_pago', pago_id).execute()
+                for id_factura in tocadas:
+                    _recalcular_factura(id_factura)
+            except APIError as error:
+                # La API no tiene transacciones: si la base rechaza algo a mitad, se deja el
+                # pago y sus facturas como estaban antes de editarlo.
+                supabase.table('pago_facturas').delete().eq('id_pago', pago_id).execute()
+                _guardar_reparto(pago_id, [(d['id_factura'], d['monto_aplicado']) for d in anteriores])
+                supabase.table('pagos').update({campo: actual.get(campo) for campo in datos}) \
+                    .eq('id_pago', pago_id).execute()
+                for id_factura in tocadas:
+                    _recalcular_factura(id_factura)
+                flash(f'No se pudo actualizar el pago N° {numero}: {error.message}. Quedó como estaba.', 'error')
+                return redirect(url_for('pagos'))
             flash(f'Pago N° {numero} actualizado exitosamente.', 'success')
             if sobrante > 0:
-                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)}.', 'warning')
+                flash(f'Quedó un saldo a favor del cliente de {formatear_moneda(sobrante)} sin aplicar en este pago: '
+                      'edita el pago para aplicarlo a otra factura del cliente.', 'warning')
 
         elif metodo == 'delete':
             motivo = (request.form.get('motivo_anulacion') or '').strip()
@@ -1631,7 +1892,8 @@ def pagos():
 
     try:
         pagos_rows = supabase.table('pagos').select('*').execute().data or []
-    except Exception:
+    except APIError:
+        app.logger.exception('No se pudo cargar el listado de pagos')
         flash('No se pudo cargar el listado de pagos.', 'error')
         pagos_rows = []
 
@@ -1645,6 +1907,16 @@ def pagos():
         por_pago.setdefault(aplicacion['id_pago'], []).append({
             'id_factura': aplicacion['id_factura'], 'folio': folio_factura.get(aplicacion['id_factura']),
             'monto_aplicado': float(aplicacion.get('monto_aplicado') or 0)})
+
+    # Saldo a favor de cada pago vigente (lo que no alcanzó a aplicar a facturas).
+    sin_aplicar = _saldo_sin_aplicar(pagos_rows, aplicaciones)
+    saldos_a_favor = {}
+    for pago in pagos_rows:
+        if sin_aplicar.get(pago.get('id_pago'), 0.0) > 0:
+            saldo = saldos_a_favor.setdefault(pago.get('cliente_asociado'), {
+                'cliente': clientes_map.get(pago.get('cliente_asociado'), 'Sin cliente'), 'monto': 0.0, 'pagos': []})
+            saldo['monto'] += sin_aplicar[pago.get('id_pago')]
+            saldo['pagos'].append(pago.get('folio') or pago.get('id_pago'))
 
     datos = []
     for pago in pagos_rows:
@@ -1665,11 +1937,9 @@ def pagos():
             'medio_pago': pago.get('medio_pago'), 'referencia': pago.get('referencia'),
             'estado': pago.get('estado') or 'vigente', 'motivo_anulacion': pago.get('motivo_anulacion'),
             'detalle_facturas': por_pago.get(pago.get('id_pago'), []),
+            'sin_aplicar': sin_aplicar.get(pago.get('id_pago'), 0.0),
         })
     datos.sort(key=lambda p: p.get('folio') or 0, reverse=True)
-
-    if request.args and not datos:
-        flash('No se encontraron pagos para los filtros aplicados.', 'warning')
 
     clientes = supabase.table('clientes').select('id_cliente, nombre').order('nombre').execute().data or []
     return render_template(
@@ -1678,6 +1948,7 @@ def pagos():
         clientes=clientes,
         # Todas las facturas con saldo; el modal muestra solo las del cliente elegido.
         facturas=_facturas_pendientes(),
+        saldos_a_favor=sorted(saldos_a_favor.values(), key=lambda s: s['cliente'].lower()),
         cliente_filter=cliente_filter,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
@@ -1755,6 +2026,7 @@ def obtener_informe_cobranza(request_args):
         factura_id = factura.get('id_factura')
         rows.append({
             'id_factura': factura_id,
+            'id_cliente': cliente_id,
             'cliente': cliente_nombre,
             'folio': factura.get('folio'),
             'fecha': fecha_factura,
@@ -1766,446 +2038,390 @@ def obtener_informe_cobranza(request_args):
             'dias_morosidad': dias_morosidad,
         })
 
-    return sorted(rows, key=lambda item: ((item.get('cliente') or '').lower(), -item['dias_morosidad']))
+    rows.sort(key=lambda item: ((item.get('cliente') or '').lower(), -item['dias_morosidad']))
+    # Saldo a favor del cliente (pagos con monto sin aplicar), en la primera fila de cada cliente.
+    saldos = _saldos_a_favor_por_cliente()
+    anterior = object()
+    for row in rows:
+        row['saldo_a_favor'] = saldos.get(row['id_cliente'], 0.0)
+        row['primera_del_cliente'] = row['id_cliente'] != anterior
+        anterior = row['id_cliente']
+    return rows
+
+
+# ---------------------------------------------------------------------
+# Informes y análisis de despachos y pedidos (RF-042 a RF-051). Usan las vistas de
+# supabase/incremento3_despachos.sql: v_despachos_detalle (una fila por producto
+# despachado), v_detalle_pedido_pendiente y v_pedidos_despachos_mensual. Los
+# filtros llegan por GET (o POST, como antes) y todos son opcionales.
+
+def _filtros_informe(*campos):
+    """Filtros de un informe. Una fecha que no es AAAA-MM-DD se ignora con un aviso."""
+    filtros = {campo: (request.values.get(campo) or '').strip() for campo in campos}
+    for campo in ('desde', 'hasta'):
+        if filtros.get(campo):
+            try:
+                datetime.strptime(filtros[campo], '%Y-%m-%d')
+            except ValueError:
+                flash(f'La fecha «{filtros[campo]}» no es válida y no se aplicó.', 'warning')
+                filtros[campo] = ''
+    return filtros
+
+
+def _filtrar_informe(query, filtros, columnas):
+    """Aplica los filtros con valor: 'desde'/'hasta' como rango y el resto como ids."""
+    for campo, columna in columnas.items():
+        valor = filtros.get(campo)
+        if not valor:
+            continue
+        if campo == 'desde':
+            query = query.gte(columna, valor)
+        elif campo == 'hasta':
+            query = query.lte(columna, valor)
+        elif _entero_positivo(valor):
+            query = query.eq(columna, _entero_positivo(valor))
+    return query
+
+
+def _opciones_informe(*catalogos):
+    """Opciones (id, texto) de los selectores de filtros."""
+    opciones = {}
+    if 'clientes' in catalogos:
+        opciones['clientes'] = [(c['id_cliente'], c.get('nombre')) for c in supabase.table('clientes')
+                                .select('id_cliente, nombre').order('nombre').execute().data or []]
+    if 'vendedores' in catalogos:
+        opciones['vendedores'] = [(v['id_vendedor'], v.get('nombre')) for v in supabase.table('vendedores')
+                                  .select('id_vendedor, nombre').order('nombre').execute().data or []]
+    if 'productos' in catalogos:
+        variantes = _variantes_por_id({v['id_variante'] for v in supabase.table('producto_variantes')
+                                       .select('id_variante').execute().data or []})
+        opciones['productos'] = sorted(
+            ((id_variante, ' · '.join(str(x) for x in (v.get('producto'), v.get('color'), v.get('talla')) if x))
+             for id_variante, v in variantes.items()), key=lambda opcion: opcion[1].lower())
+    if 'facturas' in catalogos:
+        opciones['facturas'] = [(f['id_factura'], f"Factura {f['folio']}") for f in supabase.table('facturas')
+                                .select('id_factura, folio').order('folio').execute().data or []]
+    if 'articulos' in catalogos:
+        opciones['articulos'] = [(p['id_producto'], p.get('descripcion')) for p in supabase.table('productos')
+                                 .select('id_producto, descripcion').order('descripcion').execute().data or []]
+    if 'bodegas' in catalogos:
+        opciones['bodegas'] = [(b['id_bodega'], b.get('descripcion')) for b in supabase.table('bodegas')
+                               .select('id_bodega, descripcion').order('descripcion').execute().data or []]
+    if 'pedidos' in catalogos:
+        opciones['pedidos'] = [(p['id_pedido'], p.get('numero_pedido') or p['id_pedido']) for p in supabase
+                               .table('pedidos').select('id_pedido, numero_pedido').neq('estado', 'anulado')
+                               .order('id_pedido', desc=True).execute().data or []]
+    return opciones
+
+
+def _lineas_despachadas(filtros):
+    """Productos despachados (v_despachos_detalle) de guías emitidas: las anuladas no
+    cuentan, porque su stock volvió a la bodega. Agrega el folio de la factura."""
+    query = supabase.table('v_despachos_detalle').select('*').eq('estado', 'emitido')
+    query = _filtrar_informe(query, filtros, {
+        'desde': 'fecha', 'hasta': 'fecha', 'cliente': 'id_cliente', 'vendedor': 'id_vendedor',
+        'producto': 'id_variante', 'factura': 'id_factura', 'pedido': 'id_pedido'})
+    lineas = query.order('fecha', desc=True).order('numero_guia').execute().data or []
+    ids_factura = {l['id_factura'] for l in lineas if l.get('id_factura')}
+    folios = {f['id_factura']: f.get('folio') for f in supabase.table('facturas').select('id_factura, folio')
+              .in_('id_factura', list(ids_factura)).execute().data or []} if ids_factura else {}
+    for linea in lineas:
+        linea['folio_factura'] = folios.get(linea.get('id_factura'))
+    return lineas
+
+
+def _agrupar(filas, claves, sumas, contar=None):
+    """Agrupa filas por las columnas 'claves' sumando 'sumas'; 'contar' cuenta valores
+    distintos de esa columna (por ejemplo guías o pedidos)."""
+    grupos = {}
+    for fila in filas:
+        clave = tuple(fila.get(c) for c in claves)
+        grupo = grupos.setdefault(clave, {**{c: fila.get(c) for c in claves}, **{s: 0 for s in sumas},
+                                          '_distintos': set()})
+        for columna in sumas:
+            grupo[columna] += fila.get(columna) or 0
+        if contar:
+            grupo['_distintos'].add(fila.get(contar))
+    resultado = []
+    for grupo in grupos.values():
+        grupo['distintos'] = len(grupo.pop('_distintos'))
+        resultado.append(grupo)
+    return sorted(resultado, key=lambda g: tuple(str(g.get(c) or '').lower() for c in claves))
+
+
+def _totales(filas, *columnas):
+    return {columna: sum(f.get(columna) or 0 for f in filas) for columna in columnas}
 
 
 @app.route('/informeProductosDespachados.html', methods=['GET', 'POST'])
 def informeProductosDespachados():
-    productos_response = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
-    if request.method == 'POST':
-        metodo = (request.form.get('_method') or 'get').strip()
-        fechaDesde = (request.form.get('desdeFecha') or '').strip()
-        fechaHasta = (request.form.get('hastaFecha') or '').strip()
+    # RF-045/046 (CU-45, CU-46): lo que salió en guías emitidas (detalle_despachos), no lo
+    # pedido, con búsqueda por fechas, pedido, cliente, vendedor, factura o producto.
+    filtros = _filtros_informe('desde', 'hasta', 'pedido', 'cliente', 'vendedor', 'producto', 'factura')
+    lineas = _lineas_despachadas(filtros)
+    return render_template('informeProductosDespachados.html', filtros=filtros, lineas=lineas,
+                           totales=_totales(lineas, 'cantidad', 'subtotal_neto'),
+                           guias=len({l.get('id_despacho') for l in lineas}),
+                           **_opciones_informe('pedidos', 'clientes', 'vendedores', 'productos', 'facturas'))
 
-        query = supabase.table('despachos').select(
-            'id_despacho, numero_guia, fecha, id_pedido, id_factura, id_bodega, estado, observacion, '
-            'pedidos!inner(id_pedido, cliente_asociado, vendedor_asociado), '
-            'facturas!left(id_factura, numero_factura, razon_social)'
-        ).eq('estado', 'emitido')  # Solo despachos vigentes: los anulados no cuentan como despachados (nueva-interfaz)
-
-        if fechaDesde:
-            query = query.gte('fecha', fechaDesde)
-        if fechaHasta:
-            query = query.lte('fecha', fechaHasta)
-
-        if metodo == 'buscarClientes':
-            cliente_abuscar = (request.form.get('ClienteBuscarn') or '').strip()
-            if cliente_abuscar:
-                pedido_ids = [
-                    row.get('id_pedido') for row in (
-                        supabase.table('pedidos').select('id_pedido').eq('cliente_asociado', cliente_abuscar).execute().data or []
-                    ) if row.get('id_pedido') is not None
-                ]
-                if pedido_ids:
-                    query = query.in_('id_pedido', pedido_ids)
-                else:
-                    return render_template(
-                        'informeProductosDespachados.html',
-                        datos=[],
-                        detallePedidos=[],
-                        productos=productos_response.data or [],
-                    )
-
-        if metodo in ('buscarFactura', 'buscarFacturas'):  # el formulario envía 'buscarFacturas'
-            factura_abuscar = (request.form.get('FacturaBuscarn') or '').strip()
-            if factura_abuscar:
-                query = query.eq('id_factura', factura_abuscar)
-
-        response_despachos = query.execute()
-        despachos = response_despachos.data or []
-        pedido_ids = [despacho.get('id_pedido') for despacho in despachos if despacho.get('id_pedido') is not None]
-
-        detalle_query = supabase.table('detalle_pedidos').select(
-            'id_detalle_pedido, id_pedido, id_variante, cantidad, precio_unitario, subtotal, '
-            'producto_variantes!inner(id_variante, descripcion)'
-        )
-        if pedido_ids:
-            detalle_query = detalle_query.in_('id_pedido', pedido_ids)
-
-        producto_abuscar = (request.form.get('ProductoBuscarn') or '').strip()
-        producto_abuscar_int = None
-        if metodo in ('buscarProducto', 'buscarProductos') and producto_abuscar:  # el formulario envía 'buscarProductos'
-            try:
-                producto_abuscar_int = int(producto_abuscar)
-            except ValueError:
-                producto_abuscar_int = None
-            if producto_abuscar_int is not None:
-                detalle_query = detalle_query.eq('id_variante', producto_abuscar_int)
-
-        if pedido_ids or (metodo in ('buscarProducto', 'buscarProductos') and producto_abuscar_int is not None):
-            response_detalle = detalle_query.execute()
-            detalle_rows = response_detalle.data if hasattr(response_detalle, 'data') else response_detalle.get('data', [])
-        else:
-            detalle_rows = []
-
-        return render_template(
-            'informeProductosDespachados.html',
-            datos=response_despachos.data or [],
-            detallePedidos=detalle_rows,
-            productos=productos_response.data or [],
-        )
-
-    return render_template('informeProductosDespachados.html', productos=productos_response.data or [])
 
 @app.route('/informeProductosEnProceso.html', methods=['GET', 'POST'])
 def informeProductosEnProceso():
-    if request.method == 'POST' or 'GET':
-        #Buscar los productos presentes en corte pero no ingresados a bodega
-        #TODO: cambiar referencias a producto variantes una vez los consolidemos
-        #y luego poner los detalles de producto variantes, como talla y color
-        responseProductos = (
-            supabase.table('productos')
-            .select('id_producto, descripcion')
-            .execute()
-        )
-        response = (
-                    supabase.table('cortes')
-                    .select('id_corte, producto_asociado, cantidad')
-                    .eq('estado', 'pendiente')
-                    .execute()
-                )
-        return render_template('informeProductosEnProceso.html', datos = response.data, productos = responseProductos.data)
-    else:
-        return render_template('informeProductosEnProceso.html')
+    # RF-054 (CU-54): productos en cortes que todavía no se ingresan a bodega
+    # (v_productos_en_proceso, cortes en estado 'pendiente'), con su pedido y cliente y lo que
+    # a ese pedido le falta despachar del producto. Filtros: fechas del corte, producto y cliente.
+    filtros = _filtros_informe('desde', 'hasta', 'articulo', 'cliente')
+    query = supabase.table('v_productos_en_proceso').select('*')
+    query = _filtrar_informe(query, filtros, {'desde': 'fecha_corte', 'hasta': 'fecha_corte', 'articulo': 'id_producto'})
+    if _entero_positivo(filtros['cliente']):
+        pedidos = [p['id_pedido'] for p in supabase.table('pedidos').select('id_pedido')
+                   .eq('cliente_asociado', _entero_positivo(filtros['cliente'])).execute().data or []]
+        query = query.in_('id_pedido', pedidos or [0])
+    cortes = query.order('fecha_corte').order('id_corte').execute().data or []
+    # La vista trae el número de la talla; se muestra su nombre (S, M, L...) si lo tiene.
+    tallas = {t['id_talla']: t.get('nombre') or str(t.get('talla'))
+              for t in supabase.table('tallas').select('id_talla, talla, nombre').execute().data or []}
+    talla_producto = {p['id_producto']: p.get('talla') for p in supabase.table('productos')
+                      .select('id_producto, talla').execute().data or []}
+    ids_pedido = list({c['id_pedido'] for c in cortes if c.get('id_pedido')})
+    pendiente = {}
+    for linea in supabase.table('v_detalle_pedido_pendiente').select('id_pedido, id_producto, cantidad_pendiente') \
+            .in_('id_pedido', ids_pedido).gt('cantidad_pendiente', 0).execute().data or [] if ids_pedido else []:
+        clave = (linea['id_pedido'], linea['id_producto'])
+        pendiente[clave] = pendiente.get(clave, 0) + (linea['cantidad_pendiente'] or 0)
+    for corte in cortes:
+        corte['talla'] = tallas.get(talla_producto.get(corte.get('id_producto')), corte.get('talla'))
+        corte['pendiente_pedido'] = pendiente.get((corte.get('id_pedido'), corte.get('id_producto')), 0) \
+            if corte.get('id_pedido') else None
+    return render_template('informeProductosEnProceso.html', filtros=filtros, cortes=cortes,
+                           totales=_totales(cortes, 'cantidad'), **_opciones_informe('articulos', 'clientes'))
+
 
 @app.route('/informeProductosPendientesDespacho.html', methods=['GET', 'POST'])
 def informeProductosPendientesDespacho():
-    #Buscar los productos que estén en bodega y falta despachar
-    responseClientes = (
-                    supabase.table('clientes')
-                    .select("id_cliente, nombre")
-                    .execute()
-                    )
-    responseIDPedidos = (
-                    supabase.table('pedidos')
-                    .select("id_pedido")
-                    .execute()
-    )
-    responseVendedores = (
-                    supabase.table('vendedores')
-                    .select("id_vendedor, nombre")
-                    .execute()
-    )
-    if request.method == 'POST':
-        metodo = request.form['_method']
-        if metodo == 'get':
-            responsePedidos = (
-                supabase.table('pedidos')
-                .select("id_pedido, detalle_pedidos!inner(id_variante)")
-                .eq('estado', 'pendiente')
-                .execute()
-            )
-        if metodo == 'buscarPedidos':
-            pedidoABuscar = request.form['PedidoBuscarn']
-            responsePedidos = (
-                            supabase.table('pedidos')
-                            .select("id_pedido, detalle_pedidos!inner(id_variante)")
-                            .eq('estado', 'pendiente')
-                            .eq('id_pedido', pedidoABuscar)
-                            .execute()
-                        )
-        if metodo == 'buscarClientes':
-            clienteABuscar = request.form['ClienteBuscarn']
-            responsePedidos = (
-                            supabase.table('pedidos')
-                            .select("id_pedido, detalle_pedidos!inner(id_variante)")
-                            .eq('estado', 'pendiente')
-                            .eq('cliente_asociado', clienteABuscar)
-                            .execute()
-                        )
-        if metodo == 'buscarVendedores':
-            vendedorABuscar = request.form['VendedorBuscarn']
-            responsePedidos = (
-                            supabase.table('pedidos')
-                            .select("id_pedido, detalle_pedidos!inner(id_variante)")
-                            .eq('estado', 'pendiente')
-                            .eq('vendedor_asociado', vendedorABuscar)
-                            .execute()
-                        )
-        rp = responsePedidos.data
-        productosPendientes = []
-        for x in range(len(rp)):
-                    for y in range(len(rp[x]['detalle_pedidos'])):
-                        productosPendientes.append(rp[x]['detalle_pedidos'][y]['id_variante'])
-        print(productosPendientes)
-        responseInventario = (
-            supabase.table('inventario')
-            .select('*')
-            .in_('id_variante', productosPendientes)
-            .execute()
-        )
-        #TODO: Cambiar inventario una vez se consolide producto y producto_variante
-        responseProductos = (
-            supabase.table('producto_variantes')
-            .select('*')
-            .in_('id_variante', productosPendientes)
-            .execute()
-        )
-        return render_template('informeProductosPendientesDespacho.html', datosPedidos = responsePedidos.data,
-                                datosInventario = responseInventario.data, datosProductos = responseProductos.data,
-                                clientes = responseClientes.data, vendedores = responseVendedores.data, pedidos = responseIDPedidos.data)   
-    else:
-        return render_template('informeProductosPendientesDespacho.html',
-                                clientes = responseClientes.data, vendedores = responseVendedores.data, pedidos = responseIDPedidos.data)  
+    # RF-042/043: líneas de pedidos no anulados con unidades por despachar
+    # (pedida - anulada - despachada en guías emitidas) y el stock de su variante.
+    filtros = _filtros_informe('pedido', 'cliente', 'vendedor', 'producto')
+    query = supabase.table('v_detalle_pedido_pendiente').select('*').gt('cantidad_pendiente', 0)
+    query = _filtrar_informe(query, filtros, {'pedido': 'id_pedido', 'cliente': 'id_cliente',
+                                              'vendedor': 'id_vendedor', 'producto': 'id_variante'})
+    lineas = query.order('fecha_pedido').order('id_pedido').execute().data or []
+    # Stock de cada variante en todas las bodegas, como lo valida registrar_despacho().
+    ids_variante = list({l['id_variante'] for l in lineas if l.get('id_variante')})
+    stock = {}
+    for fila in supabase.table('inventario').select('id_variante, cantidad').in_('id_variante', ids_variante) \
+            .execute().data or [] if ids_variante else []:
+        stock[fila['id_variante']] = stock.get(fila['id_variante'], 0) + (fila.get('cantidad') or 0)
+    for linea in lineas:
+        linea['stock'] = stock.get(linea.get('id_variante'), 0)
+        linea['cumplible'] = min(int(linea.get('cantidad_pendiente') or 0), max(linea['stock'], 0))
+    return render_template('informeProductosPendientesDespacho.html', filtros=filtros, lineas=lineas,
+                           totales=_totales(lineas, 'cantidad_pendiente', 'cumplible'),
+                           **_opciones_informe('pedidos', 'clientes', 'vendedores', 'productos'))
+
 
 @app.route('/informeProductosTerminados.html', methods=['GET', 'POST'])
 def informeProductosTerminados():
-    if request.method == 'POST':
-        #TODO: cambiar referencias de productos a producto variante una vez arreglemos eso
-        #print("hola")
-        fechaDesde = request.form['desdeFecha']
-        fechaHasta = request.form['hastaFecha']
-        desdeST = datetime.strptime(fechaDesde, "%Y-%m-%d")
-        #print(desdeST)
-        desdeTZ = desdeST.replace(tzinfo=timezone.utc)
-        #print(desdeTZ)
-        hastaST = datetime.strptime(fechaHasta, "%Y-%m-%d")
-        hastaTZ = hastaST.replace(tzinfo=timezone.utc)
-        response = (
-            supabase.table('cortes').select('producto_asociado, cantidad, productos(descripcion, color(descripcion), talla(talla))')
-            .gte('fecha_ingreso', desdeTZ)
-            .lte('fecha_ingreso', hastaTZ)
-            .execute()
-        )
+    # CU-52 (RF-052): productos terminados entre fechas, por producto, color y talla, con sus
+    # unidades con defectos y si están asociados a pedidos. "Terminado" = guía de cortes
+    # ingresada a bodega: v_produccion_terminada (movimientos 'entrada_corte'), por día.
+    filtros = _filtros_informe('desde', 'hasta', 'bodega')
+    query = supabase.table('v_produccion_terminada').select('*')
+    filas = _filtrar_informe(query, filtros, {'desde': 'dia', 'hasta': 'dia', 'bodega': 'id_bodega'}).execute().data or []
+    grupos = _agrupar(filas, ('producto', 'color', 'id_producto', 'id_color', 'id_talla'), ('cantidad',),
+                      contar='id_corte')
+    # Los movimientos antiguos no guardan id_variante: la variante sale de producto + color + talla.
+    variantes = {(v['id_producto'], v['id_color'], v['id_talla']): v['id_variante']
+                 for v in supabase.table('producto_variantes').select('id_variante, id_producto, id_color, id_talla')
+                 .in_('id_producto', list({g['id_producto'] for g in grupos})).execute().data or []} if grupos else {}
+    defectuosas, comprometidas = {}, {}
+    if variantes:
+        for fila in supabase.table('inventario').select('id_variante, cantidad_defectuosa') \
+                .in_('id_variante', list(variantes.values())).execute().data or []:
+            defectuosas[fila['id_variante']] = defectuosas.get(fila['id_variante'], 0) + (fila.get('cantidad_defectuosa') or 0)
+        for linea in supabase.table('v_detalle_pedido_pendiente').select('id_variante, cantidad_pendiente') \
+                .in_('id_variante', list(variantes.values())).gt('cantidad_pendiente', 0).execute().data or []:
+            comprometidas[linea['id_variante']] = comprometidas.get(linea['id_variante'], 0) + (linea['cantidad_pendiente'] or 0)
+    tallas = {t['id_talla']: t.get('nombre') or str(t.get('talla'))
+              for t in supabase.table('tallas').select('id_talla, talla, nombre').execute().data or []}
+    for grupo in grupos:
+        id_variante = variantes.get((grupo['id_producto'], grupo['id_color'], grupo['id_talla']))
+        grupo['talla'] = tallas.get(grupo['id_talla'], '')
+        grupo['defectuosas'] = defectuosas.get(id_variante, 0)
+        grupo['comprometidas'] = comprometidas.get(id_variante, 0)
+    grupos.sort(key=lambda g: (str(g.get('producto') or '').lower(), str(g.get('color') or ''), str(g['talla'])))
+    return render_template('informeProductosTerminados.html', filtros=filtros, grupos=grupos,
+                           totales=_totales(grupos, 'cantidad', 'defectuosas'), **_opciones_informe('bodegas'))
 
-        return render_template('informeProductosTerminados.html', datos = response.data)
-    else:
-        return render_template('informeProductosTerminados.html')
 
 @app.route('/analisisDespachoClienteProducto.html', methods=['GET', 'POST'])
 def analisisDespachoClienteProducto():
-    responseProductos = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
-    responseClientes = supabase.table('clientes').select('id_cliente, nombre').execute()
-    responseVendedores = supabase.table('vendedores').select('id_vendedor, nombre').execute()
-    if request.method == 'POST':
-        #Despachos a cliente por producto.
-        #TODO: Clarificar con el usuario si cada producto cuenta como su propio despacho,
-        #o si varios caben en uno.
-        cliente = request.form['IDCliente']
-        producto = request.form['IDProducto']
-        response = (
-            supabase.table('despachos').select('*, pedidos!inner(id_pedido), facturas!left(id_factura, numero_factura)')
-            .eq('pedidos.cliente_asociado', cliente)
-            .execute()
-        )
-        responsePedidos = (
-            supabase.table("pedidos").select("*, detalle_pedidos!inner(id_variante, cantidad, producto_variantes!inner(id_variante, descripcion))")
-            .eq("detalle_pedidos.id_variante", producto)
-            .execute()
-        )
-        return render_template('analisisDespachoClienteProducto.html', clientes=responseClientes.data, vendedores=responseVendedores.data, productos=responseProductos.data, datos=response.data, datosPedidos=responsePedidos.data)
-    else:
-        return render_template('analisisDespachoClienteProducto.html', clientes=responseClientes.data, vendedores=responseVendedores.data, productos=responseProductos.data)
+    # RF-049 (CU-49): unidades despachadas a cada cliente por producto (guías emitidas).
+    filtros = _filtros_informe('desde', 'hasta', 'cliente', 'producto')
+    lineas = _lineas_despachadas(filtros)
+    grupos = _agrupar(lineas, ('cliente', 'producto', 'color', 'talla', 'id_cliente', 'id_variante'),
+                      ('cantidad', 'subtotal_neto'), contar='id_despacho')
+    return render_template('analisisDespachoClienteProducto.html', filtros=filtros, grupos=grupos,
+                           totales=_totales(grupos, 'cantidad', 'subtotal_neto'),
+                           **_opciones_informe('clientes', 'productos'))
+
 
 @app.route('/analisisDespachoSegunFacturaCliente.html', methods=['GET', 'POST'])
 def analisisDespachoSegunFacturaCliente():
-    responseClientes = supabase.table('clientes').select('id_cliente, nombre').execute()
-    responseFacturas = supabase.table('facturas').select('id_factura, numero_factura, razon_social, id_cliente').execute()
-    responseVendedores = supabase.table('vendedores').select('id_vendedor, nombre').execute()
-    if request.method == 'POST':
-        fechaDesde = (request.form.get('desdeFecha') or '').strip()
-        fechaHasta = (request.form.get('hastaFecha') or '').strip()
-        cliente = request.form.get('IDCliente')
-        factura = request.form.get('IDFactura')
+    # RF-048 (CU-48): número, cantidad y monto de los despachos (guías emitidas) hechos a un
+    # cliente y sus facturas asociadas, en un periodo.
+    filtros = _filtros_informe('desde', 'hasta', 'cliente', 'factura')
+    lineas = _lineas_despachadas(filtros)
+    guias = _agrupar(lineas, ('fecha', 'numero_guia', 'id_despacho', 'cliente', 'numero_pedido', 'folio_factura'),
+                     ('cantidad', 'subtotal_neto'), contar='id_detalle_despacho')
+    guias.sort(key=lambda g: (str(g.get('fecha') or ''), str(g.get('numero_guia') or '')), reverse=True)
+    return render_template('analisisDespachosSegunFacturaCliente.html', filtros=filtros, guias=guias,
+                           totales=_totales(guias, 'cantidad', 'subtotal_neto'),
+                           sin_factura=sum(1 for g in guias if not g.get('folio_factura')),
+                           **_opciones_informe('clientes', 'facturas'))
 
-        query = supabase.table('despachos').select(
-            'id_despacho, numero_guia, fecha, id_pedido, id_factura, id_bodega, estado, observacion, '
-            'pedidos!inner(id_pedido, cliente_asociado, vendedor_asociado), '
-            'facturas!left(id_factura, numero_factura, razon_social)'
-        )
-        if fechaDesde:
-            query = query.gte('fecha', fechaDesde)
-        if fechaHasta:
-            query = query.lte('fecha', fechaHasta)
-        if cliente:
-            pedido_ids = [
-                row.get('id_pedido') for row in (
-                    supabase.table('pedidos').select('id_pedido').eq('cliente_asociado', cliente).execute().data or []
-                ) if row.get('id_pedido') is not None
-            ]
-            if pedido_ids:
-                query = query.in_('id_pedido', pedido_ids)
-            else:
-                return render_template(
-                    'analisisDespachosSegunFacturaCliente.html',
-                    clientes=responseClientes.data or [],
-                    facturas=responseFacturas.data or [],
-                    vendedores=responseVendedores.data or [],
-                    datos=[],
-                )
-        if factura:
-            query = query.eq('id_factura', factura)
-
-        response = query.execute()
-        return render_template(
-            'analisisDespachosSegunFacturaCliente.html',
-            clientes=responseClientes.data or [],
-            facturas=responseFacturas.data or [],
-            vendedores=responseVendedores.data or [],
-            datos=response.data or [],
-        )
-
-    return render_template(
-        'analisisDespachosSegunFacturaCliente.html',
-        clientes=responseClientes.data or [],
-        facturas=responseFacturas.data or [],
-        vendedores=responseVendedores.data or [],
-    )
 
 @app.route('/analisisDespachoVendedorProducto.html', methods=['GET', 'POST'])
 def analisisDespachoVendedorProducto():
-    responseProductos = supabase.table('producto_variantes').select('id_variante, descripcion').execute()
-    responseVendedores = supabase.table('vendedores').select('id_vendedor, nombre').execute()
-    responseClientes = supabase.table('clientes').select('id_cliente, nombre').execute()
-    if request.method == 'POST':
-        #Despachos por vendedor y producto; cuantos productos y de qué tipo se enviaron
-        #a qué vendedor.
-        vendedor = request.form['IDVendedor']
-        producto = request.form['IDProducto']
-        response = (
-            supabase.table('despachos').select('*, pedidos!inner(id_pedido), facturas!left(id_factura, numero_factura)')
-            .eq('pedidos.vendedor_asociado', vendedor)
-            .execute()
-        )
-        responsePedidos = (
-            supabase.table("pedidos").select("*, detalle_pedidos!inner(id_variante, cantidad, producto_variantes!inner(id_variante, descripcion))")
-            .eq("detalle_pedidos.id_variante", producto)
-            .execute())
+    # RF-050 (CU-50): unidades despachadas de cada vendedor (el del pedido) por producto.
+    filtros = _filtros_informe('desde', 'hasta', 'vendedor', 'producto')
+    lineas = _lineas_despachadas(filtros)
+    grupos = _agrupar(lineas, ('vendedor', 'producto', 'color', 'talla', 'id_vendedor', 'id_variante'),
+                      ('cantidad', 'subtotal_neto'), contar='id_despacho')
+    return render_template('analisisDespachoVendedorProducto.html', filtros=filtros, grupos=grupos,
+                           totales=_totales(grupos, 'cantidad', 'subtotal_neto'),
+                           **_opciones_informe('vendedores', 'productos'))
 
-        return render_template('analisisDespachoVendedorProducto.html', vendedores=responseVendedores.data, clientes=responseClientes.data, productos=responseProductos.data, datos=response.data, datosPedidos=responsePedidos.data)
-    else:
-        return render_template('analisisDespachoVendedorProducto.html', vendedores=responseVendedores.data, clientes=responseClientes.data, productos=responseProductos.data)
 
 @app.route('/analisisPedidosDespachosMensuales.html', methods=['GET', 'POST'])
 def analisisPedidosDespachosMensuales():
-    if request.method == 'POST':
-        #TODO: Clarificar si los pedidos son creados, cumplidos, o vencen en un mes específico
-        #Aparte de eso, debería ser autoexplicativo, sacar los pedidos
-        fechaDesde = request.form['desdeFecha']
-        fechaHasta = request.form['hastaFecha']
-        responsePedidos = (
-            supabase.table('pedidos').select('*')
-            .gte('fecha_pedido', fechaDesde)
-            .lte('fecha_pedido',fechaHasta)
-            .execute()
-        )
-        responseDespachos = (
-                    supabase.table('despachos').select('*')
-                    .gte('fecha', fechaDesde)
-                    .lte('fecha',fechaHasta)
-                    .execute()
-                )
+    # RF-051: pedidos (no anulados) y despachos (emitidos) de cada mes, de la vista
+    # v_pedidos_despachos_mensual. Los filtros son meses (AAAA-MM).
+    filtros = {campo: (request.values.get(campo) or '').strip() for campo in ('mes_desde', 'mes_hasta')}
+    query = supabase.table('v_pedidos_despachos_mensual').select('*')
+    for campo, operador in (('mes_desde', 'gte'), ('mes_hasta', 'lte')):
+        if not filtros[campo]:
+            continue
+        try:
+            datetime.strptime(filtros[campo], '%Y-%m')
+        except ValueError:
+            flash(f'El mes «{filtros[campo]}» no es válido y no se aplicó.', 'warning')
+            filtros[campo] = ''
+            continue
+        query = getattr(query, operador)('mes', f'{filtros[campo]}-01')
+    meses = query.order('mes').execute().data or []
+    for mes in meses:
+        pedidas = mes.get('unidades_pedidas') or 0
+        mes['porcentaje'] = round((mes.get('unidades_despachadas') or 0) / pedidas * 100, 1) if pedidas else None
+    return render_template('analisisPedidosDespachosMensuales.html', filtros=filtros, meses=meses,
+                           totales=_totales(meses, 'pedidos', 'unidades_pedidas', 'despachos', 'unidades_despachadas'))
 
-        return render_template('analisisPedidosDespachosMensuales.html', pedidos = responsePedidos.data, despachos = responseDespachos.data)
-    else:
-        return render_template('analisisPedidosDespachosMensuales.html')
+
+# CU-47: perspectivas del análisis de ventas y descuentos (columnas que identifican cada fila).
+PERSPECTIVAS_VENTAS = {
+    'cliente': ('Cliente', ('cliente', 'id_cliente')),
+    'vendedor': ('Vendedor', ('vendedor', 'id_vendedor')),
+    'producto': ('Producto', ('producto', 'color', 'talla', 'id_variante')),
+    'factura': ('Factura', ('folio_factura', 'id_factura')),
+    'guia': ('Guía de despacho', ('numero_guia', 'id_despacho', 'fecha', 'cliente')),
+}
+
 
 @app.route('/analisisVentasDescuentos.html', methods=['GET', 'POST'])
 def analisisVentasDescuentos():
-    if request.method == 'POST':
-        fechaDesde = (request.form.get('desdeFecha') or '').strip()
-        fechaHasta = (request.form.get('hastaFecha') or '').strip()
+    # RF-047 (CU-47): venta bruta, descuento (los del cliente en cascada, guardados en cada
+    # línea de despacho), venta neta y comisión estimada, desde la perspectiva elegida: por
+    # cliente, vendedor, producto, factura o guía de despacho (el «despacho seleccionado»).
+    filtros = _filtros_informe('desde', 'hasta', 'cliente', 'vendedor', 'producto', 'factura', 'agrupar')
+    if filtros['agrupar'] not in PERSPECTIVAS_VENTAS:
+        filtros['agrupar'] = 'cliente'
+    etiqueta, claves = PERSPECTIVAS_VENTAS[filtros['agrupar']]
+    lineas = _lineas_despachadas(filtros)
+    # La comisión se calcula por línea con el vendedor del pedido, así sirve para cualquier perspectiva.
+    comision = {v['id_vendedor']: float(v.get('porcentaje_comision') or 0) for v in supabase.table('vendedores')
+                .select('id_vendedor, porcentaje_comision').execute().data or []}
+    for linea in lineas:
+        linea['comision'] = float(linea.get('subtotal_neto') or 0) * comision.get(linea.get('id_vendedor'), 0) / 100
+    grupos = _agrupar(lineas, claves, ('cantidad', 'subtotal_bruto', 'monto_descuento', 'subtotal_neto', 'comision'),
+                      contar='id_despacho')
+    for grupo in grupos:
+        bruto = float(grupo['subtotal_bruto'] or 0)
+        grupo['porcentaje_descuento'] = round(float(grupo['monto_descuento'] or 0) / bruto * 100, 2) if bruto else 0
+        grupo['comision'] = round(grupo['comision'])
+        if filtros['agrupar'] == 'producto':
+            grupo['nombre'] = ' · '.join(str(x) for x in (grupo.get('producto'), grupo.get('color'), grupo.get('talla')) if x)
+        elif filtros['agrupar'] == 'guia':
+            grupo['nombre'] = f"{grupo.get('numero_guia')} · {formatear_fecha(grupo.get('fecha'))} · {grupo.get('cliente') or ''}"
+        else:
+            grupo['nombre'] = grupo.get(claves[0])
+    if filtros['agrupar'] == 'guia':
+        grupos.sort(key=lambda g: (str(g.get('fecha') or ''), str(g.get('numero_guia') or '')), reverse=True)
+    return render_template('analisisVentasDescuentos.html', filtros=filtros, grupos=grupos, etiqueta=etiqueta,
+                           perspectivas=[(clave, texto) for clave, (texto, _) in PERSPECTIVAS_VENTAS.items()],
+                           totales=_totales(grupos, 'cantidad', 'subtotal_bruto', 'monto_descuento',
+                                            'subtotal_neto', 'comision'),
+                           **_opciones_informe('clientes', 'vendedores', 'productos', 'facturas'))
 
-        query = supabase.table('pedidos').select(
-            'id_pedido, fecha_pedido, fecha_entrega, estado, cliente_asociado, vendedor_asociado'
-        )
-        if fechaDesde:
-            query = query.gte('fecha_pedido', fechaDesde)
-        if fechaHasta:
-            query = query.lte('fecha_pedido', fechaHasta)
-
-        responsePedidos = query.execute()
-        responseClientes = (
-            supabase.table('clientes')
-            .select('id_cliente, descuento_1, descuento_2, descuento_3, nombre')
-            .execute()
-        )
-        responseVendedores = (
-            supabase.table('vendedores')
-            .select('id_vendedor, porcentaje_comision, nombre')
-            .execute()
-        )
-
-        return render_template(
-            'analisisVentasDescuentos.html',
-            datosPedidos=responsePedidos.data or [],
-            datosClientes=responseClientes.data or [],
-            datosVendedores=responseVendedores.data or [],
-        )
-    return render_template('analisisVentasDescuentos.html')
 
 @app.route('/resumenProduccion.html', methods=['GET', 'POST'])
 def resumenProduccion():
-    if request.method == 'POST':
-        fechaDesde = (request.form.get('desdeFecha') or '').strip()
-        fechaHasta = (request.form.get('hastaFecha') or '').strip()
-        query = supabase.table('cortes').select(
-            'id_corte, fecha_corte, fecha_ingreso, cantidad, producto_asociado, estado, '
-            'productos!inner(id_producto, descripcion)'
-        )
-        if fechaDesde:
-            query = query.gte('fecha_ingreso', fechaDesde)
-        if fechaHasta:
-            query = query.lte('fecha_ingreso', fechaHasta)
+    # RF-055 (CU-55): cantidad producida por producto, color y talla entre fechas. Cuenta las
+    # guías de cortes ingresadas a bodega (v_produccion_terminada, por día de ingreso); el
+    # filtro por cliente usa el pedido asociado al corte (cortes.id_pedido).
+    filtros = _filtros_informe('desde', 'hasta', 'articulo', 'cliente')
+    query = supabase.table('v_produccion_terminada').select('*')
+    query = _filtrar_informe(query, filtros, {'desde': 'dia', 'hasta': 'dia', 'articulo': 'id_producto'})
+    if _entero_positivo(filtros['cliente']):
+        pedidos = [p['id_pedido'] for p in supabase.table('pedidos').select('id_pedido')
+                   .eq('cliente_asociado', _entero_positivo(filtros['cliente'])).execute().data or []]
+        cortes = [c['id_corte'] for c in supabase.table('cortes').select('id_corte')
+                  .in_('id_pedido', pedidos).execute().data or []] if pedidos else []
+        query = query.in_('id_corte', cortes or [0])
+    filas = query.execute().data or []
+    tallas = {t['id_talla']: t.get('nombre') or str(t.get('talla'))
+              for t in supabase.table('tallas').select('id_talla, talla, nombre').execute().data or []}
+    for fila in filas:
+        fila['talla'] = tallas.get(fila.get('id_talla'), fila.get('talla'))
+    grupos = _agrupar(filas, ('producto', 'color', 'talla', 'id_producto', 'id_color', 'id_talla'), ('cantidad',),
+                      contar='id_corte')
+    return render_template('resumenProduccion.html', filtros=filtros, grupos=grupos,
+                           totales=_totales(grupos, 'cantidad'), guias=len({f.get('id_corte') for f in filas}),
+                           **_opciones_informe('articulos', 'clientes'))
 
-        rows = query.execute().data or []
-        resumen = {}
-        for row in rows:
-            producto_id = row.get('producto_asociado')
-            producto_desc = None
-            producto_rel = row.get('productos')
-            if isinstance(producto_rel, dict):
-                producto_desc = producto_rel.get('descripcion')
-            key = (producto_id, producto_desc)
-            if key not in resumen:
-                resumen[key] = {
-                    'producto_id': producto_id,
-                    'descripcion': producto_desc or 'Sin descripción',
-                    'cantidad_total': 0,
-                    'cortes': 0,
-                }
-            resumen[key]['cantidad_total'] += int(row.get('cantidad') or 0)
-            resumen[key]['cortes'] += 1
-
-        return render_template('resumenProduccion.html', datos=list(resumen.values()))
-    return render_template('resumenProduccion.html')
 
 @app.route('/inventario.html', methods=['GET', 'POST'])
 def inventario():
-    if request.method == 'POST':
-        query = supabase.table('inventario').select(
-            'id_inventario, id_bodega, id_variante, id_talla, id_color, cantidad, cantidad_defectuosa, '
-            'usuario_actualizacion, '
-            'bodegas!inner(id_bodega, descripcion), '
-            'producto_variantes!inner(id_variante, descripcion), '
-            'tallas!inner(id_talla, nombre), '
-            'colores!inner(id_color, descripcion)'
-        )
-        if request.form.get('desdeFecha'):
-            query = query.gte('fecha_actualizacion', request.form['desdeFecha'])
-        if request.form.get('hastaFecha'):
-            query = query.lte('fecha_actualizacion', request.form['hastaFecha'])
+    # CU-53 (RF-053): análisis de inventario. Por cada fila de inventario muestra el stock
+    # disponible, las unidades con defectos y las unidades de esa variante comprometidas en
+    # pedidos (lo pendiente de despachar, v_detalle_pedido_pendiente). Se calcula aquí y no con
+    # v_inventario_analisis, que en la base une producto con variante (incremento4_despachos.sql).
+    filtros = _filtros_informe('bodega', 'producto', 'situacion')
+    query = supabase.table('inventario').select('id_inventario, id_bodega, id_variante, cantidad, cantidad_defectuosa')
+    filas = _filtrar_informe(query, filtros, {'bodega': 'id_bodega', 'producto': 'id_variante'}).execute().data or []
+    comprometidas = {}
+    for linea in supabase.table('v_detalle_pedido_pendiente').select('id_variante, cantidad_pendiente') \
+            .gt('cantidad_pendiente', 0).execute().data or []:
+        comprometidas[linea['id_variante']] = comprometidas.get(linea['id_variante'], 0) + (linea['cantidad_pendiente'] or 0)
+    opciones = _opciones_informe('bodegas', 'productos')
+    nombre_bodega = dict(opciones['bodegas'])
+    variantes = _variantes_por_id({f['id_variante'] for f in filas})
+    for fila in filas:
+        fila.update(variantes.get(fila['id_variante'], {}))
+        fila['bodega'] = nombre_bodega.get(fila['id_bodega'], f"Bodega {fila['id_bodega']}")
+        fila['cantidad'] = fila.get('cantidad') or 0
+        fila['cantidad_defectuosa'] = fila.get('cantidad_defectuosa') or 0
+        fila['comprometidas'] = comprometidas.get(fila['id_variante'], 0)
+    situaciones = {'defectos': lambda f: f['cantidad_defectuosa'] > 0, 'pedidos': lambda f: f['comprometidas'] > 0,
+                   'libres': lambda f: f['comprometidas'] == 0}
+    if filtros['situacion'] in situaciones:
+        filas = [f for f in filas if situaciones[filtros['situacion']](f)]
+    filas.sort(key=lambda f: (str(f['bodega']).lower(), str(f.get('producto') or '').lower(),
+                              str(f.get('color') or ''), str(f.get('talla') or '')))
+    return render_template('inventario.html', filtros=filtros, filas=filas,
+                           totales=_totales(filas, 'cantidad', 'cantidad_defectuosa'),
+                           situaciones=[('defectos', 'Con defectos'), ('pedidos', 'Asociados a pedidos'),
+                                        ('libres', 'Sin pedidos pendientes')], **opciones)
 
-        rows = query.execute().data or []
-        datos = []
-        for row in rows:
-            bodega = row.get('bodegas') if isinstance(row.get('bodegas'), dict) else {}
-            variante = row.get('producto_variantes') if isinstance(row.get('producto_variantes'), dict) else {}
-            talla = row.get('tallas') if isinstance(row.get('tallas'), dict) else {}
-            color = row.get('colores') if isinstance(row.get('colores'), dict) else {}
-            datos.append({
-                'id_inventario': row.get('id_inventario'),
-                'bodega': bodega.get('descripcion') if isinstance(bodega, dict) else row.get('id_bodega'),
-                'producto': variante.get('descripcion') if isinstance(variante, dict) else row.get('id_variante'),
-                'talla': talla.get('nombre') if isinstance(talla, dict) else row.get('id_talla'),
-                'color': color.get('descripcion') if isinstance(color, dict) else row.get('id_color'),
-                'cantidad': row.get('cantidad') or 0,
-                'cantidad_defectuosa': row.get('cantidad_defectuosa') or 0,
-                'usuario_actualizacion': row.get('usuario_actualizacion'),
-            })
-
-        return render_template('inventario.html', datos=datos)
-    return render_template('inventario.html')
 
 @app.route('/informeCobranza.html', methods=['GET'])
 def informeCobranza():
@@ -2216,7 +2432,8 @@ def informeCobranza():
 
     try:
         rows = obtener_informe_cobranza(request.args)
-    except Exception:
+    except APIError:
+        app.logger.exception('No se pudo cargar el informe de cobranza')
         flash("No se pudo cargar el informe de cobranza. Intenta nuevamente.", "error")
         rows = []
 
@@ -2241,7 +2458,7 @@ def informeCobranzaPDF():
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer,
-            pagesize=A4,
+            pagesize=landscape(A4),
             rightMargin=28,
             leftMargin=28,
             topMargin=32,
@@ -2253,7 +2470,7 @@ def informeCobranzaPDF():
 
         table_data = [[
             'Cliente', 'Folio', 'Fecha emisión', 'Vencimiento', 'Monto', 'Pagos aplicados', 'Notas de crédito',
-            'Saldo', 'Días de mora'
+            'Saldo', 'Saldo a favor del cliente', 'Días de mora'
         ]]
         for row in rows:
             table_data.append([
@@ -2265,10 +2482,15 @@ def informeCobranzaPDF():
                 formatear_moneda(row.get('pagos_aplicados', 0)),
                 formatear_moneda(row.get('notas_credito', 0)),
                 formatear_moneda(row.get('saldo', 0)),
+                formatear_moneda(row['saldo_a_favor']) if row.get('primera_del_cliente') and row.get('saldo_a_favor') else '',
                 str(row.get('dias_morosidad', 0)),
             ])
-        table_data.append(['Total', '', '', '', '', '', '',
-                           formatear_moneda(sum(r.get('saldo', 0) for r in rows)), ''])
+        total = sum(r.get('saldo', 0) for r in rows)
+        a_favor = sum(r['saldo_a_favor'] for r in rows if r.get('primera_del_cliente'))
+        table_data.append(['Total', '', '', '', '', '', '', formatear_moneda(total), formatear_moneda(a_favor), ''])
+        if a_favor:
+            table_data.append(['Por cobrar descontando saldos a favor', '', '', '', '', '', '',
+                               formatear_moneda(total - a_favor), '', ''])
 
         table = Table(table_data, repeatRows=1)
         table.setStyle(TableStyle([
@@ -2286,75 +2508,60 @@ def informeCobranzaPDF():
         doc.build([title, generated, table])
         buffer.seek(0)
         return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name='informe_cobranza.pdf')
-    except Exception:
+    except Exception:  # reportlab puede fallar por muchas razones: se registra el detalle
+        app.logger.exception('No se pudo generar el PDF del informe de cobranza')
         flash("No se pudo generar el PDF. Intenta nuevamente.", "error")
         return redirect(url_for('informeCobranza', **request.args))
 
 
-@app.route('/cortes.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+def _leer_corte_formulario(sufijo):
+    """Valida el modal de cortes ("Crear" o "Actualizar"). Devuelve (datos, error)."""
+    fecha = (request.form.get('fechaCorte' + sufijo) or '').strip()
+    try:
+        datetime.strptime(fecha, '%Y-%m-%d')
+    except ValueError:
+        return None, 'Ingrese la fecha del corte.'
+    cortador = (request.form.get('cortador' + sufijo) or '').strip()
+    if not cortador:
+        return None, 'Ingrese el nombre del cortador.'
+    cantidad = _entero_positivo(request.form.get('cantidad' + sufijo))
+    if cantidad is None:
+        return None, 'La cantidad debe ser un número entero mayor que cero.'
+    id_producto = _entero_positivo(request.form.get('IdProducto' + sufijo))
+    producto = supabase.table('productos').select('id_producto') \
+        .eq('id_producto', id_producto).execute().data if id_producto else []
+    if not producto:
+        return None, 'Seleccione el producto del corte.'
+    return {'fecha_corte': fecha, 'cortador': cortador, 'cantidad': cantidad,
+            'observaciones': _texto_o_nulo(request.form.get('observaciones' + sufijo)),
+            'material_usado': _texto_o_nulo(request.form.get('material' + sufijo)),
+            'producto_asociado': id_producto}, None
+
+
+def _pantalla_cortes(datos, busqueda=''):
+    """Listado de cortes con el nombre del producto y de la bodega de ingreso."""
+    productos = supabase.table('productos').select('id_producto, codigo, descripcion') \
+        .order('descripcion').execute().data or []
+    nombre_producto = {p['id_producto']: p.get('descripcion') for p in productos}
+    bodegas = {b['id_bodega']: b.get('descripcion')
+               for b in supabase.table('bodegas').select('id_bodega, descripcion').execute().data or []}
+    for corte in datos:
+        corte['producto'] = nombre_producto.get(corte.get('producto_asociado'))
+        corte['bodega_ingreso'] = bodegas.get(corte.get('id_bodega_ingreso'))
+    return render_template('cortes.html', datos=datos, productos=productos, busqueda=busqueda)
+
+
+@app.route('/cortes.html', methods=['GET', 'POST'])
 def cortes():
+    # RF-019/020. Una guía de cortes solo se modifica o elimina mientras está pendiente:
+    # al ingresarla a bodega (ingresar_guia_corte) su cantidad ya pasó al inventario y a
+    # movimientos_inventario, y los informes de producción la suman desde cortes.
     if request.method == 'POST':
-        metodo = request.form['_method']
-        if (metodo == "post"):
-            fecha = request.form['fechaCorteCrear']
-            cortador = request.form['cortadorCrear']
-            cantidad = request.form['cantidadCrear']
-            observaciones = request.form['observacionesCrear']
-            material = request.form['materialCrear']
-            idProducto = request.form['IdProductoCrear']
-            #Hasta aquí toma los datos que se enviaron desde cliente.html cuando
-            #se pulsó el botón con submit.
-
-            #Esto se encapsula en response para poder detectar y loggear errores.
-            response = (
-
-                #Este es el comando para insertar los datos a la base de datos.
-                supabase.table("cortes").insert({"fecha_corte": fecha, "cantidad": cantidad,
-                        "cortador": cortador, "observaciones": observaciones, "material_usado": material, 
-                        "producto_asociado": idProducto
-                        }).execute()
-            )
-            if response.data:
-                return "Corte creado exitosamente"
-            else:
-                return "Error creando corte", 500
-        if (metodo == "put"):
-            idAACtualizar = request.form['IdCorteActualizar']
-            fecha = request.form['fechaCorteActualizar']
-            cortador = request.form['cortadorActualizar']
-            cantidad = request.form['cantidadActualizar']
-            observaciones = request.form['observacionesActualizar']
-            material = request.form['materialActualizar']
-            idProducto = request.form['IdProductoActualizar'] 
-            response = (
-                
-                supabase.table("cortes").update({"fecha_corte": fecha, "cantidad": cantidad,
-                        "cortador": cortador, "observaciones": observaciones, "material_usado": material, 
-                        "producto_asociado": idProducto
-                        }).eq("id_corte", idAACtualizar).select("id_corte").execute()
-            )
-            if response.data:
-                return "Corte actualizado exitosamente"
-            else:
-                return "Error actualizando corte", 500
-        if (metodo == "delete"):
-            idABorrar = request.form['idCorteBorrar']
-            try:
-                response = (
-                    supabase.table("cortes").delete()
-                    .eq("id_corte", idABorrar)
-                    .execute()
-                )
-            except APIError:
-                return "No se puede borrar: esta guía de cortes ya fue ingresada a bodega", 400
-            if response.data:
-                return "Corte borrado exitosamente"
-            else:
-                return "Error borrando corte", 500
-        if (metodo == "buscarID"):
+        metodo = request.form.get('_method')
+        if metodo == 'buscarID':
             # La función buscarcorteid de la base aplica to_tsvector a id_corte (bigint)
             # y falla siempre; el ID es la clave, así que se busca directo con eq.
-            texto = (request.form.get("idBuscar") or '').strip()
+            texto = (request.form.get('idBuscar') or '').strip()
             if not texto.isdigit():
                 flash('Ingrese un ID de corte numérico.', 'error')
                 return redirect(url_for('cortes'))
@@ -2362,13 +2569,59 @@ def cortes():
             if not datos:
                 flash(f'No se encontró ningún corte con el ID {texto}.', 'error')
                 return redirect(url_for('cortes'))
-            return render_template('cortes.html', datos=datos)
-    else:
-        response =(
-            supabase.table("cortes").select("*").execute()
-        )
-            
-        return render_template('cortes.html', datos = response.data)
+            return _pantalla_cortes(datos, busqueda=texto)
+
+        if metodo == 'post':
+            datos, error = _leer_corte_formulario('Crear')
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('cortes'))
+            try:
+                creado = supabase.table('cortes').insert(datos).execute().data
+            except APIError:
+                creado = None
+            if creado:
+                flash(f"Guía de cortes {creado[0]['id_corte']} creada exitosamente", 'success')
+            else:
+                flash('No se pudo crear la guía de cortes', 'error')
+            return redirect(url_for('cortes'))
+
+        id_corte = _entero_positivo(request.form.get('IdCorteActualizar') or request.form.get('idCorteBorrar'))
+        actual = supabase.table('cortes').select('id_corte, estado').eq('id_corte', id_corte) \
+            .execute().data if id_corte else []
+        if not actual:
+            flash('La guía de cortes no existe', 'error')
+            return redirect(url_for('cortes'))
+        if actual[0].get('estado') != 'pendiente':
+            flash(f"La guía de cortes {id_corte} está {actual[0].get('estado')}: solo se modifican o eliminan "
+                  'las guías pendientes de ingreso a bodega', 'error')
+            return redirect(url_for('cortes'))
+
+        # El filtro por estado evita tocar una guía que se ingresó entre la consulta y el cambio.
+        if metodo == 'put':
+            datos, error = _leer_corte_formulario('Actualizar')
+            if error:
+                flash(error, 'error')
+            elif supabase.table('cortes').update(datos).eq('id_corte', id_corte).eq('estado', 'pendiente') \
+                    .execute().data:
+                flash(f'Guía de cortes {id_corte} actualizada exitosamente', 'success')
+            else:
+                flash(f'No se pudo actualizar la guía de cortes {id_corte}', 'error')
+        elif metodo == 'delete':
+            try:
+                borrado = supabase.table('cortes').delete().eq('id_corte', id_corte).eq('estado', 'pendiente') \
+                    .execute().data
+            except APIError:
+                borrado = None
+            if borrado:
+                flash(f'Guía de cortes {id_corte} borrada exitosamente', 'success')
+            else:
+                flash(f'No se pudo borrar la guía de cortes {id_corte}: tiene registros asociados', 'error')
+        return redirect(url_for('cortes'))
+
+    datos = supabase.table('cortes').select('*').order('id_corte', desc=True).execute().data or []
+    return _pantalla_cortes(datos)
+
 
 def digito_verificador_rut(numero):
     """Dígito verificador de un RUT chileno (módulo 11): '0'-'9' o 'K'."""
@@ -2452,7 +2705,7 @@ def _leer_cliente_formulario(sufijo, id_cliente=None):
     return datos, None
 
 
-@app.route('/clientes.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/clientes.html', methods=['GET', 'POST'])
 def clientes():
     # RF-001/002, CU-01.1 a CU-01.5 y CU-02. Mismo patrón que colores: _method
     # post/put/delete, modales crear/actualizar/borrar y avisos con flash.
@@ -2496,15 +2749,6 @@ def clientes():
                     supabase.table("clientes").delete().eq("id_cliente", id_cliente).execute()
                     flash(f"Cliente {actual[0]['nombre']} borrado exitosamente", "success")
             return redirect(url_for('clientes'))
-        # Búsquedas antiguas por función de la base (se mantienen por compatibilidad).
-        busquedas = {'buscarID': ('buscarclienteid', 'idBuscar'), 'buscarNombre': ('buscarclientenombre', 'nombreBuscar'),
-                     'buscarAbreviacion': ('buscarclienteabreviacion', 'abreviacionBuscar')}
-        if metodo in busquedas:
-            funcion, campo = busquedas[metodo]
-            datos = supabase.rpc(funcion, {'textobusqueda': request.form.get(campo, '')}).execute().data or []
-            if not datos:
-                flash("No se encontraron clientes con ese criterio", "warning")
-            return render_template('clientes.html', datos=datos, zonasVenta=zonas, vendedores=vendedores, busqueda='')
         return redirect(url_for('clientes'))
 
     # RF-002 / CU-02: barra de búsqueda por nombre (también busca en RUT y abreviación).
@@ -2516,7 +2760,7 @@ def clientes():
     return render_template('clientes.html', datos=datos, zonasVenta=zonas, vendedores=vendedores, busqueda=busqueda)
 
 
-@app.route('/colores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/colores.html', methods=['GET', 'POST'])
 def colores():
     # RF-003/004, CU-03.1 a CU-03.4.
     return _crud_maestro('colores')
@@ -2565,13 +2809,13 @@ def _inventario_de_bodega(bodegas):
             'total_defectuosas': sum(int(f.get('cantidad_defectuosa') or 0) for f in filas)}
 
 
-@app.route('/bodegas.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/bodegas.html', methods=['GET', 'POST'])
 def bodegas():
     # RF-005/006 (CU-05.1 a 05.4) con el CRUD de maestros simples, y RF-037: inventario
     # de la bodega elegida (tabla inventario: id_bodega, id_variante, id_talla, id_color,
     # cantidad, cantidad_defectuosa).
     if request.method == 'POST' and (request.form.get('_method') or '').startswith('inventario_'):
-        metodo = request.form['_method']
+        metodo = request.form.get('_method', '')
         usuario = g.usuario.get('nombre_usuario') or 'Admin'
         id_bodega = _entero_positivo(request.form.get('idBodegaInventario'))
         volver = redirect(url_for('bodegas', bodega=id_bodega) if id_bodega else url_for('bodegas'))
@@ -2620,7 +2864,7 @@ def bodegas():
     return _crud_maestro('bodegas', contexto=_inventario_de_bodega)
 
 
-@app.route('/vendedores.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/vendedores.html', methods=['GET', 'POST'])
 def vendedores():
     # RF-007/008, CU-07.1 a CU-07.4.
     return _crud_maestro('vendedores')
@@ -2662,15 +2906,17 @@ MAESTROS_SIMPLES = {
              'max': 1, 'mayusculas': True},
             {'columna': 'porcentaje_comision', 'form': 'porComi', 'etiqueta': 'Comisión', 'porcentaje': True},
         ],
-        'en_uso': [('pedidos', 'vendedor_asociado', 'pedidos')],
+        'en_uso': [('pedidos', 'vendedor_asociado', 'pedidos'), ('clientes', 'id_vendedor', 'clientes')],
     },
     'tallas': {
         'tabla': 'tallas', 'clave': 'id_talla', 'endpoint': 'tallas', 'modulo': 'tallas',
         'plantilla': 'tallas.html', 'singular': 'talla', 'plural': 'tallas', 'articulo': 'la',
         'id_form': 'idTalla', 'principal': 'talla',
         'campos': [
+            # tallas.talla es bigint en la base: la letra (S, M, L) va en «nombre».
             {'columna': 'talla', 'form': 'talla', 'etiqueta': 'Código de talla', 'obligatorio': True, 'max': 2,
-             'unico': True, 'ayuda': 'Hasta 2 caracteres, por ejemplo S, M, 38'},
+             'numerico': True, 'unico': True,
+             'ayuda': 'Número de hasta 2 dígitos (ej. 1, 38); la letra va en «Nombre en la etiqueta»'},
             {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre en la etiqueta', 'max': 16,
              'ayuda': 'Lo que se imprime en la etiqueta EAN (S, M, L, 38...)'},
             {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN de la talla', 'max': 3,
@@ -2841,13 +3087,13 @@ def _crud_maestro(nombre, contexto=None):
                            **(contexto(datos) if contexto else {}))
 
 
-@app.route('/zonasVenta.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/zonasVenta.html', methods=['GET', 'POST'])
 def zonasVenta():
     # RF-009/010, CU-09.1 a CU-09.4. La columna nombre se muestra primero.
     return _crud_maestro('zonas_venta')
 
 
-@app.route('/tallas.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/tallas.html', methods=['GET', 'POST'])
 def tallas():
     # RF-011/012, CU-11.1 a CU-11.4.
     return _crud_maestro('tallas')
@@ -2919,7 +3165,7 @@ def _crear_variantes(id_producto, combinaciones, precio_base):
     return len(combinaciones)
 
 
-@app.route('/productos.html', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@app.route('/productos.html', methods=['GET', 'POST'])
 def productos():
     # RF-013/014 y CU-13.1 a CU-13.5. Cada combinación talla/color con su precio es
     # una fila de producto_variantes; las variantes no se borran, se desactivan.
@@ -3042,14 +3288,6 @@ def productos():
             flash(f"Producto {actual[0]['descripcion']} borrado exitosamente", "success")
             return redirect(url_for('productos'))
 
-        # Búsquedas antiguas por función de la base (se mantienen por compatibilidad).
-        busquedas = {'buscarID': ('buscarproductoid', 'idBuscar'),
-                     'buscarDescripcion': ('buscarproductodescripcion', 'descripcionBuscar'),
-                     'buscarAbreviacion': ('buscarproductoabreviacion', 'abreviacionBuscar')}
-        if metodo in busquedas:
-            funcion, campo = busquedas[metodo]
-            texto = request.form.get(campo, '')
-            return redirect(url_for('productos', q=texto))
         return redirect(url_for('productos'))
 
     busqueda = request.args.get('q', '').strip()
@@ -3200,16 +3438,28 @@ def emisionEAN():
         return redirect(url_for('emisionEAN'))
     producto = producto[0]
 
+    # obtener_variante() crea la variante si no existe: solo quien puede editar Códigos EAN
+    # la usa. Un rol que solo puede ver imprime las variantes que ya existen, sin escribir.
+    puede_crear = usuario_puede('codigos_ean', 'editar')
     etiquetas = []
     sin_codigo = []
+    sin_variante = []
     for talla in tallas:
         nombreTalla = talla.get('nombre') or str(talla['talla'])
         try:
-            variante = supabase.rpc('obtener_variante', {
-                'p_id_producto': idProducto,
-                'p_id_color': idColor,
-                'p_id_talla': talla['id_talla']
-            }).execute().data
+            if puede_crear:
+                variante = supabase.rpc('obtener_variante', {
+                    'p_id_producto': idProducto,
+                    'p_id_color': idColor,
+                    'p_id_talla': talla['id_talla']
+                }).execute().data
+            else:
+                variante = supabase.table('producto_variantes').select('codigo_ean') \
+                    .eq('id_producto', idProducto).eq('id_color', idColor).eq('id_talla', talla['id_talla']) \
+                    .execute().data
+                if not variante:
+                    sin_variante.append(nombreTalla)
+                    continue
         except APIError as error:
             flash(error.message or "No se pudo generar el código EAN", "error")
             return redirect(url_for('emisionEAN'))
@@ -3227,6 +3477,11 @@ def emisionEAN():
         }
         etiquetas.extend([etiqueta] * cantidades[talla['id_talla']])
 
+    if sin_variante:
+        flash("Las tallas " + ", ".join(sin_variante) + " todavía no tienen variante de este producto y color, y "
+              "tu rol solo puede consultar Códigos EAN: pide a alguien con permiso de edición que emita la primera "
+              "etiqueta o que cree la variante en Productos.", "error")
+        return redirect(url_for('emisionEAN'))
     if sin_codigo:
         flash("Falta el código EAN del producto, del color o de la talla para: "
               + ", ".join(sin_codigo) + ". Complételo en los datos maestros.", "error")
@@ -3303,6 +3558,13 @@ def configuracion():
         if tamano_logo > MAX_LOGO_SIZE:
             flash("El logotipo no puede superar los 2 MB", "error")
             return redirect(url_for('configuracion'))
+        # La extensión no basta: se revisa la firma del archivo (PNG, JPEG o WEBP).
+        cabecera = logo.stream.read(12)
+        logo.stream.seek(0)
+        if not (cabecera.startswith(b'\x89PNG\r\n\x1a\n') or cabecera.startswith(b'\xff\xd8\xff')
+                or (cabecera[:4] == b'RIFF' and cabecera[8:12] == b'WEBP')):
+            flash("El archivo de logotipo no es una imagen PNG, JPG o WEBP válida", "error")
+            return redirect(url_for('configuracion'))
         nombre_logo = f"logo-configurado.{extension}"
         carpeta_logo = os.path.join(app.static_folder, "img")
         os.makedirs(carpeta_logo, exist_ok=True)
@@ -3339,38 +3601,80 @@ def configuracion():
 
 @app.route('/ingresoBodega.html', methods=['GET', 'POST'])
 def ingresoBodega():
-    if request.method == 'GET':
-        try:
-            bodegas_response = supabase.table("bodegas").select("*").execute()
-        except APIError:
-            flash("No se pudieron cargar las bodegas disponibles", "error")
+    # CU-21: se elige una guía de cortes pendiente y la bodega de destino, y se ingresan los
+    # productos fabricados con su color, talla y cantidad (paso 3). ingresar_guia_corte()
+    # (supabase/incremento4_ingreso_produccion.sql) suma cada línea al stock de su variante y
+    # el movimiento queda con el usuario responsable (CU-39, paso 5).
+    if request.method == 'POST':
+        id_corte = _entero_positivo(request.form.get('codigoCorte'))
+        id_bodega = _entero_positivo(request.form.get('idBodega'))
+        if not id_corte or not id_bodega:
+            flash("Seleccione la guía de cortes y la bodega de destino", "error")
             return redirect(url_for('ingresoBodega'))
-        return render_template('ingresoBodega.html', bodegas=bodegas_response.data)
-
-    codigo_corte = request.form.get('codigoCorte', '')
-    id_bodega = request.form.get('idBodega', '')
-    try:
-        codigo_corte = int(codigo_corte)
-        id_bodega = int(id_bodega)
-    except (TypeError, ValueError):
-        flash("El código de corte o la bodega seleccionada no es válido", "error")
+        lineas = []
+        for color, talla, cantidad in zip(request.form.getlist('color'), request.form.getlist('talla'),
+                                          request.form.getlist('cantidad')):
+            if not (color or talla or cantidad.strip()):
+                continue  # línea vacía
+            if not _entero_positivo(color) or not _entero_positivo(talla):
+                flash("Seleccione el color y la talla de cada producto fabricado", "error")
+                return redirect(url_for('ingresoBodega', corte=id_corte))
+            if not _entero_positivo(cantidad):  # CU-21, excepción 2
+                flash("La cantidad de cada producto fabricado debe ser un número entero mayor que cero", "error")
+                return redirect(url_for('ingresoBodega', corte=id_corte))
+            lineas.append({'id_color': int(color), 'id_talla': int(talla), 'cantidad': int(cantidad)})
+        if not lineas:
+            flash("Ingrese al menos un producto fabricado (color, talla y cantidad)", "error")
+            return redirect(url_for('ingresoBodega', corte=id_corte))
+        try:
+            response = supabase.rpc('ingresar_guia_corte', {
+                'p_id_corte': id_corte,
+                'p_id_bodega': id_bodega,
+                'p_lineas': lineas,
+                'p_usuario': g.usuario.get('nombre_usuario') or 'Admin',
+            }).execute()
+        except APIError as error:
+            if error.code == 'PGRST202':  # la base todavía tiene la versión sin p_lineas
+                flash("Falta ejecutar supabase/incremento4_ingreso_produccion.sql en Supabase", "error")
+            else:
+                flash(error.message or "No se pudo ingresar la guía de cortes a la bodega", "error")
+            return redirect(url_for('ingresoBodega', corte=id_corte))
+        bodega = supabase.table('bodegas').select('descripcion').eq('id_bodega', id_bodega).execute().data
+        flash(f"Se ingresaron {response.data} unidades de la guía de cortes {id_corte} en la bodega "
+              f"{bodega[0]['descripcion'] if bodega else id_bodega}", "success")
         return redirect(url_for('ingresoBodega'))
 
+    # Si la base no responde se muestra la pantalla con el aviso (antes redirigía a sí misma en bucle).
     try:
-        response = supabase.rpc('ingresar_guia_corte', {
-            'p_id_corte': codigo_corte,
-            'p_id_bodega': id_bodega,
-            'p_usuario': 'Admin'
-        }).execute()
-    except APIError as error:
-        flash(error.message or "No se pudo ingresar la guía de cortes a la bodega", "error")
-        return redirect(url_for('ingresoBodega'))
+        bodegas = supabase.table('bodegas').select('id_bodega, descripcion').order('descripcion').execute().data or []
+        cortes = supabase.table('cortes').select('id_corte, fecha_corte, cantidad, producto_asociado') \
+            .eq('estado', 'pendiente').order('id_corte').execute().data or []
+        # Ingresos ya hechos: cortes ingresados, con la fecha y la bodega del ingreso.
+        ingresados = supabase.table('cortes').select('id_corte, cantidad, producto_asociado, fecha_ingreso, '
+                                                     'id_bodega_ingreso') \
+            .eq('estado', 'ingresado').order('fecha_ingreso', desc=True).execute().data or []
+        productos = {p['id_producto']: p for p in supabase.table('productos')
+                     .select('id_producto, codigo, descripcion, color, talla').execute().data or []}
+        colores = supabase.table('colores').select('id_color, descripcion').order('descripcion').execute().data or []
+        tallas = supabase.table('tallas').select('id_talla, talla, nombre').order('talla').execute().data or []
+    except APIError:
+        flash("No se pudieron cargar las guías de cortes y las bodegas", "error")
+        bodegas, cortes, ingresados, productos, colores, tallas = [], [], [], {}, [], []
+    for corte in cortes:
+        producto = productos.get(corte.get('producto_asociado'), {})
+        corte['producto'] = producto.get('descripcion') or 'Sin producto'
+        corte['codigo'] = producto.get('codigo') or corte.get('producto_asociado')
+        # La primera línea se propone con el color y la talla base del producto.
+        corte['color_base'] = producto.get('color')
+        corte['talla_base'] = producto.get('talla')
+        corte['ingresable'] = bool(producto)
+    nombre_bodega = {b['id_bodega']: b.get('descripcion') for b in bodegas}
+    for corte in ingresados:
+        corte['producto'] = productos.get(corte.get('producto_asociado'), {}).get('descripcion') or 'Sin producto'
+        corte['bodega'] = nombre_bodega.get(corte.get('id_bodega_ingreso')) or 'Sin bodega'
+    return render_template('ingresoBodega.html', bodegas=bodegas, cortes=cortes, ingresados=ingresados,
+                           colores=colores, tallas=tallas, corte_elegido=_entero_positivo(request.args.get('corte')))
 
-    flash(
-        f"Se ingresaron {response.data} unidades de la guía {codigo_corte} en la bodega {id_bodega}",
-        "success"
-    )
-    return redirect(url_for('ingresoBodega'))
 
 @app.route('/produccion.html', methods=['GET'])      
 def produccion():
@@ -3380,15 +3684,31 @@ def produccion():
 def reportes():
         return render_template('reportes.html')
 
-@app.route('/analisisProductosPedidosDespachados.html', methods=['GET'])
+@app.route('/analisisProductosPedidosDespachados.html', methods=['GET', 'POST'])
 def analisisProductosPedidosDespachados():
-        # TODO
-        return render_template('analisisProductosPedidosDespachados.html')
+    # RF-044: por producto, unidades pedidas, anuladas, despachadas y pendientes de los
+    # pedidos no anulados (v_detalle_pedido_pendiente), según la fecha del pedido.
+    filtros = _filtros_informe('desde', 'hasta', 'cliente', 'producto')
+    query = supabase.table('v_detalle_pedido_pendiente').select('*')
+    query = _filtrar_informe(query, filtros, {'desde': 'fecha_pedido', 'hasta': 'fecha_pedido',
+                                              'cliente': 'id_cliente', 'producto': 'id_variante'})
+    grupos = _agrupar(query.execute().data or [], ('producto', 'color', 'talla', 'id_variante'),
+                      ('cantidad_pedida', 'cantidad_anulada', 'cantidad_despachada', 'cantidad_pendiente'),
+                      contar='id_pedido')
+    for grupo in grupos:
+        neta = (grupo['cantidad_pedida'] or 0) - (grupo['cantidad_anulada'] or 0)
+        grupo['porcentaje'] = round((grupo['cantidad_despachada'] or 0) / neta * 100, 1) if neta else None
+    return render_template('analisisProductosPedidosDespachados.html', filtros=filtros, grupos=grupos,
+                           totales=_totales(grupos, 'cantidad_pedida', 'cantidad_anulada', 'cantidad_despachada',
+                                            'cantidad_pendiente'),
+                           **_opciones_informe('clientes', 'productos'))
+
 
 @app.route('/', methods=['GET'])
 def index():
         return render_template('index.html')
 
-#Esto simplemente lo corre en debug mode
+# El depurador de Werkzeug permite ejecutar código desde el navegador: solo se
+# activa con FLASK_DEBUG=1 en el .env, nunca en el equipo que usa la empresa.
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=os.environ.get('FLASK_DEBUG') == '1')

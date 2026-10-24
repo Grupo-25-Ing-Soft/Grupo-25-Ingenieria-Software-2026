@@ -1,7 +1,12 @@
 {# Va al final de cada .shared-sidebar: enlace a roles, usuario con sesión y cierre de sesión. #}
 {% if usuario_actual %}
-  {% if puede('roles_usuarios') %}
+  {% if puede('roles_usuarios') or puede('configuracion') %}
     <div class="shared-caption">Sistema</div>
+  {% endif %}
+  {% if puede('configuracion') %}
+    <a href="{{ url_for('configuracion') }}"{% if request.endpoint == 'configuracion' %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi bi-sliders2" aria-hidden="true"></i></span><span>Configuración</span></a>
+  {% endif %}
+  {% if puede('roles_usuarios') %}
     <a href="{{ url_for('roles') }}"{% if request.endpoint in ('roles', 'usuarios') %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i></span><span>Roles y usuarios</span></a>
   {% endif %}
   <div class="shared-session">

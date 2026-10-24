@@ -79,6 +79,39 @@ def test_emision_crea_las_variantes(admin, db):
     assert variante['codigo_ean'] == '9942503970118'
 
 
+@pytest.fixture
+def lector_ean(cliente, db):
+    """Cliente con sesión de un rol que solo puede ver Códigos EAN."""
+    db.tablas['roles'].append({'id_rol': 5, 'nombre': 'Bodega'})
+    db.tablas['rol_permisos'].append({'id_rol': 5, 'modulo': 'codigos_ean', 'puede_ver': True, 'puede_editar': False})
+    db.tablas['usuarios'].append({'id_usuario': 5, 'nombre_usuario': 'lector', 'nombre': 'Lector', 'id_rol': 5,
+                                  'es_superusuario': False, 'activo': True})
+    with cliente.session_transaction() as sesion:
+        sesion['id_usuario'] = 5
+    return cliente
+
+
+def test_emision_con_solo_ver_no_crea_variantes(lector_ean, db):
+    # AUD-015: el POST de emisionEAN se trata como consulta, así que no debe escribir.
+    p, c, s = ids(db, '425', 'BEIGE', 'M')
+    antes = len(db.tablas.get('producto_variantes', []))
+    r = lector_ean.post('/emisionEAN.html', data={'idProducto': p, 'idColor': c, f'cantidad_{s}': '1'},
+                        follow_redirects=True)
+    assert 'todavía no tienen variante' in r.get_data(as_text=True)
+    assert len(db.tablas.get('producto_variantes', [])) == antes
+    assert not any(nombre == 'obtener_variante' for nombre, _ in db.llamadas)
+
+
+def test_emision_con_solo_ver_imprime_variantes_existentes(lector_ean, db):
+    p, c, s = ids(db, '425', 'BEIGE', 'M')
+    db.rpc_obtener_variante(p, c, s)  # la variante ya existe (la creó alguien con permiso)
+    antes = len(db.tablas['producto_variantes'])
+    r = lector_ean.post('/emisionEAN.html', data={'idProducto': p, 'idColor': c, f'cantidad_{s}': '2'})
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and html.count('9 942503 970118') == 2
+    assert len(db.tablas['producto_variantes']) == antes
+
+
 def test_emision_rechaza_talla_sin_codigo(admin, db):
     p, c, l = ids(db, '414', 'BLANCO', 'L')
     r = admin.post('/emisionEAN.html', data={'idProducto': p, 'idColor': c, f'cantidad_{l}': '3'}, follow_redirects=True)
@@ -159,8 +192,8 @@ def test_codigo_manual_valida_verificador_y_duplicados(admin, db):
 
 
 @pytest.mark.parametrize('url,datos,mensaje', [
-    ('/tallas.html', {'_method': 'post', 'tallaCrear': 'XS', 'codigoEanCrear': '010'}, 'Ya hay otra talla con el código EAN 010'),
-    ('/tallas.html', {'_method': 'post', 'tallaCrear': 'XS', 'codigoEanCrear': '0100'}, 'admite hasta 3 dígitos'),
+    ('/tallas.html', {'_method': 'post', 'tallaCrear': '45', 'codigoEanCrear': '010'}, 'Ya hay otra talla con el código EAN 010'),
+    ('/tallas.html', {'_method': 'post', 'tallaCrear': '45', 'codigoEanCrear': '0100'}, 'admite hasta 3 dígitos'),
     ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoEanCrear': '414'}, 'Ya hay otro producto con el código EAN 414'),
     ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoEanCrear': '4140'}, 'admite hasta 3 dígitos'),
 ])

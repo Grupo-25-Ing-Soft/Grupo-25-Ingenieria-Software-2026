@@ -4,10 +4,10 @@
   <title>Notas de crédito - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
   <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
 <body>
@@ -69,9 +69,11 @@
       <div><h2>Resultados</h2><span>Listado de notas de crédito</span></div>
     </div>
     {% if not datos %}
-      <div class="empty-state">Excepción 1: No hay notas de crédito registradas.</div>
-    {% elif datos|length == 0 %}
-      <div class="empty-state">Excepción 1: No hay notas de crédito registradas.</div>
+      {% if request.args.get('folio') or request.args.get('cliente') or request.args.get('factura_referencia') or request.args.get('fecha_desde') or request.args.get('fecha_hasta') %}
+      <div class="empty-state">No se encontraron notas de crédito para los filtros aplicados.</div>
+      {% else %}
+      <div class="empty-state">No hay notas de crédito registradas.</div>
+      {% endif %}
     {% else %}
       {% set sort_field = request.args.get('orden_por', 'fecha') %}
       {% set sort_dir = request.args.get('orden_dir', 'desc') %}
@@ -110,9 +112,10 @@
                         data-valores='{{ {"idNotaActualizar": nota.id_nota_credito, "folioActualizar": nota.folio, "facturaActualizar": nota.factura_referencia, "fechaActualizar": nota.fecha, "montoNetoActualizar": nota.monto_neto, "motivoActualizar": nota.motivo} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
                 <button type="button" class="btn btn-sm btn-outline-warning" title="Anular" data-modal="#anularModal" data-registro="Nota de crédito {{ nota.folio }}"
                         data-valores='{{ {"idNotaAnular": nota.id_nota_credito} | tojson }}'><i class="bi bi-x-octagon" aria-hidden="true"></i></button>
-                {% endif %}
+                {% else %}
                 <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="Nota de crédito {{ nota.folio }}"
                         data-valores='{{ {"idNotaBorrar": nota.id_nota_credito} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+                {% endif %}
                 {% endif %}
               </td>
             </tr>
@@ -120,11 +123,6 @@
           </tbody>
         </table>
       </div>
-      {% if request.args.get('folio') or request.args.get('cliente') or request.args.get('factura_referencia') or request.args.get('fecha_desde') or request.args.get('fecha_hasta') %}
-        {% if not datos or datos|length == 0 %}
-          <div class="empty-state">Excepción 2: No se encontraron resultados para los filtros aplicados.</div>
-        {% endif %}
-      {% endif %}
     {% endif %}
   </div>
 </div>
@@ -246,7 +244,8 @@
       <div class="modal-body">
         <input type="hidden" name="_method" value="delete">
         <input type="hidden" name="idNotaBorrar">
-        <p>¿Seguro que quieres eliminar la <strong data-registro></strong>? Si está vigente, su monto vuelve al saldo de la factura. Esta acción no se puede deshacer; para conservar el historial, anúlala.</p>
+        <p>¿Seguro que quieres eliminar la <strong data-registro></strong>? Ya está anulada, así que no cambia el saldo de la factura. Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Una nota vigente no se elimina: primero se anula.</small>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>

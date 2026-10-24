@@ -4,7 +4,7 @@
 {% endmacro %}
 {% set ep = request.endpoint or '' %}
 <aside class="shared-sidebar">
-  <div class="shared-brand"><img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div>
+  <div class="shared-brand"><img class="shared-brand-mark" src="{{ url_logotipo() }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div>
 
   <div class="shared-caption">Operación</div>
   {{ enlace('index', 'bi-grid-1x2-fill', 'Panel de control') }}
@@ -20,6 +20,10 @@
   {{ enlace('notasCredito', 'bi-receipt-cutoff', 'Notas de crédito') }}
   {{ enlace('pagos', 'bi-cash-coin', 'Pagos') }}
 
+  <div class="shared-caption">Producción</div>
+  {{ enlace('cortes', 'bi-scissors', 'Cortes') }}
+  {{ enlace('ingresoBodega', 'bi-box-arrow-in-down', 'Ingreso a bodega') }}
+
   <div class="shared-caption">Archivos maestros</div>
   {{ enlace('clientes', 'bi-person-vcard-fill', 'Clientes') }}
   {{ enlace('productos', 'bi-box-seam-fill', 'Productos') }}
@@ -31,3 +35,38 @@
   {{ enlace('bodegas', 'bi-building-fill', 'Bodegas') }}
   {% include '_sesion_usuario.html' %}
 </aside>
+<datalist id="secciones-sistema"></datalist>
+<script>
+  // Barra «Buscar en el sistema» de cada página: lleva a la sección del menú cuyo nombre
+  // coincide (RF-061: menos clics). Solo ofrece las secciones que el rol puede ver.
+  document.addEventListener('DOMContentLoaded', function () {
+    const lista = document.getElementById('secciones-sistema');
+    function secciones() {
+      return Array.from(document.querySelectorAll('.shared-sidebar a[href]'))
+        .filter(function (enlace) { return enlace.style.display !== 'none' && enlace.textContent.trim(); })
+        .map(function (enlace) { return {nombre: enlace.textContent.trim(), url: enlace.href}; });
+    }
+    function ir(campo, exacto) {
+      const texto = campo.value.trim().toLowerCase();
+      if (!texto) return;
+      const todas = secciones();
+      const destino = todas.find(function (s) { return s.nombre.toLowerCase() === texto; })
+        || (exacto ? null : todas.find(function (s) { return s.nombre.toLowerCase().includes(texto); }));
+      if (destino) window.location.href = destino.url;
+    }
+    document.querySelectorAll('.shared-search').forEach(function (campo) {
+      campo.placeholder = 'Ir a una sección…';
+      campo.setAttribute('list', 'secciones-sistema');
+      campo.addEventListener('focus', function () {
+        lista.innerHTML = '';
+        secciones().forEach(function (s) {
+          const opcion = document.createElement('option');
+          opcion.value = s.nombre;
+          lista.appendChild(opcion);
+        });
+      });
+      campo.addEventListener('change', function () { ir(campo, true); });
+      campo.addEventListener('keydown', function (evento) { if (evento.key === 'Enter') ir(campo, false); });
+    });
+  });
+</script>

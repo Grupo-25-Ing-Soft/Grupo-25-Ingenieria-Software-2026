@@ -4,10 +4,10 @@
   <title>Pedidos - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
   <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
 <body>
@@ -44,7 +44,7 @@
         <label class="form-label" for="estado">Estado</label>
         <select class="form-select" id="estado" name="estado">
           <option value="">Todos</option>
-          {% for estado in ['pendiente', 'despachado', 'anulado'] %}<option value="{{ estado }}" {% if filtros.estado == estado %}selected{% endif %}>{{ estado|capitalize }}</option>{% endfor %}
+          {% for estado, texto in estados.items() %}<option value="{{ estado }}" {% if filtros.estado == estado %}selected{% endif %}>{{ texto }}</option>{% endfor %}
         </select>
       </div>
       <div class="col-md-auto d-flex gap-2">
@@ -69,7 +69,7 @@
             <td>{{ pedido.fecha_entrega|fecha or '—' }}</td>
             <td class="text-end">{{ pedido.unidades }}</td>
             <td class="text-end">{{ pedido.total|moneda }}</td>
-            <td><span class="badge {{ {'anulado': 'text-bg-secondary', 'despachado': 'text-bg-success'}.get(pedido.estado, 'text-bg-primary') }}">{{ pedido.estado or '—' }}</span></td>
+            <td><span class="badge {{ {'anulado': 'text-bg-secondary', 'despachado': 'text-bg-success', 'entregado': 'text-bg-success'}.get(pedido.estado, 'text-bg-primary') }}">{{ estados.get(pedido.estado, pedido.estado) or '—' }}</span></td>
             <td class="text-end text-nowrap">
               <a class="btn btn-sm btn-outline-secondary" title="Productos del pedido" href="{{ url_for('crudDetallePedido', id_pedido=pedido.id_pedido) }}"><i class="bi bi-list-ul" aria-hidden="true"></i></a>
               <a class="btn btn-sm btn-outline-success" title="Porcentaje cumplible" href="{{ url_for('verDetalle', id_pedido=pedido.id_pedido) }}"><i class="bi bi-eye" aria-hidden="true"></i></a>

@@ -1,6 +1,7 @@
 # Credenciales: nunca se versionan. Copiar env.example a .env y completar.
 .env
 env.env
+.flask_secret_key
 
 # Python
 __pycache__/

@@ -4,15 +4,15 @@
   <title>{% if modo == 'primer_usuario' %}Primer usuario{% else %}Iniciar sesión{% endif %} - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
 </head>
 <body class="login-page">
 {% include '_flash_toast.html' %}
 <main class="login-card data-card">
   <div class="login-brand">
-    <img class="shared-brand-mark" src="{{ url_for('static', filename='img/logo.png') }}" alt="">
+    <img class="shared-brand-mark" src="{{ url_logotipo() }}" alt="">
     <span class="shared-brand-text">Comercial D Nix</span>
   </div>
 

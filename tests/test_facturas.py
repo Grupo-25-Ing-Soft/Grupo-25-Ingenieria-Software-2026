@@ -73,6 +73,38 @@ def test_no_se_elimina_con_pagos_solo_se_anula(admin, base):
     assert 'está anulada' in r.get_data(as_text=True)
 
 
+def anular(admin):
+    return admin.post('/facturas.html', data={'_method': 'anular', 'idFacturaAnular': 1},
+                      follow_redirects=True).get_data(as_text=True)
+
+
+def test_no_se_anula_con_pagos_vigentes(admin, base):
+    # AUD-022: el pago quedaba aplicado a una factura anulada, que ya no se recalcula.
+    crear(admin)
+    base.tablas['pagos'].append({'id_pago': 1, 'folio': 1, 'estado': 'vigente'})
+    base.tablas['pago_facturas'].append({'id_pago_factura': 1, 'id_pago': 1, 'id_factura': 1, 'monto_aplicado': 5000})
+    html = anular(admin)
+    assert 'tiene pagos vigentes por $5.000: anúlalos primero en Pagos' in html
+    assert base.tablas['facturas'][0]['estado'] != 'anulada'
+
+    base.tablas['pagos'][0]['estado'] = 'anulada'  # con el pago anulado ya se puede
+    assert 'Factura 100 anulada' in anular(admin)
+    assert base.tablas['facturas'][0]['estado'] == 'anulada'
+
+
+def test_no_se_anula_con_notas_de_credito_vigentes(admin, base):
+    crear(admin)
+    base.tablas['notas_credito'].append({'id_nota_credito': 1, 'folio': 1, 'factura_referencia': 1,
+                                         'monto_total': 2000, 'estado': 'vigente'})
+    html = anular(admin)
+    assert 'tiene notas de crédito vigentes por $2.000: anúlalos primero en Notas de crédito' in html
+    assert base.tablas['facturas'][0]['estado'] != 'anulada'
+
+    base.tablas['notas_credito'][0]['estado'] = 'anulada'
+    anular(admin)
+    assert base.tablas['facturas'][0]['estado'] == 'anulada'
+
+
 def test_eliminar_sin_asociados(admin, base):
     crear(admin)
     admin.post('/facturas.html', data={'_method': 'delete', 'idFacturaBorrar': 1})
@@ -99,3 +131,40 @@ def test_fecha_limite_de_pago(admin, base):
     admin.post('/facturas.html', data={**datos, 'fechaVencimientoCrear': '2026-10-31'})
     assert base.tablas['facturas'][0]['fecha_vencimiento'] == '2026-10-31'
     assert '31/10/2026' in admin.get('/facturas.html').get_data(as_text=True)
+
+
+def editar_pedido(admin, pedido):
+    return admin.post('/facturas.html', data={'_method': 'put', 'idFacturaActualizar': 1, 'folioActualizar': 100,
+                                              'pedidoActualizar': pedido, 'fechaEmisionActualizar': '2026-10-01',
+                                              'montoNetoActualizar': '10000'}, follow_redirects=True)
+
+
+@pytest.mark.parametrize('asociado', ['pago', 'nota', 'despacho'])
+def test_no_se_cambia_el_pedido_con_registros_asociados(admin, base, asociado):
+    # AUD-023: el cliente sale del pedido; los pagos de Tienda Sur quedaban en una factura de Outlet Norte.
+    base.tablas['pedidos'].append({'id_pedido': 12, 'numero_pedido': 'PED-000012', 'cliente_asociado': 2,
+                                   'estado': 'pendiente'})
+    crear(admin)
+    if asociado == 'pago':
+        base.tablas['pagos'].append({'id_pago': 1, 'estado': 'vigente'})
+        base.tablas['pago_facturas'].append({'id_pago_factura': 1, 'id_pago': 1, 'id_factura': 1, 'monto_aplicado': 500})
+    elif asociado == 'nota':
+        base.tablas['notas_credito'].append({'id_nota_credito': 1, 'factura_referencia': 1, 'monto_total': 500,
+                                             'estado': 'vigente'})
+    else:
+        base.tablas['despachos'].append({'id_despacho': 1, 'id_factura': 1, 'id_pedido': 10, 'estado': 'emitido'})
+    html = editar_pedido(admin, 12).get_data(as_text=True)
+    assert 'no se puede cambiar su pedido' in html
+    factura = base.tablas['facturas'][0]
+    assert factura['pedido_asociado'] == 10 and factura['cliente_asociado'] == 1
+    # Sin cambiar el pedido, la factura se sigue pudiendo editar.
+    assert 'Factura 100 actualizada' in editar_pedido(admin, 10).get_data(as_text=True)
+
+
+def test_sin_asociados_se_puede_cambiar_el_pedido(admin, base):
+    base.tablas['pedidos'].append({'id_pedido': 12, 'numero_pedido': 'PED-000012', 'cliente_asociado': 2,
+                                   'estado': 'pendiente'})
+    crear(admin)
+    assert 'Factura 100 actualizada' in editar_pedido(admin, 12).get_data(as_text=True)
+    factura = base.tablas['facturas'][0]
+    assert factura['pedido_asociado'] == 12 and factura['cliente_asociado'] == 2

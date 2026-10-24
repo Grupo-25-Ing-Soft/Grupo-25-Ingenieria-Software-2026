@@ -5,7 +5,9 @@
 {% block boton_nuevo %}Nueva bodega{% endblock %}
 
 {% block despues_tabla %}
-{% set editar_inventario = puede('bodegas', 'editar') and inventario_disponible %}
+{# Las existencias son del módulo Inventario (RF-037), no de Bodegas: se ven y editan con sus permisos. #}
+{% if puede('inventario', 'ver') %}
+{% set editar_inventario = puede('inventario', 'editar') and inventario_disponible %}
 <div class="data-card mt-4">
   <div class="data-card-header">
     <div><h2>Inventario por bodega</h2><span>{{ inventario|length }} producto{{ '' if inventario|length == 1 else 's' }} · {{ total_unidades }} unidades disponibles · {{ total_defectuosas }} defectuosas</span></div>
@@ -55,6 +57,7 @@
   <div class="empty-state">{% if datos %}La bodega seleccionada no tiene existencias.{% else %}Registra una bodega para ver su inventario.{% endif %}</div>
   {% endif %}
 </div>
+{% endif %}
 
 {% if editar_inventario %}
 <div class="modal fade" id="crearInventarioModal" tabindex="-1" aria-hidden="true">

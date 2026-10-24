@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Error - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% if usuario_actual %}{% include '_sidebar.html' %}{% endif %}
+<div class="container-fluid">
+  <div class="page-heading"><div><div class="eyebrow">Comercial D Nix</div><h1>No se pudo cargar la página</h1>
+    <p>La base de datos respondió con un error: {{ mensaje }}.</p></div></div>
+  <div class="data-card p-3 p-md-4">
+    <p class="mb-3">Vuelve a intentarlo en unos momentos. Si el problema continúa, avisa al administrador del sistema.</p>
+    <a href="{{ url_for('index') }}" class="btn btn-primary icon-button"><i class="bi bi-house" aria-hidden="true"></i><span>Ir al panel de control</span></a>
+  </div>
+</div>
+</body>
+</html>

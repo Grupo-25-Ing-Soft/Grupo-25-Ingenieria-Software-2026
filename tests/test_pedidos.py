@@ -120,3 +120,53 @@ def test_precio_sugerido_segun_lista_del_cliente(admin, base):
 def test_vendedor_del_cliente_en_el_formulario(admin, base):
     base.tablas['clientes'][0]['id_vendedor'] = 1
     assert 'data-vendedor="1"' in admin.get('/pedidos.html').get_data(as_text=True)
+
+
+def test_pedido_entregado_queda_cerrado(admin, base):
+    # AUD-020: 'entregado' (estado del check de la base) no estaba entre los cerrados.
+    base.tablas['pedidos'][0]['estado'] = 'entregado'
+    r = admin.post('/pedidos.html', data={'_method': 'anular', 'idPedidoAnular': 1, 'motivoAnulacion': 'x'},
+                   follow_redirects=True)
+    assert 'ya está entregado: no se puede anular' in r.get_data(as_text=True)
+    r = admin.post('/crudDetallePedido.html?id_pedido=1', data={'_method': 'post', 'idVarianteCrear': 5,
+                                                                'cantidadCrear': '1', 'precioUnitarioCrear': '1'},
+                   follow_redirects=True)
+    assert 'su detalle no se puede modificar' in r.get_data(as_text=True) and base.tablas['detalle_pedidos'] == []
+    assert 'El pedido está entregado: su detalle es solo de consulta' in \
+        admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)
+
+
+def test_filtro_con_los_estados_de_la_base(admin, base):
+    base.tablas['pedidos'][0]['estado'] = 'en_produccion'
+    html = admin.get('/pedidos.html').get_data(as_text=True)
+    for texto in ('Pendiente', 'Confirmado', 'En producción', 'Despachado', 'Entregado', 'Anulado'):
+        assert f'>{texto}</option>' in html
+    assert '>En producción</span>' in html  # la etiqueta, no el código en_produccion
+    assert 'PED-000001' in admin.get('/pedidos.html?estado=en_produccion').get_data(as_text=True)
+    assert 'PED-000001' in admin.get('/pedidos.html?estado=pagado').get_data(as_text=True)  # estado inexistente: se ignora
+
+
+def test_lista_y_detalle_muestran_el_mismo_total_sin_anuladas(admin, base):
+    # AUD-019: el detalle sumaba cantidad x precio sin restar las unidades anuladas.
+    base.tablas['detalle_pedidos'].append({'id_detalle_pedido': 1, 'id_pedido': 1, 'id_variante': 5, 'cantidad': 10,
+                                           'cantidad_anulada': 4, 'precio_unitario': 1000, 'subtotal': 10000})
+    lista = admin.get('/pedidos.html').get_data(as_text=True)
+    detalle = admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)
+    assert '$6.000' in lista and '$10.000' not in lista
+    assert detalle.count('$6.000') == 2 and '$10.000' not in detalle  # línea y total del pedido
+
+
+def test_detalle_muestra_total_con_descuentos_del_cliente(admin, base):
+    # 10 % y 5 % en cascada = 14,50 % (igual que registrar_despacho): sobre $6.000 se descuentan $870.
+    base.tablas['clientes'][0].update({'descuento_1': 10, 'descuento_2': 5, 'descuento_3': 0})
+    base.tablas['detalle_pedidos'].append({'id_detalle_pedido': 1, 'id_pedido': 1, 'id_variante': 5, 'cantidad': 10,
+                                           'cantidad_anulada': 4, 'precio_unitario': 1000})
+    html = admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)
+    assert '10.00 % · 5.00 % · 0.00 % = 14.50 %' in html
+    assert '−$870' in html and 'Total con descuentos' in html and '$5.130' in html
+
+
+def test_detalle_sin_descuentos_no_muestra_la_fila(admin, base):
+    base.tablas['detalle_pedidos'].append({'id_detalle_pedido': 1, 'id_pedido': 1, 'id_variante': 5, 'cantidad': 2,
+                                           'cantidad_anulada': 0, 'precio_unitario': 1000})
+    assert 'Total con descuentos' not in admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)

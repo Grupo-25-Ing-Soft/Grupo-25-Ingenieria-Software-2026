@@ -4,10 +4,10 @@
   <title>Roles - Comercial D Nix</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
 </head>
 <body>
 {% include '_flash_toast.html' %}
@@ -59,12 +59,16 @@
             <td>{{ rol.cantidad_usuarios }}</td>
             {% if puede_editar %}
             <td class="text-end text-nowrap">
+              {% if not usuario_actual.es_superusuario and rol.id_rol == usuario_actual.id_rol %}
+              <span class="text-muted small">Tu rol</span>
+              {% else %}
               <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="abrirRol({{ rol.id_rol }})"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Editar</span></button>
               <form method="POST" class="d-inline" data-confirmacion="¿Eliminar el rol «{{ rol.nombre }}»?" onsubmit="return confirm(this.dataset.confirmacion);">
                 <input type="hidden" name="_method" value="delete">
                 <input type="hidden" name="id_rol" value="{{ rol.id_rol }}">
                 <button type="submit" class="btn btn-sm btn-outline-danger icon-button" {% if rol.cantidad_usuarios %}disabled title="Tiene usuarios asignados"{% endif %}><i class="bi bi-trash" aria-hidden="true"></i><span>Eliminar</span></button>
               </form>
+              {% endif %}
             </td>
             {% endif %}
           </tr>
@@ -110,8 +114,9 @@
             {% for codigo, nombre, _ in modulos %}
             <tr>
               <td>{{ nombre }}</td>
-              <td class="text-center"><input class="form-check-input" type="checkbox" name="ver_{{ codigo }}" id="ver_{{ codigo }}" data-modulo="{{ codigo }}" data-accion="ver" aria-label="Ver {{ nombre }}"></td>
-              <td class="text-center"><input class="form-check-input" type="checkbox" name="editar_{{ codigo }}" id="editar_{{ codigo }}" data-modulo="{{ codigo }}" data-accion="editar" aria-label="Editar {{ nombre }}"></td>
+              {# Solo se pueden otorgar los permisos que tiene el propio rol (CU-58). #}
+              <td class="text-center"><input class="form-check-input" type="checkbox" name="ver_{{ codigo }}" id="ver_{{ codigo }}" data-modulo="{{ codigo }}" data-accion="ver" aria-label="Ver {{ nombre }}" {% if not puede(codigo, 'ver') %}disabled title="Tu rol no tiene este permiso"{% endif %}></td>
+              <td class="text-center"><input class="form-check-input" type="checkbox" name="editar_{{ codigo }}" id="editar_{{ codigo }}" data-modulo="{{ codigo }}" data-accion="editar" aria-label="Editar {{ nombre }}" {% if not puede(codigo, 'editar') %}disabled title="Tu rol no tiene este permiso"{% endif %}></td>
             </tr>
             {% endfor %}
           </tbody>
@@ -140,7 +145,7 @@
   });
 
   function marcarColumna(accion) {
-    const columna = document.querySelectorAll('.permisos-tabla input[data-accion=' + accion + ']');
+    const columna = document.querySelectorAll('.permisos-tabla input[data-accion=' + accion + ']:not(:disabled)');
     const marcar = Array.from(columna).some(function (c) { return !c.checked; });
     columna.forEach(function (c) { c.checked = marcar; c.dispatchEvent(new Event('change')); });
   }

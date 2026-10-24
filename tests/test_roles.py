@@ -98,9 +98,8 @@ def test_permiso_ver_permite_abrir_y_buscar_pero_no_modificar():
     cliente, _ = preparar(tablas_con_rol_vendedor(), id_usuario=2)
     assert cliente.get('/clientes.html').status_code == 200
 
-    realFlask.supabase.rpc = lambda *a, **k: type('R', (), {'execute': lambda self: type('D', (), {'data': []})()})()
-    busqueda = cliente.post('/clientes.html', data={'_method': 'buscarNombre', 'nombreBuscar': 'x'})
-    assert busqueda.status_code != 302
+    busqueda = cliente.get('/clientes.html?q=x')
+    assert busqueda.status_code == 200
 
     modificacion = cliente.post('/clientes.html', data={'_method': 'delete', 'idClienteBorrar': '1'})
     assert modificacion.status_code == 302
@@ -191,3 +190,94 @@ def test_sin_tablas_de_roles_muestra_instrucciones():
     respuesta = cliente.get('/clientes.html')
     assert respuesta.status_code == 503
     assert 'supabase/roles.sql' in respuesta.get_data(as_text=True)
+
+
+def tablas_con_encargada():
+    """Marta (rol Encargado) administra roles y usuarios y ve clientes. Pablo (rol Gerente)
+    tiene además Pagos, que el rol de Marta no tiene."""
+    tablas = tablas_con_rol_vendedor()
+    tablas['roles'] += [{'id_rol': 8, 'nombre': 'Encargado', 'descripcion': None},
+                        {'id_rol': 9, 'nombre': 'Gerente', 'descripcion': None}]
+    tablas['rol_permisos'] += [
+        {'id_rol': 8, 'modulo': 'roles_usuarios', 'puede_ver': True, 'puede_editar': True},
+        {'id_rol': 8, 'modulo': 'clientes', 'puede_ver': True, 'puede_editar': False},
+        {'id_rol': 9, 'modulo': 'pagos', 'puede_ver': True, 'puede_editar': True},
+    ]
+    tablas['usuarios'] += [usuario(3, 'marta', id_rol=8), usuario(4, 'pablo', id_rol=9)]
+    return tablas
+
+
+def permisos_de(tablas, id_rol):
+    return sorted((p['modulo'], p['puede_editar']) for p in tablas['rol_permisos'] if str(p['id_rol']) == str(id_rol))
+
+
+def test_no_se_otorgan_permisos_que_el_propio_rol_no_tiene():
+    # AUD-017 (CU-57, CU-58): antes podía crear un rol con todo y asignárselo a otra cuenta.
+    cliente, tablas = preparar(tablas_con_encargada(), id_usuario=3)
+    r = cliente.post('/roles.html', data={'_method': 'post', 'nombre': 'Todo', 'editar_pagos': 'on'},
+                     follow_redirects=True)
+    assert 'Tu rol no tiene esos permisos' in r.get_data(as_text=True) and 'Pagos' in r.get_data(as_text=True)
+    assert not any(r['nombre'] == 'Todo' for r in tablas['roles'])
+    cliente.post('/roles.html', data={'_method': 'post', 'nombre': 'Consulta', 'ver_clientes': 'on'})
+    assert any(r['nombre'] == 'Consulta' for r in tablas['roles'])
+
+
+def test_no_se_modifica_el_propio_rol_ni_uno_con_mas_permisos():
+    cliente, tablas = preparar(tablas_con_encargada(), id_usuario=3)
+    antes = permisos_de(tablas, 8)
+    r = cliente.post('/roles.html', data={'_method': 'put', 'id_rol': '8', 'nombre': 'Encargado',
+                                          'editar_roles_usuarios': 'on', 'editar_clientes': 'on'}, follow_redirects=True)
+    assert 'No puedes modificar ni eliminar tu propio rol' in r.get_data(as_text=True)
+    assert permisos_de(tablas, 8) == antes
+    cliente.post('/roles.html', data={'_method': 'put', 'id_rol': '9', 'nombre': 'Gerente', 'ver_clientes': 'on'})
+    assert permisos_de(tablas, 9) == [('pagos', True)]
+    html = cliente.get('/roles.html').get_data(as_text=True)
+    assert '<span class="text-muted small">Tu rol</span>' in html
+    assert 'aria-label="Ver Pagos" disabled' in html and 'aria-label="Ver Clientes" disabled' not in html
+
+
+def test_no_se_asignan_roles_con_mas_permisos_ni_se_toma_otra_cuenta():
+    cliente, tablas = preparar(tablas_con_encargada(), id_usuario=3)
+    datos = {'_method': 'post', 'nombre': 'Otra', 'nombre_usuario': 'otra', 'id_rol': '9',
+             'password': 'clave-segura', 'password_confirmacion': 'clave-segura'}
+    r = cliente.post('/usuarios.html', data=datos, follow_redirects=True)
+    assert 'No puedes asignar un rol con permisos que tu rol no tiene' in r.get_data(as_text=True)
+    assert not any(u['nombre_usuario'] == 'otra' for u in tablas['usuarios'])
+
+    # Cambiarle la contraseña a Pablo (más permisos) permitiría entrar con su cuenta.
+    hash_pablo = next(u for u in tablas['usuarios'] if u['id_usuario'] == 4)['password_hash']
+    r = cliente.post('/usuarios.html', data={'_method': 'put', 'id_usuario': '4', 'nombre': 'Pablo', 'id_rol': '9',
+                                             'activo': 'on', 'password': 'otra-clave-1', 'password_confirmacion': 'otra-clave-1'},
+                     follow_redirects=True)
+    assert 'solo un superusuario puede modificarlo' in r.get_data(as_text=True)
+    assert next(u for u in tablas['usuarios'] if u['id_usuario'] == 4)['password_hash'] == hash_pablo
+
+    # Tampoco se cambia el rol propio.
+    r = cliente.post('/usuarios.html', data={'_method': 'put', 'id_usuario': '3', 'nombre': 'Marta', 'id_rol': '9',
+                                             'activo': 'on'}, follow_redirects=True)
+    assert 'No puedes cambiar tu propio rol' in r.get_data(as_text=True)
+    assert next(u for u in tablas['usuarios'] if u['id_usuario'] == 3)['id_rol'] == 8
+
+
+def test_el_superusuario_sigue_administrando_todo():
+    cliente, tablas = preparar(tablas_con_encargada(), id_usuario=1)
+    cliente.post('/roles.html', data={'_method': 'put', 'id_rol': '8', 'nombre': 'Encargado', 'editar_pagos': 'on'})
+    assert permisos_de(tablas, 8) == [('pagos', True)]
+
+
+def test_inventario_de_bodegas_usa_el_permiso_de_inventario():
+    # AUD-016 (RF-037, CU-58): antes las existencias se editaban con el permiso de Bodegas.
+    tablas = tablas_con_rol_vendedor()
+    tablas['roles'].append({'id_rol': 10, 'nombre': 'Bodeguero', 'descripcion': None})
+    tablas['rol_permisos'].append({'id_rol': 10, 'modulo': 'bodegas', 'puede_ver': True, 'puede_editar': True})
+    tablas['usuarios'].append(usuario(5, 'bruno', id_rol=10))
+    tablas.update(bodegas=[{'id_bodega': 1, 'descripcion': 'Central'}], tallas=[], producto_variantes=[],
+                  inventario=[{'id_inventario': 1, 'id_bodega': 1, 'id_variante': 3, 'cantidad': 5}])
+    cliente, tablas = preparar(tablas, id_usuario=5)
+    cliente.post('/bodegas.html', data={'_method': 'inventario_put', 'idInventario': 1, 'cantidadInventario': '50'})
+    assert tablas['inventario'][0]['cantidad'] == 5
+    assert 'Inventario por bodega' not in cliente.get('/bodegas.html').get_data(as_text=True)
+
+    tablas['rol_permisos'].append({'id_rol': 10, 'modulo': 'inventario', 'puede_ver': True, 'puede_editar': True})
+    cliente.post('/bodegas.html', data={'_method': 'inventario_put', 'idInventario': 1, 'cantidadInventario': '50'})
+    assert tablas['inventario'][0]['cantidad'] == 50

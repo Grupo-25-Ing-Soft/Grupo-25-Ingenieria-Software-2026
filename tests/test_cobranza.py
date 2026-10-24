@@ -63,3 +63,16 @@ def test_mora_desde_la_fecha_limite_de_pago(admin, base):
     mora = {f['folio']: f['dias_morosidad'] for f in realFlask_informe()}
     assert mora == {100: 10, 101: 0}
     assert 'Días de mora' in admin.get('/informeCobranza.html').get_data(as_text=True)
+
+
+def test_saldo_a_favor_del_cliente_en_cobranza(admin, base):
+    # Un pago vigente de $1.500 con $1.000 aplicados deja $500 a favor del cliente.
+    factura = base.tablas['facturas'][0]
+    base.tablas['pagos'].append({'id_pago': 90, 'folio': 90, 'cliente_asociado': factura['cliente_asociado'],
+                                 'monto': 1500, 'estado': 'vigente'})
+    base.tablas['pago_facturas'].append({'id_pago_factura': 90, 'id_pago': 90, 'id_factura': 999, 'monto_aplicado': 1000})
+    html = admin.get('/informeCobranza.html').get_data(as_text=True)
+    assert 'Saldo a favor del cliente' in html and 'Por cobrar descontando saldos a favor' in html
+    assert html.split('<tfoot>')[1].count('$500') == 1
+    r = admin.get('/informeCobranza.pdf')
+    assert r.status_code == 200 and r.mimetype == 'application/pdf'

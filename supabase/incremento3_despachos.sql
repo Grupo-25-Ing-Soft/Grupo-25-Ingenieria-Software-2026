@@ -3,7 +3,9 @@
 -- defectos, descuentos por cliente y vistas de informes (RF-042 a RF-055).
 --
 -- Escrito contra el esquema real de Supabase (proyecto Dnix Sistema)
--- al 04/10/2026. Se ejecuta completo en el SQL Editor; si algo falla,
+-- al 04/10/2026. Actualizado el 22/10/2026 para que corra en una base nueva
+-- (ver 00_esquema_base.sql): las vistas v_pendientes_despacho y
+-- v_inventario_analisis pasaron a incremento4_despachos.sql. Se ejecuta completo en el SQL Editor; si algo falla,
 -- no se aplica nada (transacción).
 -- =====================================================================
 begin;
@@ -361,20 +363,9 @@ select p.id_pedido,
   ) x on true
  where p.estado <> 'anulado';
 
--- RF-042/043: productos pendientes de despacho y cuánto stock hay para ellos.
--- stock_disponible es el total de todas las bodegas; si varios pedidos piden
--- la misma variante, lo comparten.
-create or replace view public.v_pendientes_despacho
-with (security_invoker = true) as
-select dp.*,
-       coalesce(s.stock, 0)                            as stock_disponible,
-       least(dp.cantidad_pendiente, coalesce(s.stock, 0)) as cantidad_lista_para_despacho
-  from v_detalle_pedido_pendiente dp
-  left join (
-    select id_producto, id_talla, id_color, sum(cantidad) as stock
-      from inventario group by id_producto, id_talla, id_color
-  ) s on s.id_producto = dp.id_producto and s.id_talla = dp.id_talla and s.id_color = dp.id_color
- where dp.cantidad_pendiente > 0;
+-- RF-042/043: la vista v_pendientes_despacho se crea en incremento4_despachos.sql.
+-- La versión que estaba aquí usaba inventario.id_producto (hoy la tabla se identifica
+-- por id_variante) y hacía fallar este script completo en una base nueva.
 
 -- RF-045 a RF-050: una fila por producto despachado, con pedido, cliente,
 -- vendedor, factura, precio y descuento.
@@ -395,7 +386,7 @@ select de.id_despacho,
        p.vendedor_asociado    as id_vendedor,
        v.nombre               as vendedor,
        de.id_factura,
-       f.numero_factura,
+       f.folio::text          as numero_factura,  -- facturas.sql no tiene numero_factura
        dd.id_detalle_despacho,
        pv.id_variante,
        pv.id_producto,
@@ -449,36 +440,8 @@ select coalesce(ped.mes, des.mes)              as mes,
        coalesce(des.unidades_despachadas, 0)   as unidades_despachadas
   from ped full outer join des on des.mes = ped.mes;
 
--- RF-053: stock, defectuosos y unidades comprometidas en pedidos.
--- unidades_comprometidas es el total pendiente de todos los pedidos para
--- esa variante (no distingue bodega).
-create or replace view public.v_inventario_analisis
-with (security_invoker = true) as
-select i.id_inventario,
-       i.id_bodega,
-       b.descripcion          as bodega,
-       i.id_producto,
-       pr.descripcion         as producto,
-       i.id_talla,
-       t.talla,
-       i.id_color,
-       co.descripcion         as color,
-       i.cantidad             as stock_disponible,
-       i.cantidad_defectuosa,
-       coalesce(pp.pendiente, 0)       as unidades_comprometidas,
-       coalesce(pp.pendiente, 0) > 0   as asociado_a_pedidos,
-       i.fecha_actualizacion
-  from inventario i
-  left join bodegas b    on b.id_bodega = i.id_bodega
-  left join productos pr on pr.id_producto = i.id_producto
-  left join tallas t     on t.id_talla = i.id_talla
-  left join colores co   on co.id_color = i.id_color
-  left join (
-    select id_producto, id_talla, id_color, sum(cantidad_pendiente) as pendiente
-      from v_detalle_pedido_pendiente
-     where cantidad_pendiente > 0
-     group by id_producto, id_talla, id_color
-  ) pp on pp.id_producto = i.id_producto and pp.id_talla = i.id_talla and pp.id_color = i.id_color;
+-- RF-053: la vista v_inventario_analisis se crea en incremento4_despachos.sql (mismo
+-- motivo que v_pendientes_despacho).
 
 -- RF-054: productos en proceso = cortes aún no ingresados a bodega.
 create or replace view public.v_productos_en_proceso

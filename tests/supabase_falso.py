@@ -20,6 +20,18 @@ CLAVES_AUTOINCREMENTALES = {
     'detalle_pedidos': 'id_detalle_pedido', 'facturas': 'id_factura',
     'notas_credito': 'id_nota_credito', 'pagos': 'id_pago', 'pago_facturas': 'id_pago_factura',
     'despachos': 'id_despacho', 'detalle_despachos': 'id_detalle_despacho', 'inventario': 'id_inventario',
+    'cortes': 'id_corte',
+}
+# Columnas generadas (generated always as ... stored): la base las calcula y rechaza un valor
+# explícito con el error 428C9, igual que aquí.
+COLUMNAS_GENERADAS = {
+    'detalle_pedidos': {'subtotal': lambda f: (f.get('cantidad') or 0) * (f.get('precio_unitario') or 0)},
+}
+# Tablas hijas que la base borra en cascada: tabla -> [(hija, columna, clave del padre)].
+CASCADAS = {
+    'pedidos': [('detalle_pedidos', 'id_pedido', 'id_pedido')],
+    'pagos': [('pago_facturas', 'id_pago', 'id_pago')],
+    'productos': [('producto_variantes', 'id_producto', 'id_producto')],
 }
 # Columnas identity que no son la clave primaria (pagos.folio en pagos.sql).
 IDENTIDADES_EXTRA = {'pagos': 'folio'}
@@ -151,6 +163,7 @@ class SupabaseFalso:
             for valores in nuevas:
                 fila = dict(valores)
                 self._validar(consulta.nombre, fila)
+                self._calcular_generadas(consulta.nombre, fila)
                 for columna in (CLAVES_AUTOINCREMENTALES.get(consulta.nombre),
                                 IDENTIDADES_EXTRA.get(consulta.nombre)):
                     if columna:
@@ -166,10 +179,15 @@ class SupabaseFalso:
                 self._validar(consulta.nombre, {**fila, **consulta.valores})
             for fila in coincidentes:
                 fila.update(consulta.valores)
+                self._calcular_generadas(consulta.nombre, fila, consulta.valores)
             self._recalcular_ean()
             return [dict(f) for f in coincidentes]
         if consulta.operacion == 'delete':
             self.tablas[consulta.nombre] = [f for f in filas if f not in coincidentes]
+            # on delete cascade de la base real (00_esquema_base.sql, pagos.sql).
+            for hija, columna, clave in CASCADAS.get(consulta.nombre, ()):
+                borrados = {str(f.get(clave)) for f in coincidentes}
+                self.tablas[hija] = [f for f in self.tablas.get(hija, []) if str(f.get(columna)) not in borrados]
             return [dict(f) for f in coincidentes]
 
         for columna, desc in reversed(consulta.orden):
@@ -178,6 +196,12 @@ class SupabaseFalso:
         if consulta.limite is not None:
             coincidentes = coincidentes[:consulta.limite]
         return [dict(f) for f in coincidentes]
+
+    def _calcular_generadas(self, tabla, fila, enviados=None):
+        for columna, calculo in COLUMNAS_GENERADAS.get(tabla, {}).items():
+            if columna in (fila if enviados is None else enviados):
+                raise error(f'cannot insert a non-DEFAULT value into column "{columna}"', '428C9')
+            fila[columna] = calculo(fila)
 
     def _validar(self, tabla, fila):
         # Equivale a los check de supabase/incremento3_ean.sql.
@@ -188,6 +212,9 @@ class SupabaseFalso:
             largo = FORMATO_EAN[{'productos': 'producto', 'colores': 'color', 'tallas': 'talla'}[tabla]]
             if codigo and len(str(codigo)) > largo:
                 raise error(f'El código EAN de {tabla[:-1]} {codigo} tiene más de {largo} dígitos')
+        # tallas.talla es bigint en la base: un texto como 'XL' da 22P02.
+        if tabla == 'tallas' and not re.fullmatch(r'-?[0-9]+', str(fila.get('talla'))):
+            raise error(f'invalid input syntax for type bigint: "{fila.get("talla")}"', '22P02')
         if tabla == 'producto_variantes' and fila.get('ean_manual'):
             if not re.fullmatch(r'[0-9]{13}', str(fila.get('codigo_ean') or '')):
                 raise error('El código EAN manual debe tener 13 dígitos')

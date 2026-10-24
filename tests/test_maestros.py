@@ -10,13 +10,13 @@ def base(db):
 
 # ------------------------------------------------------------------ tallas
 def test_tallas_crear_editar_y_mensajes(admin, base):
-    r = admin.post('/tallas.html', data={'_method': 'post', 'tallaCrear': 'XL', 'nombreCrear': 'XL', 'codigoEanCrear': '014'},
+    r = admin.post('/tallas.html', data={'_method': 'post', 'tallaCrear': '42', 'nombreCrear': 'XL', 'codigoEanCrear': '014'},
                    follow_redirects=True)
-    assert 'Talla XL creada exitosamente' in r.get_data(as_text=True)
+    assert 'Talla 42 creada exitosamente' in r.get_data(as_text=True)
     nueva = base.tablas['tallas'][-1]
-    r = admin.post('/tallas.html', data={'_method': 'put', 'idTallaActualizar': nueva['id_talla'], 'tallaActualizar': 'XG',
+    r = admin.post('/tallas.html', data={'_method': 'put', 'idTallaActualizar': nueva['id_talla'], 'tallaActualizar': '44',
                                          'nombreActualizar': 'XG', 'codigoEanActualizar': '015'}, follow_redirects=True)
-    assert 'Talla XG actualizada exitosamente' in r.get_data(as_text=True)
+    assert 'Talla 44 actualizada exitosamente' in r.get_data(as_text=True)
     assert base.tablas['tallas'][-1]['codigo_ean'] == '015'
     html = admin.get('/tallas.html').get_data(as_text=True)
     assert 'data-modal="#actualizarModal"' in html and 'Nueva talla' in html
@@ -24,9 +24,10 @@ def test_tallas_crear_editar_y_mensajes(admin, base):
 
 @pytest.mark.parametrize('datos,mensaje', [
     ({'tallaCrear': ''}, 'Complete el campo «Código de talla»'),
-    ({'tallaCrear': 'XXL'}, 'admite hasta 2 caracteres'),
+    ({'tallaCrear': '100'}, 'admite hasta 2 caracteres'),
+    ({'tallaCrear': 'XL'}, '«Código de talla» solo puede tener números'),  # AUD-052: la columna es bigint
     ({'tallaCrear': '1'}, 'Ya existe la talla con código de talla 1'),
-    ({'tallaCrear': 'XS', 'codigoEanCrear': '1A'}, 'solo puede tener números'),
+    ({'tallaCrear': '45', 'codigoEanCrear': '1A'}, 'solo puede tener números'),
 ])
 def test_tallas_validaciones(admin, base, datos, mensaje):
     antes = len(base.tablas['tallas'])

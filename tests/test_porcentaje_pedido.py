@@ -7,20 +7,36 @@ import realFlask
 from tests.supabase_falso import SupabaseFalso
 
 
-def fila_pendiente(pedido, pendiente, stock, cumplible, **extras):
+def fila_pendiente(pedido, pendiente, stock, **extras):
+    # Columnas de la vista real v_pendientes_despacho en Supabase (sin producto,
+    # color ni talla; el stock viene en stock_bodega).
     return {
         'id_pedido': pedido,
+        'numero_pedido': f'PED-{pedido:06d}',
+        'estado_pedido': 'pendiente',
+        'fecha_pedido': '2026-10-01',
+        'id_cliente': 1,
+        'nombre_cliente': 'Tienda Sur',
+        'id_vendedor': 1,
+        'nombre_vendedor': 'Ana',
         'id_detalle_pedido': 1,
-        'producto': 'Polera',
-        'color': 'Azul',
-        'talla': 'M',
+        'id_variante': 7,
         'cantidad_pedida': pendiente,
         'cantidad_anulada': 0,
         'cantidad_despachada': 0,
         'cantidad_pendiente': pendiente,
-        'stock_disponible': stock,
-        'cantidad_lista_para_despacho': cumplible,
+        'stock_bodega': stock,
         **extras,
+    }
+
+
+def fila_detalle(pedido, pedida, despachada):
+    # Columnas de la vista real v_detalle_pedido_pendiente (sí trae producto, color y talla).
+    return {
+        'id_pedido': pedido, 'numero_pedido': f'PED-{pedido:06d}', 'estado': 'pendiente',
+        'id_detalle_pedido': 1, 'id_variante': 7, 'producto': 'Polera', 'color': 'Azul', 'talla': 'M',
+        'cantidad_pedida': pedida, 'cantidad_anulada': 0, 'cantidad_despachada': despachada,
+        'cantidad_pendiente': pedida - despachada,
     }
 
 
@@ -29,6 +45,11 @@ def preparar_cliente(tablas):
     tablas.setdefault('usuarios', [{
         'id_usuario': 1, 'nombre_usuario': 'admin', 'nombre': 'Admin',
         'id_rol': None, 'es_superusuario': True, 'activo': True,
+    }])
+    # Variante 7 tal como la devuelve PostgREST con los embeds colores(...) y tallas(...).
+    tablas.setdefault('producto_variantes', [{
+        'id_variante': 7, 'descripcion': 'Polera', 'colores': {'descripcion': 'Azul'},
+        'tallas': {'talla': 'M', 'nombre': None},
     }])
     realFlask.supabase = SupabaseFalso(tablas)
     realFlask.app.config.update(TESTING=True, SECRET_KEY='test-secret')
@@ -40,7 +61,7 @@ def preparar_cliente(tablas):
 
 def test_cumplimiento_total():
     cliente = preparar_cliente({
-        'v_pendientes_despacho': [fila_pendiente(10, 5, 8, 5)],
+        'v_pendientes_despacho': [fila_pendiente(10, 5, 8)],
     })
 
     respuesta = cliente.get('/verDetalle.html?id_pedido=10')
@@ -51,9 +72,23 @@ def test_cumplimiento_total():
     assert b'Faltante' in respuesta.data
 
 
+def test_muestra_producto_color_talla_y_stock_de_la_variante():
+    # La vista real no trae los nombres: antes la tabla mostraba «—» en producto, color,
+    # talla y stock, y 0 unidades cumplibles aunque hubiera stock.
+    cliente = preparar_cliente({
+        'v_pendientes_despacho': [fila_pendiente(15, 12, 24)],
+    })
+
+    html = cliente.get('/verDetalle.html?id_pedido=15').get_data(as_text=True)
+
+    assert '<td>Polera</td>' in html and '<td>Azul</td>' in html and '<td>M</td>' in html
+    assert '<td>24</td>' in html
+    assert '12 de 12 unidades pendientes se pueden cumplir (100.0 %)' in html
+
+
 def test_cumplimiento_parcial():
     cliente = preparar_cliente({
-        'v_pendientes_despacho': [fila_pendiente(11, 8, 3, 3)],
+        'v_pendientes_despacho': [fila_pendiente(11, 8, 3)],
     })
 
     respuesta = cliente.get('/verDetalle.html?id_pedido=11')
@@ -65,7 +100,7 @@ def test_cumplimiento_parcial():
 
 def test_stock_cero_da_cumplimiento_cero():
     cliente = preparar_cliente({
-        'v_pendientes_despacho': [fila_pendiente(12, 4, 0, 0)],
+        'v_pendientes_despacho': [fila_pendiente(12, 4, 0)],
     })
 
     respuesta = cliente.get('/verDetalle.html?id_pedido=12')
@@ -76,13 +111,7 @@ def test_stock_cero_da_cumplimiento_cero():
 
 def test_pedido_completo_sin_unidades_pendientes():
     cliente = preparar_cliente({
-        'v_detalle_pedido_pendiente': [
-            fila_pendiente(
-                13, 5, None, 0,
-                cantidad_despachada=5,
-                cantidad_pendiente=0,
-            )
-        ],
+        'v_detalle_pedido_pendiente': [fila_detalle(13, 5, 5)],
     })
 
     respuesta = cliente.get('/verDetalle.html?id_pedido=13')
@@ -90,6 +119,7 @@ def test_pedido_completo_sin_unidades_pendientes():
     assert respuesta.status_code == 200
     assert b'100 % \xe2\x80\x93 pedido completo' in respuesta.data
     assert b'aria-valuenow="100.0"' in respuesta.data
+    assert b'<td>Polera</td>' in respuesta.data
 
 
 def test_pedido_inexistente_muestra_aviso_y_vuelve_a_pedidos():

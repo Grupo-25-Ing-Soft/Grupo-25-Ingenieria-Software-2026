@@ -1,0 +1,44 @@
+{#- Página de un informe: filtros por GET (todos opcionales) y tabla de resultados.
+    Cada informe define titulo, descripcion, filtros (con las macros de
+    _informe_macros.html) y resultados. -#}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>{% block titulo %}{% endblock %} - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow"><a href="{{ url_for('reportes') }}">Reportes</a> / {{ self.titulo() }}</div><h1>{{ self.titulo() }}</h1><p>{% block descripcion %}{% endblock %}</p></div>
+    <div class="heading-actions no-print">
+      <button type="button" class="btn btn-outline-dark icon-button" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i><span>Imprimir</span></button>
+    </div>
+  </div>
+
+  <div class="data-card mb-4 no-print">
+    <div class="data-card-header"><div><h2>Filtros</h2><span>Todos son opcionales</span></div></div>
+    <form method="GET" action="{{ url_for(request.endpoint) }}" class="modal-body row g-3 align-items-end">
+      {% block filtros %}{% endblock %}
+      <div class="col-md-auto d-flex gap-2">
+        <a href="{{ url_for(request.endpoint) }}" class="btn btn-outline-secondary">Limpiar</a>
+        <button type="submit" class="btn btn-primary">Filtrar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="data-card">
+    {% block resultados %}{% endblock %}
+  </div>
+</div>
+</body>
+</html>

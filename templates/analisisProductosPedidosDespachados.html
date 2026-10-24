@@ -1,23 +1,39 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <title>Análisis de Productos Pedidos Versus Despachados - Comercial D Nix</title>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
- </head>
-<body>
-{% include '_flash_toast.html' %}
-{% include '_sidebar.html' %}
-<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
-<div class="container-fluid">
-  <div class="page-heading"><div><div class="eyebrow">Reportes / Productos pedidos versus despachados</div><h1>Productos pedidos versus despachados</h1><p>Compara las cantidades de productos pedidos con los productos despachados.</p></div></div>
-  <div class="data-card mt-4"><div class="data-card-header"><div><h2>Resultados</h2><span>Comparación de cantidades pedidas y despachadas</span></div></div>
-    <div class="data-table-wrap" id="tablaProductosPedidosDespachados"></div><div class="empty-state">Este análisis está en desarrollo</div>
-  </div>
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Productos pedidos versus despachados{% endblock %}
+{% block descripcion %}Por producto, unidades pedidas, anuladas, despachadas y pendientes de los pedidos no anulados, según la fecha del pedido.{% endblock %}
+
+{% block filtros %}
+{{ inf.fecha('desde', 'Pedidos desde', filtros) }}
+{{ inf.fecha('hasta', 'Pedidos hasta', filtros) }}
+{{ inf.lista('cliente', 'Cliente', clientes, filtros) }}
+{{ inf.lista('producto', 'Producto', productos, filtros) }}
+{% endblock %}
+
+{% block resultados %}
+<div class="data-card-header"><div><h2>Resultados</h2><span>{{ grupos|length }} producto{{ '' if grupos|length == 1 else 's' }}</span></div></div>
+{% if grupos %}
+<div class="data-table-wrap data-table-wrap--scroll">
+  <table class="table table-striped align-middle mb-0">
+    <thead><tr><th>Producto</th><th class="text-end">Pedidos</th><th class="text-end">Pedida</th><th class="text-end">Anulada</th><th class="text-end">Despachada</th><th class="text-end">Pendiente</th><th class="text-end">% despachado</th></tr></thead>
+    <tbody>
+      {% for g in grupos %}
+      <tr>
+        <td>{{ inf.producto(g) }}</td>
+        <td class="text-end">{{ g.distintos }}</td>
+        <td class="text-end">{{ g.cantidad_pedida }}</td>
+        <td class="text-end">{{ g.cantidad_anulada }}</td>
+        <td class="text-end">{{ g.cantidad_despachada }}</td>
+        <td class="text-end">{{ g.cantidad_pendiente }}</td>
+        <td class="text-end">{{ inf.porcentaje(g.porcentaje) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th colspan="2" class="text-end">Total</th><th class="text-end">{{ totales.cantidad_pedida }}</th><th class="text-end">{{ totales.cantidad_anulada }}</th><th class="text-end">{{ totales.cantidad_despachada }}</th><th class="text-end">{{ totales.cantidad_pendiente }}</th><th></th></tr></tfoot>
+  </table>
 </div>
-</body>
-</html>
+<p class="text-muted small m-3">El porcentaje despachado se calcula sobre lo pedido menos lo anulado.</p>
+{% else %}
+{{ inf.sin_resultados(filtros) }}
+{% endif %}
+{% endblock %}
