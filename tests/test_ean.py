@@ -163,17 +163,31 @@ def test_cambiar_codigo_de_color_recalcula(admin, db):
 def test_guarda_codigos_desde_los_maestros(admin, db):
     admin.post('/tallas.html', data={'_method': 'post', 'tallaCrear': '4', 'nombreCrear': 'XL', 'codigoEanCrear': '013'})
     assert db.tablas['tallas'][-1] == {'id_talla': 4, 'talla': '4', 'nombre': 'XL', 'codigo_ean': '013'}
-    admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'Leggins', 'abreviacionCrear': 'LEG',
-                                        'idColorCrear': '1', 'precioCrear': '5990', 'idTallaCrear': '1',
-                                        'codigoCrear': 'C259', 'codigoEanCrear': ''})
-    assert db.tablas['productos'][-1]['codigo'] == 'C259' and db.tablas['productos'][-1]['codigo_ean'] is None
+    r = admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'Leggins', 'abreviacionCrear': 'LEG',
+                                            'precioCrear': '5990', 'codigoCrear': '430', 'variante': ['1-1']},
+                   follow_redirects=True)
+    producto = db.tablas['productos'][-1]
+    # El producto base no guarda color, talla ni un código EAN propio.
+    assert producto['codigo'] == '430' and not {'color', 'talla', 'codigo_ean'} & set(producto)
+    # La parte de producto del EAN sale de productos.codigo: 99 + 430 + 0001 + 010 + verificador.
+    assert db.tablas['producto_variantes'][-1]['codigo_ean'].startswith('994300001010')
+    assert 'tiene letras' not in r.get_data(as_text=True)
 
 
-def test_codigo_ean_con_letras_se_rechaza(admin, db):
-    r = admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'X', 'abreviacionCrear': 'X',
-                                            'idColorCrear': '1', 'precioCrear': '1', 'idTallaCrear': '1',
-                                            'codigoEanCrear': '41A'}, follow_redirects=True)
-    assert 'solo puede tener números' in r.get_data(as_text=True)
+def test_codigo_con_letras_se_acepta_sin_ean_automatico(admin, db):
+    r = admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'X', 'codigoCrear': 'C259',
+                                            'variante': ['1-1']}, follow_redirects=True)
+    assert 'El código C259 tiene letras: sus variantes no tienen código EAN automático' in r.get_data(as_text=True)
+    assert db.tablas['productos'][-1]['codigo'] == 'C259'
+    assert db.tablas['producto_variantes'][-1]['codigo_ean'] is None
+
+
+def test_cambiar_codigo_de_producto_recalcula(admin, db):
+    p, c, s = ids(db, '414', 'BLANCO', 'S')
+    db.rpc_obtener_variante(p, c, s)
+    admin.post('/productos.html', data={'_method': 'put', 'IdProductoActualizar': p, 'descripcionActualizar': 'Cuadro',
+                                        'codigoActualizar': '416'})
+    assert db.tablas['producto_variantes'][0]['codigo_ean'].startswith('994160001010')
 
 
 def test_codigo_manual_valida_verificador_y_duplicados(admin, db):
@@ -194,8 +208,9 @@ def test_codigo_manual_valida_verificador_y_duplicados(admin, db):
 @pytest.mark.parametrize('url,datos,mensaje', [
     ('/tallas.html', {'_method': 'post', 'tallaCrear': '45', 'codigoEanCrear': '010'}, 'Ya hay otra talla con el código EAN 010'),
     ('/tallas.html', {'_method': 'post', 'tallaCrear': '45', 'codigoEanCrear': '0100'}, 'admite hasta 3 dígitos'),
-    ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoEanCrear': '414'}, 'Ya hay otro producto con el código EAN 414'),
-    ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoEanCrear': '4140'}, 'admite hasta 3 dígitos'),
+    ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoCrear': '414'}, 'Ya hay otro producto con el código 414'),
+    ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoCrear': '4140'}, 'admite hasta 3 dígitos'),
+    ('/productos.html', {'_method': 'post', 'descripcionCrear': 'X', 'codigoCrear': 'C' * 17}, 'hasta 16 caracteres'),
 ])
 def test_codigos_ean_de_los_maestros_son_unicos_y_del_largo_del_formato(admin, db, url, datos, mensaje):
     assert mensaje in admin.post(url, data=datos, follow_redirects=True).get_data(as_text=True)

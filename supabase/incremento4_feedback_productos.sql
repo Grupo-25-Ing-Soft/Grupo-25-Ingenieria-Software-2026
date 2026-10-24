@@ -1,0 +1,80 @@
+-- =====================================================================
+-- Incremento 4: feedback de productos y tallas (rama feedback-productos-interfaz).
+--
+-- 1. El código del producto es la parte de producto del código EAN.
+--    fn_generar_ean (incremento3_ean.sql) armaba esa parte con productos.codigo_ean,
+--    un segundo código que se ingresaba aparte y podía no coincidir con el código del
+--    producto (en la base, el producto 18 tenía código 105 y código EAN 135). Ahora usa
+--    productos.codigo. Si el código tiene letras (por ejemplo C259) no se genera EAN
+--    automático y a la variante se le asigna uno manual en Códigos EAN.
+--    La app deja de leer y escribir productos.color, productos.talla y
+--    productos.codigo_ean (color y talla viven en producto_variantes). Las columnas no se
+--    borran. Ojo: v_productos_en_proceso (incremento3_despachos.sql) todavía las une; si
+--    algún día se eliminan, hay que recrear antes esa vista.
+--
+-- Es idempotente y se ejecuta completo en el SQL Editor; si algo falla, no se aplica nada.
+-- =====================================================================
+begin;
+
+-- ---------------------------------------------------------------------
+-- 1. EAN con el código del producto
+-- ---------------------------------------------------------------------
+create or replace function public.fn_generar_ean(p_id_producto bigint, p_id_color bigint, p_id_talla bigint)
+returns text
+language plpgsql
+stable
+set search_path to 'public'
+as $$
+declare
+  v_par   parametros_sistema%rowtype;
+  v_prod  text;
+  v_color text;
+  v_talla text;
+  v_base  text;
+begin
+  select * into v_par from parametros_sistema where id = 1;
+  select codigo     into v_prod  from productos where id_producto = p_id_producto;
+  select codigo_ean into v_color from colores   where id_color    = p_id_color;
+  select codigo_ean into v_talla from tallas    where id_talla    = p_id_talla;
+
+  -- Sin código, o con letras: la variante no tiene EAN automático (se usa uno manual).
+  if v_prod is null or v_prod !~ '^[0-9]+$' or v_color is null or v_talla is null then
+    return null;
+  end if;
+  if length(v_prod) > v_par.ean_digitos_producto then
+    raise exception 'El código de producto % tiene más de % dígitos', v_prod, v_par.ean_digitos_producto;
+  end if;
+  if length(v_color) > v_par.ean_digitos_color then
+    raise exception 'El código EAN de color % tiene más de % dígitos', v_color, v_par.ean_digitos_color;
+  end if;
+  if length(v_talla) > v_par.ean_digitos_talla then
+    raise exception 'El código EAN de talla % tiene más de % dígitos', v_talla, v_par.ean_digitos_talla;
+  end if;
+
+  v_base := v_par.ean_prefijo
+         || lpad(v_prod,  v_par.ean_digitos_producto, '0')
+         || lpad(v_color, v_par.ean_digitos_color,    '0')
+         || lpad(v_talla, v_par.ean_digitos_talla,    '0');
+  return v_base || fn_ean13_digito_verificador(v_base);
+end $$;
+
+-- Al cambiar el código de un producto se recalculan sus variantes automáticas (antes se
+-- escuchaba codigo_ean).
+drop trigger if exists trg_productos_ean on public.productos;
+create trigger trg_productos_ean
+  after update of codigo on public.productos
+  for each row when (old.codigo is distinct from new.codigo)
+  execute function public.fn_regenerar_ean_maestro();
+
+-- Recalcula una vez las variantes automáticas con el nuevo origen (el update dispara
+-- trg_variante_ean). Las variantes con código manual no cambian.
+update public.producto_variantes set ean_manual = false where not ean_manual;
+
+commit;
+
+-- Comprobación (es lo que muestra el SQL Editor): código de cada producto y el EAN de sus
+-- variantes. Las automáticas deben empezar con prefijo + código del producto.
+select p.id_producto, p.codigo, pv.id_variante, pv.codigo_ean, pv.ean_manual
+  from public.producto_variantes pv
+  join public.productos p on p.id_producto = pv.id_producto
+ order by p.id_producto, pv.id_variante;

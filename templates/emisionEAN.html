@@ -36,7 +36,7 @@
         <select class="form-select" id="idProducto" name="idProducto" required>
           <option value="" selected disabled>Seleccione un producto</option>
           {% for producto in productos %}
-          <option value="{{ producto.id_producto }}">{{ producto.codigo or producto.id_producto }} — {{ producto.descripcion }}{% if not producto.codigo_ean %} (sin código EAN){% endif %}</option>
+          <option value="{{ producto.id_producto }}">{{ producto.codigo or producto.id_producto }} — {{ producto.descripcion }}{% if not (producto.codigo or '').isdigit() %} (sin código EAN automático){% endif %}</option>
           {% endfor %}
         </select>
       </div>

@@ -205,7 +205,8 @@ class SupabaseFalso:
 
     def _validar(self, tabla, fila):
         # Equivale a los check de supabase/incremento3_ean.sql.
-        if tabla in ('productos', 'colores', 'tallas'):
+        # productos.codigo_ean ya no se usa: la parte de producto del EAN es productos.codigo.
+        if tabla in ('colores', 'tallas'):
             codigo = fila.get('codigo_ean')
             if codigo is not None and not re.fullmatch(r'[0-9]+', str(codigo)):
                 raise error('new row violates check constraint', '23514')
@@ -225,7 +226,11 @@ class SupabaseFalso:
         return fila and fila.get('codigo_ean')
 
     def generar_ean(self, id_producto, id_color, id_talla):
-        partes = (self._codigo('productos', 'id_producto', id_producto),
+        # incremento4_feedback_productos.sql: la parte de producto es productos.codigo (solo
+        # si son números; con letras no hay EAN automático).
+        producto = next((f for f in self.tablas.get('productos', []) if str(f.get('id_producto')) == str(id_producto)), {})
+        codigo = str(producto.get('codigo') or '')
+        partes = (codigo if codigo.isdigit() else None,
                   self._codigo('colores', 'id_color', id_color),
                   self._codigo('tallas', 'id_talla', id_talla))
         if not all(partes):
@@ -301,7 +306,7 @@ def con_datos_de_ejemplo():
     db = SupabaseFalso({'usuarios': [dict(ADMIN_DE_PRUEBA)], 'roles': [], 'rol_permisos': []})
     for codigo, descripcion in [('412', 'Tanga Algodon Spandex'), ('414', 'Cuadro algodon spandex'),
                                 ('415', 'Hikini ALG'), ('425', 'Hikini con pretina')]:
-        db.table('productos').insert({'codigo': codigo, 'codigo_ean': codigo, 'descripcion': descripcion,
+        db.table('productos').insert({'codigo': codigo, 'descripcion': descripcion,
                                       'abreviacion': codigo, 'precio': 2990}).execute()
     for descripcion, codigo_color, codigo_ean in [('BLANCO', 'BL', '0001'), ('NEGRO', 'NE', '0003'),
                                                   ('BEIGE', 'BG', '0397')]:

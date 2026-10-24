@@ -121,15 +121,16 @@ def llamadas_ingreso(base):
     return [params for nombre, params in base.llamadas if nombre == 'ingresar_guia_corte']
 
 
-def test_ingreso_lista_guias_pendientes_y_propone_color_y_talla_base(admin, ingreso):
+def test_ingreso_lista_guias_pendientes(admin, ingreso):
     html = admin.get('/ingresoBodega.html').get_data(as_text=True)
     assert 'Guía 8 · 414 Polera piqué · 20 unidades cortadas · 02/10/2026' in html
-    assert 'data-cantidad="20" data-color="1" data-talla="1"' in html  # base del producto 2
+    # El producto ya no tiene color ni talla base: se propone solo la cantidad cortada.
+    assert 'data-cantidad="20"' in html and 'data-color=' not in html
     assert 'Guía 4 ·' not in html  # ya ingresada: aparece en «Ingresos realizados», con su bodega
     realizados = html.split('Ingresos realizados')[1]
     assert '<td>4</td>' in realizados and '<td>03/10/2026</td>' in realizados and '<td>Central</td>' in realizados
-    # Antes un producto sin color ni talla base no se podía ingresar; ahora se eligen por línea.
-    assert '<option value="9" data-cantidad="5" data-color="" data-talla=""' in html
+    # El color y la talla se eligen en cada línea.
+    assert '<option value="9" data-cantidad="5"' in html
     assert '>Negro</option>' in html and '>M</option>' in html
 
 

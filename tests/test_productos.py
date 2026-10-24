@@ -12,7 +12,7 @@ def base(db):
 def test_crear_con_variantes_genera_ean_y_precio(admin, base):
     # Colores BLANCO(1)/NEGRO(2); tallas S(1)/M(2) de con_datos_de_ejemplo().
     r = admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'Colaless', 'codigoCrear': '430',
-                                            'codigoEanCrear': '430', 'precioCrear': '2990',
+                                            'precioCrear': '2990',
                                             'variante': ['1-1', '2-2'], 'precioVariante_1-1': '3190',
                                             'precioVariante_2-2': ''}, follow_redirects=True)
     assert 'Producto creado exitosamente con 2 variantes' in r.get_data(as_text=True)

@@ -2178,11 +2178,8 @@ def informeProductosEnProceso():
                    .eq('cliente_asociado', _entero_positivo(filtros['cliente'])).execute().data or []]
         query = query.in_('id_pedido', pedidos or [0])
     cortes = query.order('fecha_corte').order('id_corte').execute().data or []
-    # La vista trae el número de la talla; se muestra su nombre (S, M, L...) si lo tiene.
-    tallas = {t['id_talla']: t.get('nombre') or str(t.get('talla'))
-              for t in supabase.table('tallas').select('id_talla, talla, nombre').execute().data or []}
-    talla_producto = {p['id_producto']: p.get('talla') for p in supabase.table('productos')
-                      .select('id_producto, talla').execute().data or []}
+    # Un corte es de un producto, sin color ni talla: esos datos se definen al ingresarlo a
+    # bodega (CU-21), así que el informe no los muestra.
     ids_pedido = list({c['id_pedido'] for c in cortes if c.get('id_pedido')})
     pendiente = {}
     for linea in supabase.table('v_detalle_pedido_pendiente').select('id_pedido, id_producto, cantidad_pendiente') \
@@ -2190,7 +2187,6 @@ def informeProductosEnProceso():
         clave = (linea['id_pedido'], linea['id_producto'])
         pendiente[clave] = pendiente.get(clave, 0) + (linea['cantidad_pendiente'] or 0)
     for corte in cortes:
-        corte['talla'] = tallas.get(talla_producto.get(corte.get('id_producto')), corte.get('talla'))
         corte['pendiente_pedido'] = pendiente.get((corte.get('id_pedido'), corte.get('id_producto')), 0) \
             if corte.get('id_pedido') else None
     return render_template('informeProductosEnProceso.html', filtros=filtros, cortes=cortes,
@@ -2904,8 +2900,7 @@ MAESTROS_SIMPLES = {
             {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN del color', 'max': 4,
              'numerico': True, 'ean_parte': 'color', 'ayuda': 'Solo números, hasta 4 dígitos (ej. 0001); único'},
         ],
-        'en_uso': [('producto_variantes', 'id_color', 'variantes de producto'), ('productos', 'color', 'productos'),
-                   ('inventario', 'id_color', 'inventario')],
+        'en_uso': [('producto_variantes', 'id_color', 'variantes de producto'), ('inventario', 'id_color', 'inventario')],
     },
     'vendedores': {
         'tabla': 'vendedores', 'clave': 'id_vendedor', 'endpoint': 'vendedores', 'modulo': 'vendedores',
@@ -2935,8 +2930,7 @@ MAESTROS_SIMPLES = {
             {'columna': 'codigo_ean', 'form': 'codigoEan', 'etiqueta': 'Código EAN de la talla', 'max': 3,
              'numerico': True, 'ean_parte': 'talla', 'ayuda': 'Solo números, hasta 3 dígitos (ej. 010); único'},
         ],
-        'en_uso': [('producto_variantes', 'id_talla', 'variantes de producto'), ('productos', 'talla', 'productos'),
-                   ('inventario', 'id_talla', 'inventario')],
+        'en_uso': [('producto_variantes', 'id_talla', 'variantes de producto'), ('inventario', 'id_talla', 'inventario')],
     },
     'zonas_venta': {
         'tabla': 'zona_venta', 'clave': 'id_zona_venta', 'endpoint': 'zonasVenta', 'modulo': 'zonas_venta',
@@ -3116,39 +3110,56 @@ def tallas():
 
 def _mensaje_error_producto(error, accion):
     return {
-        "23503": "El color o talla seleccionado no existe",
-        "22P02": "El color o talla seleccionado no es válido",
-        "23505": "Ya existe un producto con ese código de artículo",
-        "23514": "El código EAN del producto solo puede tener números",
+        "23505": "Ya existe un producto con ese código",
     }.get(error.code, error.message if error.code == "P0001" else f"No se pudo {accion} el producto")
 
 
+def _validar_codigo_producto(codigo, id_producto=None):
+    """El código del producto es su parte del código EAN (fn_generar_ean usa productos.codigo,
+    incremento4_feedback_productos.sql). Es único siempre; si es solo números admite hasta los
+    dígitos del formato EAN. Con letras (por ejemplo C259) se acepta hasta 16 caracteres, pero
+    sus variantes no tienen EAN automático y se les asigna uno manual en Códigos EAN."""
+    if len(codigo) > 16:
+        return 'El código de producto admite hasta 16 caracteres.'
+    if codigo.isdigit() and len(codigo) > _digitos_ean('producto'):
+        return (f'El código de producto forma parte del código EAN: admite hasta {_digitos_ean("producto")} '
+                'dígitos.')
+    mismos = supabase.table('productos').select('id_producto').eq('codigo', codigo).execute().data or []
+    if any(str(f['id_producto']) != str(id_producto) for f in mismos):
+        return f'Ya hay otro producto con el código {codigo}: sus variantes tendrían el mismo código de barras.'
+    return None
+
+
 def _leer_producto_formulario(sufijo, id_producto=None):
-    codigo_ean = _texto_o_nulo(request.form.get('codigoEan' + sufijo))
-    if codigo_ean:
-        error = _validar_codigo_ean_maestro('productos', 'id_producto', 'producto', codigo_ean, id_producto)
-        if error:
-            return None, error
+    # Color y talla viven solo en las variantes (producto_variantes); el producto base ya no
+    # los escribe, ni tampoco productos.codigo_ean: la parte de producto del EAN es el código.
     descripcion = (request.form.get('descripcion' + sufijo) or '').strip()
     if not descripcion:
         return None, 'La descripción del producto es obligatoria.'
     if len(descripcion) > 64:
         return None, 'La descripción admite hasta 64 caracteres.'
+    # TODO(cliente): ¿el producto necesita un precio base o cada variante tiene el suyo? Por
+    # ahora es el precio sugerido que se copia a cada variante nueva (_crear_variantes).
     precio = (request.form.get('precio' + sufijo) or '').strip()
     if precio and (not precio.isdigit()):
         return None, 'El precio debe ser un número entero mayor o igual a cero.'
     codigo = _texto_o_nulo(request.form.get('codigo' + sufijo))
-    if codigo and len(codigo) > 16:
-        return None, 'El código de producto admite hasta 16 caracteres.'
+    if codigo:
+        error = _validar_codigo_producto(codigo, id_producto)
+        if error:
+            return None, error
     return {
         'descripcion': descripcion,
         'abreviacion': _texto_o_nulo(request.form.get('abreviacion' + sufijo)),
-        'color': _entero_positivo(request.form.get('idColor' + sufijo)),
-        'talla': _entero_positivo(request.form.get('idTalla' + sufijo)),
         'precio': int(precio) if precio else None,
         'codigo': codigo,
-        'codigo_ean': codigo_ean,
     }, None
+
+
+def _aviso_codigo_sin_ean(datos):
+    if datos.get('codigo') and not datos['codigo'].isdigit():
+        flash(f"El código {datos['codigo']} tiene letras: sus variantes no tienen código EAN automático. "
+              'Asígnaselo en Códigos EAN.', 'warning')
 
 
 def _combinaciones_marcadas(prefijo):
@@ -3205,6 +3216,7 @@ def productos():
                 return redirect(url_for('productos'))
             n = _crear_variantes(creado[0]['id_producto'], combinaciones, datos['precio'])
             flash(f"Producto creado exitosamente{f' con {n} variante' + ('s' if n != 1 else '') if n else ''}", "success")
+            _aviso_codigo_sin_ean(datos)
             return redirect(url_for('productos'))
 
         id_producto = _entero_positivo(request.form.get('IdProductoActualizar') or request.form.get('idProductoBorrar')
@@ -3226,6 +3238,7 @@ def productos():
                 flash(_mensaje_error_producto(e, 'actualizar'), "error")
                 return redirect(url_for('productos'))
             flash("Producto actualizado exitosamente", "success")
+            _aviso_codigo_sin_ean(datos)
             return redirect(url_for('productos'))
 
         if metodo == "variantes":
@@ -3333,9 +3346,8 @@ def productos():
             'activo': v.get('activo') is not False})
     for producto in datos:
         producto['variantes'] = por_producto.get(producto['id_producto'], [])
-        producto['color_nombre'] = nombre_color.get(producto.get('color'), '')
-        producto['talla_nombre'] = nombre_talla.get(producto.get('talla'), '')
-    return render_template('productos.html', datos=datos, colores=colores, tallas=tallas, busqueda=busqueda)
+    return render_template('productos.html', datos=datos, colores=colores, tallas=tallas, busqueda=busqueda,
+                           digitos_codigo=_digitos_ean('producto'))
 
 
 def _ean_en_otra_variante(codigo, id_variante):
@@ -3405,7 +3417,7 @@ def emisionEAN():
     # RF-017: se elige producto y color, se indica cuántas etiquetas por talla
     # y se genera la hoja para imprimir en la impresora de etiquetas.
     if request.method == 'GET':
-        productos = supabase.table("productos").select("id_producto, codigo, descripcion, codigo_ean") \
+        productos = supabase.table("productos").select("id_producto, codigo, descripcion") \
             .order("codigo").execute().data or []
         colores = supabase.table("colores").select("id_color, descripcion, codigo_ean") \
             .order("descripcion").execute().data or []
@@ -3498,7 +3510,7 @@ def emisionEAN():
               "etiqueta o que cree la variante en Productos.", "error")
         return redirect(url_for('emisionEAN'))
     if sin_codigo:
-        flash("Falta el código EAN del producto, del color o de la talla para: "
+        flash("Falta el código EAN del color o de la talla, o el producto no tiene un código numérico, para: "
               + ", ".join(sin_codigo) + ". Complételo en los datos maestros.", "error")
         return redirect(url_for('emisionEAN'))
 
@@ -3673,7 +3685,7 @@ def ingresoBodega():
                                                      'id_bodega_ingreso') \
             .eq('estado', 'ingresado').order('fecha_ingreso', desc=True).execute().data or []
         productos = {p['id_producto']: p for p in supabase.table('productos')
-                     .select('id_producto, codigo, descripcion, color, talla').execute().data or []}
+                     .select('id_producto, codigo, descripcion').execute().data or []}
         colores = supabase.table('colores').select('id_color, descripcion').order('descripcion').execute().data or []
         tallas = supabase.table('tallas').select('id_talla, talla, nombre').order('talla').execute().data or []
     except APIError:
@@ -3683,9 +3695,6 @@ def ingresoBodega():
         producto = productos.get(corte.get('producto_asociado'), {})
         corte['producto'] = producto.get('descripcion') or 'Sin producto'
         corte['codigo'] = producto.get('codigo') or corte.get('producto_asociado')
-        # La primera línea se propone con el color y la talla base del producto.
-        corte['color_base'] = producto.get('color')
-        corte['talla_base'] = producto.get('talla')
         corte['ingresable'] = bool(producto)
     nombre_bodega = {b['id_bodega']: b.get('descripcion') for b in bodegas}
     for corte in ingresados:

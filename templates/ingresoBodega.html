@@ -41,7 +41,7 @@
             <select class="form-select" id="codigoCorte" name="codigoCorte" required>
               <option value="" {% if not corte_elegido %}selected{% endif %} disabled>{{ 'Seleccione una guía de cortes' if cortes else 'No hay guías de cortes pendientes de ingreso' }}</option>
               {% for corte in cortes %}
-              <option value="{{ corte.id_corte }}" data-cantidad="{{ corte.cantidad }}" data-color="{{ corte.color_base or '' }}" data-talla="{{ corte.talla_base or '' }}"
+              <option value="{{ corte.id_corte }}" data-cantidad="{{ corte.cantidad }}"
                       {% if corte_elegido == corte.id_corte %}selected{% endif %} {% if not corte.ingresable %}disabled{% endif %}>Guía {{ corte.id_corte }} · {{ corte.codigo }} {{ corte.producto }} · {{ corte.cantidad }} unidades cortadas · {{ corte.fecha_corte|fecha }}{% if not corte.ingresable %} (sin producto asociado){% endif %}</option>
               {% endfor %}
             </select>
@@ -115,7 +115,8 @@
 </div>
 <script>
   // Líneas de productos fabricados (CU-21, paso 3): agregar o quitar colores y tallas, propuesta
-  // inicial con el color y la talla base del producto, y total ingresado frente a lo cortado.
+  // inicial con la cantidad cortada y total ingresado frente a lo cortado. El producto no tiene
+  // color ni talla base: se eligen en cada línea.
   document.addEventListener('DOMContentLoaded', function () {
     const cuerpo = document.getElementById('lineasIngreso');
     const modelo = cuerpo.querySelector('.linea-ingreso').cloneNode(true);
@@ -135,8 +136,6 @@
       const opcion = guia.selectedOptions[0];
       if (!opcion || !opcion.value || cuerpo.querySelectorAll('.linea-ingreso').length !== 1) return actualizarResumen();
       const linea = cuerpo.querySelector('.linea-ingreso');
-      if (opcion.dataset.color) linea.querySelector('select[name="color"]').value = opcion.dataset.color;
-      if (opcion.dataset.talla) linea.querySelector('select[name="talla"]').value = opcion.dataset.talla;
       linea.querySelector('input[name="cantidad"]').value = opcion.dataset.cantidad;
       actualizarResumen();
     }

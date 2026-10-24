@@ -15,7 +15,7 @@
 {% if cortes %}
 <div class="data-table-wrap data-table-wrap--scroll">
   <table class="table table-striped align-middle mb-0">
-    <thead><tr><th>Guía</th><th>Fecha del corte</th><th class="text-end">Días en proceso</th><th>Producto</th><th>Color</th><th>Talla</th><th class="text-end">Cantidad</th><th>Cortador</th><th>Material</th><th>Pedido</th><th>Cliente</th><th class="text-end">Pendiente de despacho del pedido</th></tr></thead>
+    <thead><tr><th>Guía</th><th>Fecha del corte</th><th class="text-end">Días en proceso</th><th>Producto</th><th class="text-end">Cantidad</th><th>Cortador</th><th>Material</th><th>Pedido</th><th>Cliente</th><th class="text-end">Pendiente de despacho del pedido</th></tr></thead>
     <tbody>
       {% for c in cortes %}
       <tr>
@@ -23,8 +23,6 @@
         <td>{{ c.fecha_corte|fecha }}</td>
         <td class="text-end">{{ c.dias_en_proceso if c.dias_en_proceso is not none else '' }}</td>
         <td>{{ c.producto or 'Sin producto' }}</td>
-        <td>{{ c.color or '' }}</td>
-        <td>{{ c.talla or '' }}</td>
         <td class="text-end">{{ c.cantidad }}</td>
         <td>{{ c.cortador or '' }}</td>
         <td>{{ c.material_usado or '' }}</td>
