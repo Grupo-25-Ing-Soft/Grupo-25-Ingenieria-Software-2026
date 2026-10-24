@@ -97,3 +97,31 @@ def test_lista_adicional_invalida(admin, base):
     r = admin.post('/productos.html', data={'_method': 'variantes', 'idProductoVariantes': producto, 'listaExtra': '1'},
                    follow_redirects=True)
     assert 'debe ser un número entero desde 2' in r.get_data(as_text=True)
+
+
+def test_precio_de_produccion_por_variante(admin, base):
+    # Precio de producción = producto_variantes.precio_costo (incremento4_campos_documento0.sql).
+    r = admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'Colaless', 'precioCrear': '2990',
+                                            'variante': ['1-1', '2-2'], 'costoVariante_1-1': '1450'},
+                   follow_redirects=True)
+    assert 'con 2 variantes' in r.get_data(as_text=True)
+    variantes = base.tablas['producto_variantes'][-2:]
+    assert [v.get('precio_costo') or 0 for v in variantes] == [1450, 0]
+    html = admin.get('/productos.html').get_data(as_text=True)
+    assert 'Precio de producción' in html and '(producción $1.450)' in html
+
+
+def test_precio_de_produccion_invalido(admin, base):
+    r = admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'X', 'variante': ['1-1'],
+                                            'costoVariante_1-1': '-5'}, follow_redirects=True)
+    assert 'precio de producción de cada variante' in r.get_data(as_text=True)
+    assert not any(p['descripcion'] == 'X' for p in base.tablas['productos'])
+
+
+def test_precio_de_produccion_no_se_muestra_al_vender(admin, base):
+    admin.post('/productos.html', data={'_method': 'post', 'descripcionCrear': 'Colaless', 'precioCrear': '2990',
+                                        'variante': ['1-1'], 'costoVariante_1-1': '1777'})
+    base.tablas.update(pedidos=[{'id_pedido': 1, 'numero_pedido': 'PED-1', 'cliente_asociado': None, 'estado': 'pendiente'}],
+                       clientes=[])
+    html = admin.get('/crudDetallePedido.html?id_pedido=1').get_data(as_text=True)
+    assert 'Colaless' in html and '1777' not in html and '1.777' not in html

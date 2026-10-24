@@ -3164,30 +3164,36 @@ def _aviso_codigo_sin_ean(datos):
 
 def _combinaciones_marcadas(prefijo):
     """Combinaciones color-talla marcadas en la grilla (checkbox prefijo con valor
-    'idColor-idTalla') con su precio (campo 'precio' + prefijo + '_idColor-idTalla')."""
+    'idColor-idTalla') con su precio de venta ('precio' + prefijo + '_idColor-idTalla') y su
+    precio de producción ('costo' + prefijo + '_idColor-idTalla', producto_variantes.precio_costo)."""
     combinaciones = []
     for valor in request.form.getlist(prefijo):
         partes = valor.split('-')
         if len(partes) != 2 or not all(p.isdigit() for p in partes):
             continue
         precio = (request.form.get(f'precio{prefijo.capitalize()}_{valor}') or '').strip()
+        costo = (request.form.get(f'costo{prefijo.capitalize()}_{valor}') or '').strip()
         if precio and not precio.isdigit():
             raise ValueError('El precio de cada variante debe ser un número entero mayor o igual a cero.')
-        combinaciones.append((int(partes[0]), int(partes[1]), int(precio) if precio else None))
+        if costo and not costo.isdigit():
+            raise ValueError('El precio de producción de cada variante debe ser un número entero mayor o igual a cero.')
+        combinaciones.append((int(partes[0]), int(partes[1]), int(precio) if precio else None,
+                              int(costo) if costo else None))
     return combinaciones
 
 
 def _crear_variantes(id_producto, combinaciones, precio_base):
     """Crea (o reactiva) cada variante con obtener_variante(), que es la que le asigna
-    el código EAN (trigger fn_variante_ean / fn_generar_ean, incremento3_ean.sql)."""
-    for id_color, id_talla, precio in combinaciones:
+    el código EAN (trigger fn_variante_ean / fn_generar_ean)."""
+    for id_color, id_talla, precio, costo in combinaciones:
         variante = supabase.rpc('obtener_variante', {
             'p_id_producto': id_producto, 'p_id_color': id_color, 'p_id_talla': id_talla,
         }).execute().data or []
         if variante:
-            supabase.table('producto_variantes').update({
-                'precio_venta': precio if precio is not None else (precio_base or 0), 'activo': True,
-            }).eq('id_variante', variante[0]['id_variante']).execute()
+            cambios = {'precio_venta': precio if precio is not None else (precio_base or 0), 'activo': True}
+            if costo is not None:
+                cambios['precio_costo'] = costo
+            supabase.table('producto_variantes').update(cambios).eq('id_variante', variante[0]['id_variante']).execute()
     return len(combinaciones)
 
 
@@ -3243,8 +3249,9 @@ def productos():
 
         if metodo == "variantes":
             # CU-13.5: precios de cada variante (talla y color) y estado, más combinaciones nuevas.
-            # precio_<id> es el precio mayor de la lista 1 (precio_venta); costo, detalle y
-            # liquidación son los otros tipos de precio (RNF-004). La "lista adicional" guarda
+            # precio_<id> es el precio mayor de la lista 1 (precio_venta); costo_<id> es el precio
+            # de producción (precio_costo, solo se muestra en Productos); detalle y liquidación
+            # son los otros tipos de precio (RNF-004). La "lista adicional" guarda
             # el precio mayor de otra lista de precios para todas las variantes a la vez.
             existentes = supabase.table('producto_variantes').select('id_variante') \
                 .eq('id_producto', id_producto).execute().data or []

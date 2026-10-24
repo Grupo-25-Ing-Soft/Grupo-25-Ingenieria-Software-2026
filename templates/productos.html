@@ -37,7 +37,7 @@
     {% if datos %}
     <div class="data-table-wrap data-table-wrap--scroll">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th>Descripción</th><th>Código</th><th>Abreviación</th><th class="text-end">Precio base</th><th>Variantes (color · talla · precio)</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <thead><tr><th>Descripción</th><th>Código</th><th>Abreviación</th><th class="text-end">Precio base</th><th>Variantes (color · talla · precio de venta)</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
         <tbody>
           {% for p in datos %}
           <tr>
@@ -47,7 +47,7 @@
             <td class="text-end">{% if p.precio is not none %}{{ p.precio|moneda }}{% endif %}</td>
             <td class="small">
               {% for v in p.variantes %}
-                <div class="{{ '' if v.activo else 'text-muted text-decoration-line-through' }}">{{ v.color }} · {{ v.talla }} · {{ v.precio_venta|moneda }}{% if v.en_liquidacion %} <span class="badge text-bg-warning">liquidación {{ v.precio_liquidacion|moneda }}</span>{% endif %}</div>
+                <div class="{{ '' if v.activo else 'text-muted text-decoration-line-through' }}">{{ v.color }} · {{ v.talla }} · {{ v.precio_venta|moneda }}{% if v.precio_costo %} <span class="text-muted">(producción {{ v.precio_costo|moneda }})</span>{% endif %}{% if v.en_liquidacion %} <span class="badge text-bg-warning">liquidación {{ v.precio_liquidacion|moneda }}</span>{% endif %}</div>
               {% else %}<span class="text-muted">Sin variantes</span>{% endfor %}
             </td>
             {% if puede_editar %}
@@ -107,9 +107,10 @@
         <th>{{ c.descripcion }}</th>
         {% for t in tallas %}
         <td data-combinacion="{{ c.id_color }}-{{ t.id_talla }}">
-          <div class="input-group input-group-sm" style="min-width: 8rem">
+          <div class="input-group input-group-sm" style="min-width: 13rem">
             <span class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="{{ prefijo }}" value="{{ c.id_color }}-{{ t.id_talla }}" aria-label="{{ c.descripcion }} talla {{ t.nombre or t.talla }}"></span>
-            <input type="number" class="form-control" name="precio{{ prefijo|capitalize }}_{{ c.id_color }}-{{ t.id_talla }}" min="0" step="1" placeholder="Precio">
+            <input type="number" class="form-control" name="precio{{ prefijo|capitalize }}_{{ c.id_color }}-{{ t.id_talla }}" min="0" step="1" placeholder="Venta $" title="Precio de venta (precio mayor, lista 1)">
+            <input type="number" class="form-control" name="costo{{ prefijo|capitalize }}_{{ c.id_color }}-{{ t.id_talla }}" min="0" step="1" placeholder="Producción $" title="Precio de producción">
           </div>
         </td>
         {% endfor %}
@@ -118,7 +119,7 @@
     </tbody>
   </table>
 </div>
-<small class="text-muted">Marca las combinaciones a crear. Si dejas el precio vacío se usa el precio base. El código EAN de cada variante lo genera el sistema.</small>
+<small class="text-muted">Marca las combinaciones a crear e ingresa su precio de venta y de producción, en pesos. Si dejas el precio de venta vacío se usa el precio base; el de producción queda en $0. El código EAN de cada variante lo genera el sistema.</small>
 {% else %}
 <div class="text-muted small">Registra colores y tallas para poder crear variantes.</div>
 {% endif %}
@@ -178,7 +179,7 @@
         </div>
         <div class="data-table-wrap mb-2">
           <table class="table table-sm align-middle mb-0">
-            <thead><tr><th>Color</th><th>Talla</th><th>Código EAN</th><th>Precio mayor (lista 1)</th><th>Precio costo</th><th>Precio detalle</th><th>Precio liquidación</th><th>En liquidación</th><th>Activa</th><th id="encabezadoLista">Precio lista —</th></tr></thead>
+            <thead><tr><th>Color</th><th>Talla</th><th>Código EAN</th><th>Precio mayor (lista 1)</th><th>Precio de producción</th><th>Precio detalle</th><th>Precio liquidación</th><th>En liquidación</th><th>Activa</th><th id="encabezadoLista">Precio lista —</th></tr></thead>
             <tbody id="variantesExistentes"></tbody>
           </table>
         </div>
