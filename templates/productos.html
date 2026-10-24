@@ -98,6 +98,27 @@
 
 {% macro grilla_combinaciones(prefijo) %}
 {% if colores and tallas %}
+{% if presets %}
+{#- Presets de tallas (se crean en Tallas): marcan de una vez sus tallas en el color elegido. -#}
+<div class="row g-2 align-items-end mb-2">
+  <div class="col-sm-5">
+    <label class="form-label small mb-1" for="preset{{ prefijo }}">Aplicar preset de tallas</label>
+    <select class="form-select form-select-sm preset-tallas" id="preset{{ prefijo }}">
+      <option value="">Seleccione un preset</option>
+      {% for p in presets %}<option value="{{ p.id_preset }}" data-tallas='{{ p.tallas | tojson }}'>{{ p.nombre }} ({{ p.nombres_tallas|join(', ') }})</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-sm-4">
+    <label class="form-label small mb-1" for="presetColor{{ prefijo }}">al color</label>
+    <select class="form-select form-select-sm preset-color" id="presetColor{{ prefijo }}">
+      {% for c in colores %}<option value="{{ c.id_color }}">{{ c.descripcion }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-sm-3">
+    <button type="button" class="btn btn-sm btn-outline-secondary w-100 aplicar-preset">Marcar tallas</button>
+  </div>
+</div>
+{% endif %}
 <div class="data-table-wrap">
   <table class="table table-sm align-middle mb-0">
     <thead><tr><th>Color \ Talla</th>{% for t in tallas %}<th>{{ t.nombre or t.talla }}</th>{% endfor %}</tr></thead>
@@ -214,6 +235,21 @@
 </div>
 
 <script>
+  // «Marcar tallas»: marca en la grilla del mismo modal las tallas del preset para el color
+  // elegido (las combinaciones que ya existen están deshabilitadas y no se tocan).
+  document.addEventListener('click', function (evento) {
+    const boton = evento.target.closest('.aplicar-preset');
+    if (!boton) return;
+    const modal = boton.closest('.modal');
+    const opcion = modal.querySelector('.preset-tallas').selectedOptions[0];
+    if (!opcion || !opcion.value) return;
+    const color = modal.querySelector('.preset-color').value;
+    JSON.parse(opcion.dataset.tallas || '[]').forEach(function (talla) {
+      const casilla = modal.querySelector('input[type="checkbox"][value="' + color + '-' + talla + '"]');
+      if (casilla && !casilla.disabled) casilla.checked = true;
+    });
+  });
+
   // Al escribir el número de una lista adicional se cargan sus precios en la última columna.
   function mostrarLista() {
     const lista = document.getElementById('listaExtra').value;

@@ -3,3 +3,119 @@
 {% block eyebrow %}Archivos maestros / Catálogo{% endblock %}
 {% block descripcion %}Administra las tallas disponibles para los productos y su código EAN.{% endblock %}
 {% block boton_nuevo %}Nueva talla{% endblock %}
+
+{% block despues_tabla %}
+{#- Presets de tallas (supabase/incremento4_feedback_productos.sql): grupos de tallas que se
+    marcan de una vez al crear las variantes de un producto. -#}
+{% set editar_presets = puede('tallas', 'editar') %}
+<div class="data-card mt-4" id="presets">
+  <div class="data-card-header">
+    <div><h2>Presets de tallas</h2><span>Grupos de tallas para crear variantes de una vez en Productos</span></div>
+    {% if editar_presets and presets_disponible %}
+    <button type="button" class="btn btn-sm btn-success icon-button" data-bs-toggle="modal" data-bs-target="#presetModal"
+            data-titulo="Nuevo preset" data-metodo="preset_post" data-id="" data-nombre="" data-tallas="[]">
+      <i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo preset</span></button>
+    {% endif %}
+  </div>
+  {% if not presets_disponible %}
+  <div class="empty-state">Falta ejecutar supabase/incremento4_feedback_productos.sql en Supabase para usar los presets de tallas.</div>
+  {% elif presets %}
+  <div class="data-table-wrap">
+    <table class="table table-striped align-middle mb-0">
+      <thead><tr><th>Nombre</th><th>Tallas (en orden)</th>{% if editar_presets %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for p in presets %}
+        <tr>
+          <td>{{ p.nombre }}</td>
+          <td>{{ p.nombres_tallas|join(' · ') }}</td>
+          {% if editar_presets %}
+          <td class="text-end text-nowrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-bs-toggle="modal" data-bs-target="#presetModal"
+                    data-titulo="Editar preset" data-metodo="preset_put" data-id="{{ p.id_preset }}" data-nombre="{{ p.nombre }}"
+                    data-tallas='{{ p.tallas | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarPresetModal" data-registro="{{ p.nombre }}"
+                    data-valores='{{ {"idPreset": p.id_preset} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Todavía no hay presets. Crea uno con las tallas de una línea de productos.</div>
+  {% endif %}
+</div>
+
+{% if editar_presets and presets_disponible %}
+<div class="modal fade" id="presetModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title" id="presetTitulo">Nuevo preset</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('tallas') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="preset_post">
+        <input type="hidden" name="idPreset">
+        <div class="mb-3">
+          <label class="form-label" for="nombrePreset">Nombre *</label>
+          <input type="text" class="form-control" id="nombrePreset" name="nombrePreset" maxlength="64" required placeholder="Ej: Línea adulto">
+        </div>
+        <fieldset>
+          <legend class="form-label fs-6">Tallas del preset *</legend>
+          {% for t in tallas_preset %}
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="tallasPreset" id="tallaPreset{{ t.id_talla }}" value="{{ t.id_talla }}">
+            <label class="form-check-label" for="tallaPreset{{ t.id_talla }}">{{ t.nombre or t.talla }}</label>
+          </div>
+          {% else %}
+          <div class="text-muted small">Registra tallas para poder armar presets.</div>
+          {% endfor %}
+          <small class="text-muted d-block mt-2">Las tallas quedan en el orden del listado de tallas.</small>
+        </fieldset>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="borrarPresetModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar preset</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('tallas') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="preset_delete">
+        <input type="hidden" name="idPreset">
+        <p>¿Seguro que quieres eliminar el preset <strong data-registro></strong>? Las tallas y los productos no cambian.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // El mismo modal crea o edita un preset: el botón trae el método, el nombre y sus tallas.
+  const modalPreset = document.getElementById('presetModal');
+  if (modalPreset) {
+    modalPreset.addEventListener('show.bs.modal', function (evento) {
+      const boton = evento.relatedTarget;
+      if (!boton) return;
+      const tallas = JSON.parse(boton.dataset.tallas || '[]').map(String);
+      document.getElementById('presetTitulo').textContent = boton.dataset.titulo;
+      modalPreset.querySelector('[name="_method"]').value = boton.dataset.metodo;
+      modalPreset.querySelector('[name="idPreset"]').value = boton.dataset.id;
+      modalPreset.querySelector('[name="nombrePreset"]').value = boton.dataset.nombre;
+      modalPreset.querySelectorAll('[name="tallasPreset"]').forEach(function (casilla) {
+        casilla.checked = tallas.includes(casilla.value);
+      });
+    });
+  }
+</script>
+{% endblock %}

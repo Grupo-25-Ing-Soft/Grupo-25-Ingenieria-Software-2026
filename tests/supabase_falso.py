@@ -20,7 +20,7 @@ CLAVES_AUTOINCREMENTALES = {
     'detalle_pedidos': 'id_detalle_pedido', 'facturas': 'id_factura',
     'notas_credito': 'id_nota_credito', 'pagos': 'id_pago', 'pago_facturas': 'id_pago_factura',
     'despachos': 'id_despacho', 'detalle_despachos': 'id_detalle_despacho', 'inventario': 'id_inventario',
-    'cortes': 'id_corte',
+    'cortes': 'id_corte', 'presets_talla': 'id_preset',
 }
 # Columnas generadas (generated always as ... stored): la base las calcula y rechaza un valor
 # explícito con el error 428C9, igual que aquí.

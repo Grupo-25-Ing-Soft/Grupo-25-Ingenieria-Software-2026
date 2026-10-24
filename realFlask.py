@@ -3104,8 +3104,91 @@ def zonasVenta():
 
 @app.route('/tallas.html', methods=['GET', 'POST'])
 def tallas():
-    # RF-011/012, CU-11.1 a CU-11.4.
-    return _crud_maestro('tallas')
+    # RF-011/012, CU-11.1 a CU-11.4, y los presets de tallas (_method preset_*), que se
+    # gestionan con el mismo permiso del módulo Tallas.
+    if request.method == 'POST' and (request.form.get('_method') or '').startswith('preset_'):
+        return _guardar_preset_talla()
+    return _crud_maestro('tallas', contexto=_presets_talla)
+
+
+# Presets de tallas: grupos de tallas (por ejemplo, las de una línea de productos) para crear
+# las variantes de un producto de una vez. Tablas de supabase/incremento4_feedback_productos.sql.
+# TODO(cliente): qué listas de tallas usa hoy; no se cargan presets inventados.
+AVISO_SIN_PRESETS = 'Falta ejecutar supabase/incremento4_feedback_productos.sql para usar los presets de tallas.'
+
+
+def _presets_talla(_datos=None):
+    """Presets con sus tallas en orden: {'presets': [...], 'presets_disponible': bool,
+    'tallas_preset': todas las tallas, para elegirlas}."""
+    tallas_preset = supabase.table('tallas').select('id_talla, talla, nombre').order('talla').execute().data or []
+    try:
+        presets = supabase.table('presets_talla').select('id_preset, nombre').order('nombre').execute().data or []
+        detalle = supabase.table('presets_talla_detalle').select('id_preset, id_talla, orden') \
+            .order('orden').execute().data or []
+    except APIError as error:
+        if not _es_tabla_faltante(error):
+            raise
+        return {'presets': [], 'presets_disponible': False, 'tallas_preset': tallas_preset}
+    nombres = {t['id_talla']: t.get('nombre') or str(t.get('talla')) for t in tallas_preset}
+    for preset in presets:
+        preset['tallas'] = [d['id_talla'] for d in detalle if d['id_preset'] == preset['id_preset']]
+        preset['nombres_tallas'] = [nombres.get(t, f'Talla {t}') for t in preset['tallas']]
+    return {'presets': presets, 'presets_disponible': True, 'tallas_preset': tallas_preset}
+
+
+def _leer_preset_formulario():
+    """Nombre y tallas del modal de presets, en el orden del listado de tallas. Devuelve
+    (nombre, ids de talla, error)."""
+    nombre = (request.form.get('nombrePreset') or '').strip()
+    if not nombre:
+        return None, [], 'Ingresa el nombre del preset.'
+    if len(nombre) > 64:
+        return None, [], 'El nombre del preset admite hasta 64 caracteres.'
+    elegidas = {int(t) for t in request.form.getlist('tallasPreset') if t.isdigit()}
+    if not elegidas:
+        return None, [], 'Marca al menos una talla del preset.'
+    tallas = [t['id_talla'] for t in supabase.table('tallas').select('id_talla, talla')
+              .in_('id_talla', list(elegidas)).order('talla').execute().data or []]
+    if len(tallas) != len(elegidas):
+        return None, [], 'Alguna de las tallas elegidas ya no existe.'
+    return nombre, tallas, None
+
+
+def _guardar_preset_talla():
+    metodo = request.form.get('_method')
+    id_preset = _entero_positivo(request.form.get('idPreset'))
+    try:
+        if metodo == 'preset_delete':
+            if id_preset:
+                supabase.table('presets_talla_detalle').delete().eq('id_preset', id_preset).execute()
+                supabase.table('presets_talla').delete().eq('id_preset', id_preset).execute()
+                flash('Preset de tallas eliminado', 'success')
+            return redirect(url_for('tallas'))
+        if metodo not in ('preset_post', 'preset_put'):
+            return redirect(url_for('tallas'))
+        nombre, ids_talla, error = _leer_preset_formulario()
+        repetidos = supabase.table('presets_talla').select('id_preset').eq('nombre', nombre).execute().data \
+            if nombre else []
+        if not error and any(str(p['id_preset']) != str(id_preset) for p in repetidos):
+            error = f'Ya existe un preset llamado «{nombre}».'
+        if not error and metodo == 'preset_put' and not id_preset:
+            error = 'El preset no existe.'
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('tallas'))
+        if metodo == 'preset_post':
+            id_preset = supabase.table('presets_talla').insert({'nombre': nombre}).execute().data[0]['id_preset']
+        else:
+            supabase.table('presets_talla').update({'nombre': nombre}).eq('id_preset', id_preset).execute()
+            supabase.table('presets_talla_detalle').delete().eq('id_preset', id_preset).execute()
+        supabase.table('presets_talla_detalle').insert([
+            {'id_preset': id_preset, 'id_talla': id_talla, 'orden': orden}
+            for orden, id_talla in enumerate(ids_talla, start=1)]).execute()
+        flash(f'Preset «{nombre}» guardado con {len(ids_talla)} talla{"" if len(ids_talla) == 1 else "s"}', 'success')
+    except APIError as error:
+        flash(AVISO_SIN_PRESETS if _es_tabla_faltante(error) else f'No se pudo guardar el preset: {error.message}',
+              'error')
+    return redirect(url_for('tallas'))
 
 
 def _mensaje_error_producto(error, accion):
@@ -3354,7 +3437,7 @@ def productos():
     for producto in datos:
         producto['variantes'] = por_producto.get(producto['id_producto'], [])
     return render_template('productos.html', datos=datos, colores=colores, tallas=tallas, busqueda=busqueda,
-                           digitos_codigo=_digitos_ean('producto'))
+                           digitos_codigo=_digitos_ean('producto'), **_presets_talla())
 
 
 def _ean_en_otra_variante(codigo, id_variante):
