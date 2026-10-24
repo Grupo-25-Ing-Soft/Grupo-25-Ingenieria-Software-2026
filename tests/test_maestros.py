@@ -165,16 +165,18 @@ def test_colores_con_flash_y_codigo_unico(admin, base):
 
 def test_vendedores_rut_valido_y_en_uso(admin, base):
     base.tablas.update({'vendedores': [], 'pedidos': []})
-    datos = {'_method': 'post', 'nombreCrear': 'Ana Pérez', 'codigoCrear': 'V01', 'rutCrear': '12.345.678',
-             'digVerCrear': '5', 'porComiCrear': '4.5'}
-    assert 'no es válido' in admin.post('/vendedores.html', data={**datos, 'digVerCrear': '4'},
-                                        follow_redirects=True).get_data(as_text=True)
+    datos = {'_method': 'post', 'nombreCrear': 'Ana Pérez', 'codigoCrear': 'V01', 'rutCrear': '12.345.678-5',
+             'porComiCrear': '4.5'}
+    assert 'debe ser el número del RUT' in admin.post('/vendedores.html', data={**datos, 'rutCrear': '12a'},
+                                                      follow_redirects=True).get_data(as_text=True)
     assert 'entre 0 y 100' in admin.post('/vendedores.html', data={**datos, 'porComiCrear': '120'},
                                          follow_redirects=True).get_data(as_text=True)
     assert 'Vendedor Ana Pérez creado exitosamente' in admin.post('/vendedores.html', data=datos,
                                                                  follow_redirects=True).get_data(as_text=True)
     assert base.tablas['vendedores'][0] == {'id_vendedor': 1, 'nombre': 'Ana Pérez', 'codigo': 'V01', 'rut': '12345678',
                                             'digito_verificador': '5', 'porcentaje_comision': 4.5}
+    html = admin.get('/vendedores.html').get_data(as_text=True)
+    assert '12.345.678-5' in html and 'name="digVerCrear"' not in html  # DV calculado, no se ingresa
     assert 'Ya existe el vendedor con rut 12345678' in admin.post('/vendedores.html', data={**datos, 'codigoCrear': 'V02'},
                                                                   follow_redirects=True).get_data(as_text=True)
     base.tablas['pedidos'].append({'id_pedido': 1, 'vendedor_asociado': 1})

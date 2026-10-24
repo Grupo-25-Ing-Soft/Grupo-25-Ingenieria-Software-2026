@@ -88,6 +88,17 @@ def test_logotipo_debe_ser_una_imagen(admin, db, contenido, aceptado, tmp_path, 
     assert (tmp_path / 'img' / 'logo-configurado.png').exists() is aceptado
 
 
+@pytest.mark.parametrize('rut,guardado', [('12345678', '12.345.678-5'), ('12.345.678-9', '12.345.678-5'),
+                                          ('76.543.210', '76.543.210-3'), ('12a', None)])
+def test_configuracion_calcula_el_dv_del_rut(admin, db, rut, guardado):
+    db.tablas['parametros_sistema'] = [{'id': 1}]
+    datos = {'razon_social': 'D Nix', 'rut': rut, 'correo': 'a@b.cl', 'moneda': 'CLP',
+             'formato_moneda': '$#,##0', 'porcentaje_impuesto': '19'}
+    html = admin.post('/configuracion.html', data=datos, follow_redirects=True).get_data(as_text=True)
+    assert db.tablas['parametros_sistema'][0].get('rut') == guardado
+    assert ('Configuración guardada' in html) is (guardado is not None)
+
+
 def test_clave_secreta_se_genera_una_vez(tmp_path, monkeypatch):
     # AUD-004: sin FLASK_SECRET_KEY, cada reinicio cerraba todas las sesiones.
     monkeypatch.delenv('FLASK_SECRET_KEY', raising=False)

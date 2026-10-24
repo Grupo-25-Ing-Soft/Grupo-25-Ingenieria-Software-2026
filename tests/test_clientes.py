@@ -14,7 +14,7 @@ def base(db):
 
 
 def datos(sufijo='Crear', **cambios):
-    base = {'nombre': 'Tienda Sur', 'codigo': 'CLI1', 'rut': '12.345.678', 'digVer': '5', 'abreviacion': 'TS',
+    base = {'nombre': 'Tienda Sur', 'codigo': 'CLI1', 'rut': '12.345.678', 'abreviacion': 'TS',
             'telefono': '+56911111111', 'correo': 'tienda@sur.cl', 'direccion': 'Hostos 1452', 'comuna': 'Quinta Normal',
             'ciudad': 'Santiago', 'idZonaVenta': '3', 'descuento1': '10', 'descuento2': '5.5', 'descuento3': '',
             'porComision': '3', 'porCobranza': '1.25', 'viaDespacho': 'Starken', 'condicionesVenta': '30 días',
@@ -36,13 +36,23 @@ def test_crear_guarda_todos_los_campos(admin, base):
     assert (c['descuento_1'], c['descuento_2'], c['descuento_3']) == (10, 5.5, 0)
     assert (c['porcentaje_comision'], c['porcentaje_cobranza']) == (3, 1.25)
     html = admin.get('/clientes.html').get_data(as_text=True)
-    assert '12345678-5' in html and 'Zona Sur' in html and '10.00% / 5.50% / 0.00%' in html
+    assert '12.345.678-5' in html and 'Zona Sur' in html and '10.00% / 5.50% / 0.00%' in html
     assert 'data-modal="#actualizarModal"' in html and 'data-modal="#borrarModal"' in html  # botones por fila
+    assert 'name="digVerCrear"' not in html  # el dígito verificador ya no se ingresa
+
+
+@pytest.mark.parametrize('rut,numero', [('12.345.678', '12345678'), ('12345678-5', '12345678'),
+                                        ('12.345.678-K', '12345678'), (' 7654321 ', '7654321')])
+def test_dv_se_calcula_aunque_lo_peguen_con_guion(admin, base, rut, numero):
+    admin.post('/clientes.html', data=datos(rut=rut))
+    c = base.tablas['clientes'][0]
+    assert (c['rut'], c['digito_verificador']) == (numero, realFlask.digito_verificador_rut(numero))
 
 
 @pytest.mark.parametrize('cambios,mensaje', [
-    ({'digVer': '4'}, 'el dígito verificador no coincide'),
-    ({'rut': '12a45'}, 'solo números'),
+    ({'rut': '12a45'}, 'Ingrese el número del RUT'),
+    ({'rut': '0'}, 'Ingrese el número del RUT'),
+    ({'rut': ''}, 'Ingrese el número del RUT'),
     ({'nombre': ' '}, 'nombre del cliente es obligatorio'),
     ({'descuento1': '120'}, 'entre 0 y 100'),
 ])

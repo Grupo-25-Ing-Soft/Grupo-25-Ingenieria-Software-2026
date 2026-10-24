@@ -52,7 +52,7 @@
           <tr>
             <td>{{ c.nombre }}</td>
             <td>{{ c.codigo or '' }}</td>
-            <td class="text-nowrap">{{ c.rut }}{% if c.digito_verificador %}-{{ c.digito_verificador }}{% endif %}</td>
+            <td class="text-nowrap">{{ c.rut|rut(c.digito_verificador) }}</td>
             <td>{{ c.abreviacion or '' }}</td>
             <td>{{ c.get('giro') or '' }}</td>
             <td class="text-nowrap">{{ c.telefono or '' }}{% if c.get('telefono_2') %}<br>{{ c.get('telefono_2') }}{% endif %}</td>
@@ -73,7 +73,7 @@
             <td class="text-end text-nowrap">
               <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="cliente {{ c.nombre }}"
                       data-valores='{{ {"idClienteActualizar": c.id_cliente, "nombreActualizar": c.nombre, "codigoActualizar": c.codigo or "",
-                        "rutActualizar": c.rut, "digVerActualizar": c.digito_verificador, "abreviacionActualizar": c.abreviacion or "",
+                        "rutActualizar": c.rut,"abreviacionActualizar": c.abreviacion or "",
                         "telefonoActualizar": c.telefono or "", "correoActualizar": c.correo or "", "direccionActualizar": c.direccion or "",
                         "comunaActualizar": c.comuna or "", "ciudadActualizar": c.ciudad or "", "idZonaVentaActualizar": c.id_zona_venta or "",
                         "giroActualizar": c.get('giro') or "", "telefono2Actualizar": c.get('telefono_2') or "",
@@ -108,13 +108,10 @@
     <label class="form-label" for="codigo{{ sufijo }}">Código de cliente</label>
     <input type="text" class="form-control" id="codigo{{ sufijo }}" name="codigo{{ sufijo }}">
   </div>
-  <div class="col-md-5">
+  <div class="col-md-7">
     <label class="form-label" for="rut{{ sufijo }}">RUT (sin dígito verificador)</label>
-    <input type="text" class="form-control" id="rut{{ sufijo }}" name="rut{{ sufijo }}" inputmode="numeric" placeholder="Ej: 12345678" required>
-  </div>
-  <div class="col-md-2">
-    <label class="form-label" for="digVer{{ sufijo }}">DV</label>
-    <input type="text" class="form-control" id="digVer{{ sufijo }}" name="digVer{{ sufijo }}" maxlength="1" placeholder="K" required>
+    <input type="text" class="form-control" id="rut{{ sufijo }}" name="rut{{ sufijo }}" inputmode="numeric" placeholder="Ej: 12.345.678" required>
+    <small class="text-muted">El dígito verificador lo calcula el sistema.</small>
   </div>
   <div class="col-md-5">
     <label class="form-label" for="abreviacion{{ sufijo }}">Abreviación</label>

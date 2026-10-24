@@ -2633,6 +2633,25 @@ def digito_verificador_rut(numero):
     return {11: '0', 10: 'K'}.get(resto, str(resto))
 
 
+def _leer_rut(texto):
+    """Número de un RUT escrito por el usuario: acepta puntos y, si viene pegado con guion
+    (12.345.678-5), descarta lo que sigue, porque el dígito verificador lo calcula el
+    sistema. Devuelve el número (solo dígitos) o None si no es un RUT numérico válido."""
+    numero = re.sub(r'[.\s]', '', (texto or '').split('-')[0])
+    if not numero.isdigit() or len(numero) > 9 or int(numero) == 0:
+        return None
+    return numero
+
+
+@app.template_filter('rut')
+def formatear_rut(numero, dv=None):
+    """RUT con puntos y dígito verificador: 12.345.678-5."""
+    texto = str(numero or '').strip()
+    if not texto.isdigit():
+        return texto
+    return f"{int(texto):,}".replace(',', '.') + '-' + (dv or digito_verificador_rut(texto))
+
+
 def _porcentaje(valor, nombre, obligatorio=False):
     """Porcentaje 0-100 con dos decimales (formato llll/mmmm/nnnn del Documento 0)."""
     texto = (valor or '').strip().replace(',', '.')
@@ -2653,17 +2672,14 @@ def _leer_cliente_formulario(sufijo, id_cliente=None):
     nombre = (form('nombre') or '').strip()
     if not nombre:
         return None, 'El nombre del cliente es obligatorio.'
-    rut = re.sub(r'[.\s-]', '', form('rut') or '')
-    dv = (form('digVer') or '').strip().upper()
-    if not rut.isdigit():
-        return None, 'El RUT debe tener solo números (sin puntos ni dígito verificador).'
-    if not re.fullmatch(r'[0-9K]', dv):
-        return None, 'El dígito verificador debe ser un número del 0 al 9 o la letra K.'
-    if digito_verificador_rut(rut) != dv:
-        return None, f'El RUT {rut}-{dv} no es válido: el dígito verificador no coincide.'
+    # CU-01.5: el usuario ingresa solo el número; el dígito verificador lo calcula el sistema.
+    rut = _leer_rut(form('rut'))
+    if rut is None:
+        return None, 'Ingrese el número del RUT: solo dígitos, con o sin puntos (el dígito verificador se calcula solo).'
+    dv = digito_verificador_rut(rut)
     repetidos = supabase.table('clientes').select('id_cliente').eq('rut', rut).execute().data or []
     if any(str(c['id_cliente']) != str(id_cliente) for c in repetidos):
-        return None, f'Ya existe un cliente con el RUT {rut}-{dv}.'
+        return None, f'Ya existe un cliente con el RUT {formatear_rut(rut, dv)}.'
     codigo = _texto_o_nulo(form('codigo'))
     if codigo:
         mismos = supabase.table('clientes').select('id_cliente').eq('codigo', codigo).execute().data or []
@@ -2870,10 +2886,9 @@ def vendedores():
     return _crud_maestro('vendedores')
 
 
-def _validar_rut_vendedor(datos):
-    # CU-07.1 excepción 1: RUT con dígito verificador correcto (módulo 11).
-    if datos.get('digito_verificador') and digito_verificador_rut(datos['rut']) != datos['digito_verificador']:
-        return f"El RUT {datos['rut']}-{datos['digito_verificador']} no es válido: el dígito verificador no coincide."
+def _completar_rut_vendedor(datos):
+    # El dígito verificador no se ingresa: se calcula del número (módulo 11) y se guarda.
+    datos['digito_verificador'] = digito_verificador_rut(datos['rut']) if datos.get('rut') else None
     return None
 
 
@@ -2895,15 +2910,13 @@ MAESTROS_SIMPLES = {
     'vendedores': {
         'tabla': 'vendedores', 'clave': 'id_vendedor', 'endpoint': 'vendedores', 'modulo': 'vendedores',
         'plantilla': 'vendedores.html', 'singular': 'vendedor', 'plural': 'vendedores', 'articulo': 'el',
-        'id_form': 'idVendedor', 'principal': 'nombre', 'validar': _validar_rut_vendedor,
+        'id_form': 'idVendedor', 'principal': 'nombre', 'validar': _completar_rut_vendedor,
         'campos': [
             {'columna': 'nombre', 'form': 'nombre', 'etiqueta': 'Nombre', 'obligatorio': True, 'max': 64},
             {'columna': 'codigo', 'form': 'codigo', 'etiqueta': 'Código de vendedor', 'max': 3, 'unico': True,
              'ayuda': 'Hasta 3 caracteres (glosario ffff)'},
-            {'columna': 'rut', 'form': 'rut', 'etiqueta': 'RUT', 'obligatorio': True, 'max': 9, 'numerico': True,
-             'rut': True, 'unico': True, 'ayuda': 'Sin puntos ni dígito verificador'},
-            {'columna': 'digito_verificador', 'form': 'digVer', 'etiqueta': 'Dígito verificador', 'obligatorio': True,
-             'max': 1, 'mayusculas': True},
+            {'columna': 'rut', 'form': 'rut', 'etiqueta': 'RUT', 'obligatorio': True, 'rut': True, 'unico': True,
+             'ayuda': 'Solo el número, con o sin puntos; el dígito verificador lo calcula el sistema'},
             {'columna': 'porcentaje_comision', 'form': 'porComi', 'etiqueta': 'Comisión', 'porcentaje': True},
         ],
         'en_uso': [('pedidos', 'vendedor_asociado', 'pedidos'), ('clientes', 'id_vendedor', 'clientes')],
@@ -2982,11 +2995,13 @@ def _leer_maestro_formulario(maestro, sufijo, id_registro=None):
     datos = {}
     for campo in maestro['campos']:
         valor = (request.form.get(campo['form'] + sufijo) or '').strip()
-        if campo.get('rut'):
-            valor = re.sub(r'[.\s-]', '', valor)
+        etiqueta = campo['etiqueta']
+        if campo.get('rut') and valor:
+            valor = _leer_rut(valor)
+            if valor is None:
+                return None, f'«{etiqueta}» debe ser el número del RUT: solo dígitos, con o sin puntos.'
         if campo.get('mayusculas'):
             valor = valor.upper()
-        etiqueta = campo['etiqueta']
         if not valor:
             if campo.get('obligatorio'):
                 return None, f'Complete el campo «{etiqueta}».'
@@ -3517,7 +3532,11 @@ def configuracion():
         "porcentaje_impuesto": request.form.get("porcentaje_impuesto", "").strip()
     }
     monedas_permitidas = {"CLP", "USD", "EUR"}
-    rut_valido = re.fullmatch(r"(?:\d{7,8}-[\dkK]|\d{1,2}(?:\.\d{3}){2}-[\dkK])", campos["rut"])
+    # El RUT de la empresa se ingresa sin dígito verificador: se calcula y se guarda con formato.
+    numero_rut = _leer_rut(campos["rut"])
+    rut_valido = numero_rut is not None
+    if rut_valido:
+        campos["rut"] = formatear_rut(numero_rut)
     correo_valido = re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", campos["correo"])
 
     try:
@@ -3529,7 +3548,7 @@ def configuracion():
         flash("La razón social es obligatoria", "error")
         return redirect(url_for('configuracion'))
     if not rut_valido:
-        flash("El RUT no tiene un formato válido", "error")
+        flash("Ingrese el número del RUT: solo dígitos, con o sin puntos (el dígito verificador se calcula solo)", "error")
         return redirect(url_for('configuracion'))
     if not correo_valido:
         flash("El correo electrónico no tiene un formato válido", "error")

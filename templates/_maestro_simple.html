@@ -52,7 +52,7 @@
           <tr>
             {% for campo in maestro.campos %}
             {% set valor = fila.get(campo.columna) %}
-            <td{% if campo.porcentaje %} class="text-end"{% endif %}>{% if valor is not none %}{{ valor }}{% if campo.porcentaje %}%{% endif %}{% endif %}</td>
+            <td{% if campo.porcentaje %} class="text-end"{% endif %}>{% if valor is not none %}{% if campo.rut %}{{ valor|rut(fila.get('digito_verificador')) }}{% else %}{{ valor }}{% endif %}{% if campo.porcentaje %}%{% endif %}{% endif %}</td>
             {% endfor %}
             {% if puede_editar %}
             {% set valores = {(id_form ~ 'Actualizar'): fila.get(maestro.clave)} %}

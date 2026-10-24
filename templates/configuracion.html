@@ -37,8 +37,9 @@
             <input type="text" class="form-control" id="razon_social" name="razon_social" value="{{ parametros.razon_social }}" required maxlength="160">
           </div>
           <div class="col-md-6">
-            <label for="rut" class="form-label">RUT</label>
-            <input type="text" class="form-control" id="rut" name="rut" value="{{ parametros.rut }}" placeholder="12345678-9" required maxlength="20">
+            <label for="rut" class="form-label">RUT (sin dígito verificador)</label>
+            <input type="text" class="form-control" id="rut" name="rut" value="{{ (parametros.rut or '').split('-')[0] }}" placeholder="Ej: 76.123.456" inputmode="numeric" required maxlength="20">
+            {% if parametros.rut %}<small class="text-muted">Guardado como {{ parametros.rut }}. El dígito verificador lo calcula el sistema.</small>{% endif %}
           </div>
           <div class="col-md-6">
             <label for="giro" class="form-label">Giro</label>
