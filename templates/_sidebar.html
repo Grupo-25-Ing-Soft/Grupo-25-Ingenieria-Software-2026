@@ -1,6 +1,6 @@
 {# Barra lateral común a todas las páginas. El enlace activo se elige según request.endpoint. #}
 {% macro enlace(endpoint, icono, texto, activo=False) %}
-<a href="{{ url_for(endpoint) }}" title="{{ texto }}"{% if activo or request.endpoint == endpoint %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi {{ icono }}" aria-hidden="true"></i></span><span>{{ texto }}</span></a>
+<a href="{{ url_for(endpoint) }}"{% if activo or request.endpoint == endpoint %} class="active"{% endif %} title="{{ texto }}"><span class="shared-nav-icon"><i class="bi {{ icono }}" aria-hidden="true"></i></span><span>{{ texto }}</span></a>
 {% endmacro %}
 {% set ep = request.endpoint or '' %}
 <script>

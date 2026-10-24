@@ -4,10 +4,10 @@
     <div class="shared-caption">Sistema</div>
   {% endif %}
   {% if puede('configuracion') %}
-    <a href="{{ url_for('configuracion') }}" title="Configuración"{% if request.endpoint == 'configuracion' %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi bi-sliders2" aria-hidden="true"></i></span><span>Configuración</span></a>
+    <a href="{{ url_for('configuracion') }}"{% if request.endpoint == 'configuracion' %} class="active"{% endif %} title="Configuración"><span class="shared-nav-icon"><i class="bi bi-sliders2" aria-hidden="true"></i></span><span>Configuración</span></a>
   {% endif %}
   {% if puede('roles_usuarios') %}
-    <a href="{{ url_for('roles') }}" title="Roles y usuarios"{% if request.endpoint in ('roles', 'usuarios') %} class="active"{% endif %}><span class="shared-nav-icon"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i></span><span>Roles y usuarios</span></a>
+    <a href="{{ url_for('roles') }}"{% if request.endpoint in ('roles', 'usuarios') %} class="active"{% endif %} title="Roles y usuarios"><span class="shared-nav-icon"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i></span><span>Roles y usuarios</span></a>
   {% endif %}
   <div class="shared-session">
     <span class="shared-session-avatar" aria-hidden="true" title="{{ usuario_actual.nombre }}">{{ usuario_actual.nombre[:1] | upper }}</span>
