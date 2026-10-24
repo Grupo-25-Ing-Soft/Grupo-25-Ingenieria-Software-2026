@@ -214,3 +214,10 @@ def test_codigo_manual_valida_verificador_y_duplicados(admin, db):
 ])
 def test_codigos_ean_de_los_maestros_son_unicos_y_del_largo_del_formato(admin, db, url, datos, mensaje):
     assert mensaje in admin.post(url, data=datos, follow_redirects=True).get_data(as_text=True)
+
+
+@pytest.mark.parametrize('talla,texto', [({'talla': 1, 'nombre': 'S'}, 'T:S'), ({'talla': 38, 'nombre': None}, 'T:38')])
+def test_texto_de_la_talla_en_la_etiqueta(talla, texto):
+    # Un solo lugar define lo que se imprime (pendiente de confirmar con el cliente).
+    import realFlask
+    assert realFlask.texto_talla_etiqueta(talla) == texto

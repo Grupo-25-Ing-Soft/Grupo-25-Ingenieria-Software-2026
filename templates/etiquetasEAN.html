@@ -84,7 +84,8 @@
       <div class="etiqueta">
         <div class="articulo">{{ etiqueta.articulo }}</div>
         <div class="descripcion">{{ etiqueta.descripcion }}</div>
-        <div class="color-talla"><span>{{ etiqueta.color | upper }}</span><span>T:{{ etiqueta.talla }}</span></div>
+        {#- El texto de la talla lo arma texto_talla_etiqueta() en realFlask.py (con su prefijo). -#}
+        <div class="color-talla"><span>{{ etiqueta.color | upper }}</span><span>{{ etiqueta.talla }}</span></div>
         <div class="barras">{{ etiqueta.barras }}</div>
         <div class="numeros">{{ etiqueta.ean[0] }} {{ etiqueta.ean[1:7] }} {{ etiqueta.ean[7:] }}</div>
       </div>

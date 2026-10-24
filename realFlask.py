@@ -3501,6 +3501,16 @@ def codigosEAN():
 
 MAX_ETIQUETAS_POR_EMISION = 2000
 
+# Texto de la talla impreso en la etiqueta EAN: es el único lugar que lo define.
+# TODO(cliente): confirmar si la etiqueta lleva el nombre de la talla (S, M, L) o su código
+# numérico (tallas.talla), y si se mantiene el prefijo «T:».
+PREFIJO_TALLA_ETIQUETA = 'T:'
+
+
+def texto_talla_etiqueta(talla):
+    """Hoy: «T:» + el nombre de la talla (tallas.nombre) o, si no tiene, su código (tallas.talla)."""
+    return PREFIJO_TALLA_ETIQUETA + (talla.get('nombre') or str(talla['talla']))
+
 
 @app.route('/emisionEAN.html', methods=['GET', 'POST'])
 def emisionEAN():
@@ -3588,7 +3598,7 @@ def emisionEAN():
             'articulo': producto.get('codigo') or str(producto['id_producto']),
             'descripcion': producto['descripcion'],
             'color': color[0]['descripcion'],
-            'talla': nombreTalla,
+            'talla': texto_talla_etiqueta(talla),
             'ean': codigo,
             'barras': Markup(ean13.svg(codigo)),
         }
