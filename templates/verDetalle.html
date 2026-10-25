@@ -15,12 +15,12 @@
 <header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
 <div class="container-fluid">
   <div class="page-heading">
-    <div><div class="eyebrow">Ventas / Pedido {{ id_pedido }}</div><h1>Detalle de cumplimiento</h1><p>Disponibilidad del inventario para las unidades pendientes del pedido.</p></div>
+    <div><div class="eyebrow">Ventas / Pedido {{ id_pedido|codigo_registro('pedidos') }}</div><h1>Detalle de cumplimiento</h1><p>Disponibilidad del inventario para las unidades pendientes del pedido.</p></div>
     <div class="heading-actions"><a class="btn btn-outline-secondary icon-button" href="{{ url_for('pedidos') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i><span>Volver a pedidos</span></a></div>
   </div>
 
   <section class="data-card mb-4" aria-labelledby="resumen-cumplimiento">
-    <div class="data-card-header"><div><h2 id="resumen-cumplimiento">Resumen del pedido</h2><span>Pedido {{ id_pedido }}</span></div></div>
+    <div class="data-card-header"><div><h2 id="resumen-cumplimiento">Resumen del pedido</h2><span>Pedido {{ id_pedido|codigo_registro('pedidos') }}</span></div></div>
     <div class="p-3 p-md-4">
       {% if pedido_completo %}
       <p class="h4 mb-3">100 % – pedido completo</p>

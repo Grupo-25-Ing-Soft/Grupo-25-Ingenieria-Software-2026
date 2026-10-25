@@ -247,9 +247,10 @@ def test_resumen_de_produccion_cu55(admin, base):
 
 
 def test_productos_en_proceso_cu54(admin, base):
+    base.tablas['cortes'] = [{'id_corte': 8, 'codigo': 'COR-008'}, {'id_corte': 9, 'codigo': 'COR-009'}]
     # CU-54: cortes aún no ingresados, con pedido, cliente y lo que el pedido tiene pendiente.
     base.tablas['productos'] = [{'id_producto': 2, 'descripcion': 'Polera'}]
-    base.tablas['pedidos'] = [{'id_pedido': 1, 'cliente_asociado': 1}, {'id_pedido': 2, 'cliente_asociado': 2}]
+    base.tablas['pedidos'] = [{'id_pedido': 1, 'cliente_asociado': 1, 'codigo': 'PED-000001'}, {'id_pedido': 2, 'cliente_asociado': 2}]
     for linea in base.tablas['v_detalle_pedido_pendiente']:
         linea['id_producto'] = 2 if linea['id_variante'] == 7 else 3
     corte = {'id_producto': 2, 'producto': 'Polera', 'color': 'Azul', 'talla': 2, 'cortador': 'Ana',
@@ -261,10 +262,10 @@ def test_productos_en_proceso_cu54(admin, base):
          'numero_pedido': None, 'cliente': None}]
     html = admin.get('/informeProductosEnProceso.html').get_data(as_text=True)
     assert '2 guías de cortes en proceso · 25 unidades' in html
-    fila = html.split('<td>8</td>')[1].split('</tr>')[0]
+    fila = html.split('<td>COR-008</td>')[1].split('</tr>')[0]
     # El corte es de un producto, sin color ni talla (se eligen al ingresarlo a bodega).
     assert 'Azul' not in fila and 'Polera' in fila and 'PED-000001' in fila and '<td class="text-end">2</td>' in fila  # 10 - 8 despachadas
-    assert 'Sin pedido' in html.split('<td>9</td>')[1].split('</tr>')[0]
+    assert 'Sin pedido' in html.split('<td>COR-009</td>')[1].split('</tr>')[0]
     assert '1 guía de cortes en proceso · 20 unidades' in \
         admin.get('/informeProductosEnProceso.html?cliente=1').get_data(as_text=True)
     assert '1 guía de cortes en proceso · 5 unidades' in \

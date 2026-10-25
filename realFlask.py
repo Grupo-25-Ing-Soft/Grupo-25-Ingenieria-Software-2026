@@ -621,12 +621,50 @@ def _pedido_o_none(id_pedido):
     return filas[0] if filas else None
 
 
+@app.template_filter('codigo_registro')
+def codigo_registro(id_registro, tabla):
+    """Lee el código por clave interna y reutiliza el resultado en la misma petición."""
+    claves = {'clientes': 'id_cliente', 'vendedores': 'id_vendedor',
+              'zona_venta': 'id_zona_venta', 'bodegas': 'id_bodega',
+              'cortes': 'id_corte', 'pedidos': 'id_pedido', 'facturas': 'id_factura'}
+    clave = claves[tabla]
+    if not id_registro:
+        return 'Sin código'
+    if not hasattr(g, 'codigos_registro'):
+        g.codigos_registro = {}
+    cache = (tabla, str(id_registro))
+    if cache not in g.codigos_registro:
+        filas = supabase.table(tabla).select('codigo').eq(clave, id_registro).execute().data or []
+        g.codigos_registro[cache] = (filas[0].get('codigo') if filas else None) or 'Sin código'
+    return g.codigos_registro[cache]
+
+
+def _codigo_documento_formulario(tabla, clave, sufijo, id_registro=None):
+    """Código de negocio opcional; nunca se sustituye por la clave interna.
+
+    Un cliente antiguo que omita el campo al editar conserva el código existente.
+    """
+    campo = 'codigo' + sufijo
+    if campo not in request.form:
+        return {}, None
+    codigo = _texto_o_nulo(request.form.get(campo))
+    if codigo:
+        mismos = supabase.table(tabla).select(clave).eq('codigo', codigo).execute().data or []
+        if any(str(f[clave]) != str(id_registro) for f in mismos):
+            return None, f'Ya existe un registro con el código {codigo}.'
+    return {'codigo': codigo}, None
+
+
 def _nombre_pedido(pedido):
-    return pedido.get('numero_pedido') or f"#{pedido.get('id_pedido')}"
+    return pedido.get('codigo') or pedido.get('numero_pedido') or 'Sin código'
 
 
 def _leer_pedido_formulario(sufijo):
     """Valida cliente, vendedor y fechas del modal de pedidos. Devuelve (datos, error)."""
+    codigo, error = _codigo_documento_formulario('pedidos', 'id_pedido', sufijo,
+                                                 request.form.get('IdPedidoActualizar'))
+    if error:
+        return None, error
     cliente = _entero_positivo(request.form.get('IDCliente' + sufijo))
     vendedor = _entero_positivo(request.form.get('IDVendedor' + sufijo))
     if not cliente or not vendedor:
@@ -637,7 +675,7 @@ def _leer_pedido_formulario(sufijo):
         return None, 'Ingrese la fecha del pedido.'
     if fecha_entrega and fecha_entrega < fecha_pedido:
         return None, 'La fecha de entrega no puede ser anterior a la fecha del pedido.'
-    return {'cliente_asociado': cliente, 'vendedor_asociado': vendedor,
+    return {**codigo, 'cliente_asociado': cliente, 'vendedor_asociado': vendedor,
             'fecha_pedido': fecha_pedido, 'fecha_entrega': fecha_entrega}, None
 
 
@@ -717,13 +755,15 @@ def pedidos():
 
     # select('*'): clientes.id_vendedor existe solo después de incremento4_campos_documento0.sql.
     clientes = supabase.table('clientes').select('*').order('nombre').execute().data or []
-    vendedores = supabase.table('vendedores').select('id_vendedor, nombre').order('nombre').execute().data or []
+    vendedores = supabase.table('vendedores').select('id_vendedor, nombre, codigo').order('nombre').execute().data or []
     nombre_cliente = {c['id_cliente']: c.get('nombre') for c in clientes}
     nombre_vendedor = {v['id_vendedor']: v.get('nombre') for v in vendedores}
 
     # RF-023: filtros por cliente y fecha (y estado).
-    filtros = {campo: request.args.get(campo, '').strip() for campo in ('cliente', 'desde', 'hasta', 'estado')}
+    filtros = {campo: request.args.get(campo, '').strip() for campo in ('codigo', 'cliente', 'desde', 'hasta', 'estado')}
     query = supabase.table('pedidos').select('*')
+    if filtros['codigo']:
+        query = query.eq('codigo', filtros['codigo'])
     if filtros['desde']:
         query = query.gte('fecha_pedido', filtros['desde'])
     if filtros['hasta']:
@@ -891,6 +931,10 @@ def _recalcular_factura(id_factura):
 
 def _leer_factura_formulario(sufijo):
     """Valida el modal de facturas ("Crear" o "Actualizar"). Devuelve (datos, error)."""
+    codigo, error = _codigo_documento_formulario('facturas', 'id_factura', sufijo,
+                                                 request.form.get('idFacturaActualizar'))
+    if error:
+        return None, error
     try:
         folio = int(request.form.get('folio' + sufijo, ''))
         if folio <= 0:
@@ -919,6 +963,7 @@ def _leer_factura_formulario(sufijo):
     # El impuesto sale del porcentaje configurado en Configuración (RF-056).
     impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
     datos = {
+        **codigo,
         'folio': folio,
         'pedido_asociado': id_pedido,
         # El cliente es el del pedido, para que no puedan quedar distintos.
@@ -1033,12 +1078,14 @@ def facturas():
         return redirect(url_for('facturas'))
 
     clientes = _obtener_clientes_map()
-    pedidos = supabase.table('pedidos').select('id_pedido, numero_pedido, cliente_asociado, estado') \
+    pedidos = supabase.table('pedidos').select('id_pedido, codigo, numero_pedido, cliente_asociado, estado') \
         .order('id_pedido').execute().data or []
-    numero_pedido = {p['id_pedido']: p.get('numero_pedido') or str(p['id_pedido']) for p in pedidos}
+    numero_pedido = {p['id_pedido']: _nombre_pedido(p) for p in pedidos}
 
-    filtros = {campo: request.args.get(campo, '').strip() for campo in ('cliente', 'desde', 'hasta', 'estado')}
+    filtros = {campo: request.args.get(campo, '').strip() for campo in ('codigo', 'cliente', 'desde', 'hasta', 'estado')}
     query = supabase.table('facturas').select('*')
+    if filtros['codigo']:
+        query = query.eq('codigo', filtros['codigo'])
     if filtros['desde']:
         query = query.gte('fecha_emision', filtros['desde'])
     if filtros['hasta']:
@@ -2108,8 +2155,8 @@ def _opciones_informe(*catalogos):
         opciones['bodegas'] = [(b['id_bodega'], b.get('descripcion')) for b in supabase.table('bodegas')
                                .select('id_bodega, descripcion').order('descripcion').execute().data or []]
     if 'pedidos' in catalogos:
-        opciones['pedidos'] = [(p['id_pedido'], p.get('numero_pedido') or p['id_pedido']) for p in supabase
-                               .table('pedidos').select('id_pedido, numero_pedido').neq('estado', 'anulado')
+        opciones['pedidos'] = [(p['id_pedido'], _nombre_pedido(p)) for p in supabase
+                               .table('pedidos').select('id_pedido, codigo, numero_pedido').neq('estado', 'anulado')
                                .order('id_pedido', desc=True).execute().data or []]
     return opciones
 
@@ -2512,6 +2559,10 @@ def informeCobranzaPDF():
 
 def _leer_corte_formulario(sufijo):
     """Valida el modal de cortes ("Crear" o "Actualizar"). Devuelve (datos, error)."""
+    codigo, error = _codigo_documento_formulario('cortes', 'id_corte', sufijo,
+                                                 request.form.get('IdCorteActualizar'))
+    if error:
+        return None, error
     fecha = (request.form.get('fechaCorte' + sufijo) or '').strip()
     try:
         datetime.strptime(fecha, '%Y-%m-%d')
@@ -2528,7 +2579,7 @@ def _leer_corte_formulario(sufijo):
         .eq('id_producto', id_producto).execute().data if id_producto else []
     if not producto:
         return None, 'Seleccione el producto del corte.'
-    return {'fecha_corte': fecha, 'cortador': cortador, 'cantidad': cantidad,
+    return {**codigo, 'fecha_corte': fecha, 'cortador': cortador, 'cantidad': cantidad,
             'observaciones': _texto_o_nulo(request.form.get('observaciones' + sufijo)),
             'material_usado': _texto_o_nulo(request.form.get('material' + sufijo)),
             'producto_asociado': id_producto}, None
@@ -2554,16 +2605,14 @@ def cortes():
     # movimientos_inventario, y los informes de producción la suman desde cortes.
     if request.method == 'POST':
         metodo = request.form.get('_method')
-        if metodo == 'buscarID':
-            # La función buscarcorteid de la base aplica to_tsvector a id_corte (bigint)
-            # y falla siempre; el ID es la clave, así que se busca directo con eq.
-            texto = (request.form.get('idBuscar') or '').strip()
-            if not texto.isdigit():
-                flash('Ingrese un ID de corte numérico.', 'error')
+        if metodo == 'buscarCodigo':
+            texto = (request.form.get('codigoBuscar') or '').strip()
+            if not texto:
+                flash('Ingrese el código del corte.', 'error')
                 return redirect(url_for('cortes'))
-            datos = supabase.table('cortes').select('*').eq('id_corte', int(texto)).execute().data or []
+            datos = supabase.table('cortes').select('*').eq('codigo', texto).execute().data or []
             if not datos:
-                flash(f'No se encontró ningún corte con el ID {texto}.', 'error')
+                flash(f'No se encontró ningún corte con el código {texto}.', 'error')
                 return redirect(url_for('cortes'))
             return _pantalla_cortes(datos, busqueda=texto)
 
@@ -2577,19 +2626,20 @@ def cortes():
             except APIError:
                 creado = None
             if creado:
-                flash(f"Guía de cortes {creado[0]['id_corte']} creada exitosamente", 'success')
+                flash(f"Guía de cortes {creado[0].get('codigo') or 'Sin código'} creada exitosamente", 'success')
             else:
                 flash('No se pudo crear la guía de cortes', 'error')
             return redirect(url_for('cortes'))
 
         id_corte = _entero_positivo(request.form.get('IdCorteActualizar') or request.form.get('idCorteBorrar'))
-        actual = supabase.table('cortes').select('id_corte, estado').eq('id_corte', id_corte) \
+        actual = supabase.table('cortes').select('id_corte, codigo, estado').eq('id_corte', id_corte) \
             .execute().data if id_corte else []
         if not actual:
             flash('La guía de cortes no existe', 'error')
             return redirect(url_for('cortes'))
+        nombre_corte = actual[0].get('codigo') or 'Sin código'
         if actual[0].get('estado') != 'pendiente':
-            flash(f"La guía de cortes {id_corte} está {actual[0].get('estado')}: solo se modifican o eliminan "
+            flash(f"La guía de cortes {nombre_corte} está {actual[0].get('estado')}: solo se modifican o eliminan "
                   'las guías pendientes de ingreso a bodega', 'error')
             return redirect(url_for('cortes'))
 
@@ -2600,9 +2650,9 @@ def cortes():
                 flash(error, 'error')
             elif supabase.table('cortes').update(datos).eq('id_corte', id_corte).eq('estado', 'pendiente') \
                     .execute().data:
-                flash(f'Guía de cortes {id_corte} actualizada exitosamente', 'success')
+                flash(f'Guía de cortes {nombre_corte} actualizada exitosamente', 'success')
             else:
-                flash(f'No se pudo actualizar la guía de cortes {id_corte}', 'error')
+                flash(f'No se pudo actualizar la guía de cortes {nombre_corte}', 'error')
         elif metodo == 'delete':
             try:
                 borrado = supabase.table('cortes').delete().eq('id_corte', id_corte).eq('estado', 'pendiente') \
@@ -2610,9 +2660,9 @@ def cortes():
             except APIError:
                 borrado = None
             if borrado:
-                flash(f'Guía de cortes {id_corte} borrada exitosamente', 'success')
+                flash(f'Guía de cortes {nombre_corte} borrada exitosamente', 'success')
             else:
-                flash(f'No se pudo borrar la guía de cortes {id_corte}: tiene registros asociados', 'error')
+                flash(f'No se pudo borrar la guía de cortes {nombre_corte}: tiene registros asociados', 'error')
         return redirect(url_for('cortes'))
 
     datos = supabase.table('cortes').select('*').order('id_corte', desc=True).execute().data or []
@@ -3771,17 +3821,19 @@ def ingresoBodega():
                 flash(error.message or "No se pudo ingresar la guía de cortes a la bodega", "error")
             return redirect(url_for('ingresoBodega', corte=id_corte))
         bodega = supabase.table('bodegas').select('descripcion').eq('id_bodega', id_bodega).execute().data
-        flash(f"Se ingresaron {response.data} unidades de la guía de cortes {id_corte} en la bodega "
+        guia = supabase.table('cortes').select('codigo').eq('id_corte', id_corte).execute().data or []
+        codigo_corte = guia[0].get('codigo') if guia else None
+        flash(f"Se ingresaron {response.data} unidades de la guía de cortes {codigo_corte or 'Sin código'} en la bodega "
               f"{bodega[0]['descripcion'] if bodega else id_bodega}", "success")
         return redirect(url_for('ingresoBodega'))
 
     # Si la base no responde se muestra la pantalla con el aviso (antes redirigía a sí misma en bucle).
     try:
         bodegas = supabase.table('bodegas').select('id_bodega, descripcion').order('descripcion').execute().data or []
-        cortes = supabase.table('cortes').select('id_corte, fecha_corte, cantidad, producto_asociado') \
+        cortes = supabase.table('cortes').select('id_corte, codigo, fecha_corte, cantidad, producto_asociado') \
             .eq('estado', 'pendiente').order('id_corte').execute().data or []
         # Ingresos ya hechos: cortes ingresados, con la fecha y la bodega del ingreso.
-        ingresados = supabase.table('cortes').select('id_corte, cantidad, producto_asociado, fecha_ingreso, '
+        ingresados = supabase.table('cortes').select('id_corte, codigo, cantidad, producto_asociado, fecha_ingreso, '
                                                      'id_bodega_ingreso') \
             .eq('estado', 'ingresado').order('fecha_ingreso', desc=True).execute().data or []
         productos = {p['id_producto']: p for p in supabase.table('productos')
@@ -3794,7 +3846,7 @@ def ingresoBodega():
     for corte in cortes:
         producto = productos.get(corte.get('producto_asociado'), {})
         corte['producto'] = producto.get('descripcion') or 'Sin producto'
-        corte['codigo'] = producto.get('codigo') or corte.get('producto_asociado')
+        corte['codigo_producto'] = producto.get('codigo') or ''
         corte['ingresable'] = bool(producto)
     nombre_bodega = {b['id_bodega']: b.get('descripcion') for b in bodegas}
     for corte in ingresados:

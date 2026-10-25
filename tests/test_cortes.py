@@ -1,4 +1,4 @@
-"""Cortes: búsqueda por ID (la función buscarcorteid de la base fallaba con to_tsvector(bigint))
+"""Cortes: búsqueda por código (la función buscarcorteid de la base fallaba con to_tsvector(bigint))
 y CRUD que solo modifica guías pendientes (AUD-027)."""
 import pytest
 
@@ -13,9 +13,9 @@ def base(db):
     ]
     db.tablas['bodegas'] = [{'id_bodega': 2, 'descripcion': 'Central'}]
     db.tablas['cortes'] = [
-        {'id_corte': 4, 'fecha_corte': '2026-10-01', 'cortador': 'Juan', 'cantidad': 10, 'producto_asociado': 2,
+        {'id_corte': 4, 'codigo': 'COR-004', 'fecha_corte': '2026-10-01', 'cortador': 'Juan', 'cantidad': 10, 'producto_asociado': 2,
          'estado': 'ingresado', 'fecha_ingreso': '2026-10-03T10:00:00+00:00', 'id_bodega_ingreso': 2},
-        {'id_corte': 8, 'fecha_corte': '2026-10-02', 'cortador': 'Rosa', 'cantidad': 20, 'producto_asociado': 2,
+        {'id_corte': 8, 'codigo': 'COR-008', 'fecha_corte': '2026-10-02', 'cortador': 'Rosa', 'cantidad': 20, 'producto_asociado': 2,
          'estado': 'pendiente'},
     ]
     return db
@@ -27,20 +27,20 @@ def corte(id_corte, base):
 
 def formulario(sufijo, **cambios):
     datos = {'fechaCorte': '2026-10-05', 'cortador': 'Ana', 'cantidad': '15', 'IdProducto': '2',
-             'material': 'Algodón', 'observaciones': ''}
+             'material': 'Algodón', 'observaciones': '', 'codigo': 'COR-009'}
     datos.update(cambios)
     return {clave + sufijo: valor for clave, valor in datos.items()}
 
 
-def test_buscar_por_id(admin, base):
-    html = admin.post('/cortes.html', data={'_method': 'buscarID', 'idBuscar': ' 8 '}).get_data(as_text=True)
+def test_buscar_por_codigo(admin, base):
+    html = admin.post('/cortes.html', data={'_method': 'buscarCodigo', 'codigoBuscar': ' COR-008 '}).get_data(as_text=True)
     assert 'Rosa' in html and 'Juan' not in html
 
 
-@pytest.mark.parametrize('texto,mensaje', [('99', 'No se encontró ningún corte con el ID 99'),
-                                           ('abc', 'Ingrese un ID de corte numérico')])
+@pytest.mark.parametrize('texto,mensaje', [('99', 'No se encontró ningún corte con el código 99'),
+                                           ('', 'Ingrese el código del corte')])
 def test_buscar_sin_resultado_o_invalido(admin, base, texto, mensaje):
-    r = admin.post('/cortes.html', data={'_method': 'buscarID', 'idBuscar': texto}, follow_redirects=True)
+    r = admin.post('/cortes.html', data={'_method': 'buscarCodigo', 'codigoBuscar': texto}, follow_redirects=True)
     assert mensaje in r.get_data(as_text=True)
 
 
@@ -52,7 +52,7 @@ def test_listado_con_producto_y_bodega_sin_acciones_en_ingresados(admin, base):
 
 def test_crear(admin, base):
     r = admin.post('/cortes.html', data={'_method': 'post', **formulario('Crear')}, follow_redirects=True)
-    assert 'Guía de cortes 9 creada exitosamente' in r.get_data(as_text=True)
+    assert 'Guía de cortes COR-009 creada exitosamente' in r.get_data(as_text=True)
     nuevo = corte(9, base)
     assert (nuevo['cantidad'], nuevo['producto_asociado'], nuevo['observaciones']) == (15, 2, None)
 
@@ -73,7 +73,7 @@ def test_crear_valida(admin, base, cambios, mensaje):
 def test_editar_pendiente(admin, base):
     r = admin.post('/cortes.html', data={'_method': 'put', 'IdCorteActualizar': 8, **formulario('Actualizar')},
                    follow_redirects=True)
-    assert 'Guía de cortes 8 actualizada' in r.get_data(as_text=True)
+    assert 'Guía de cortes COR-008 actualizada' in r.get_data(as_text=True)
     assert corte(8, base)['cantidad'] == 15 and corte(8, base)['cortador'] == 'Ana'
 
 
@@ -81,7 +81,7 @@ def test_no_se_edita_ni_borra_un_corte_ingresado(admin, base):
     # AUD-027: su cantidad ya está en el inventario y en movimientos_inventario.
     r = admin.post('/cortes.html', data={'_method': 'put', 'IdCorteActualizar': 4, **formulario('Actualizar')},
                    follow_redirects=True)
-    assert 'La guía de cortes 4 está ingresado: solo se modifican o eliminan' in r.get_data(as_text=True)
+    assert 'La guía de cortes COR-004 está ingresado: solo se modifican o eliminan' in r.get_data(as_text=True)
     assert corte(4, base)['cantidad'] == 10
     r = admin.post('/cortes.html', data={'_method': 'delete', 'idCorteBorrar': 4}, follow_redirects=True)
     assert 'solo se modifican o eliminan' in r.get_data(as_text=True)
@@ -90,7 +90,7 @@ def test_no_se_edita_ni_borra_un_corte_ingresado(admin, base):
 
 def test_borrar_pendiente(admin, base):
     r = admin.post('/cortes.html', data={'_method': 'delete', 'idCorteBorrar': 8}, follow_redirects=True)
-    assert 'Guía de cortes 8 borrada' in r.get_data(as_text=True)
+    assert 'Guía de cortes COR-008 borrada' in r.get_data(as_text=True)
     assert [c['id_corte'] for c in base.tablas['cortes']] == [4]
 
 
@@ -112,7 +112,7 @@ def ingreso(base):
     base.tablas['productos'][0].update(codigo='414')
     base.tablas['colores'] = [{'id_color': 1, 'descripcion': 'Blanco'}, {'id_color': 2, 'descripcion': 'Negro'}]
     base.tablas['tallas'] = [{'id_talla': 1, 'talla': 1, 'nombre': 'S'}, {'id_talla': 2, 'talla': 2, 'nombre': 'M'}]
-    base.tablas['cortes'].append({'id_corte': 9, 'fecha_corte': '2026-10-03', 'cortador': 'Ana', 'cantidad': 5,
+    base.tablas['cortes'].append({'id_corte': 9, 'codigo': 'COR-009', 'fecha_corte': '2026-10-03', 'cortador': 'Ana', 'cantidad': 5,
                                   'producto_asociado': 6, 'estado': 'pendiente'})
     return base
 
@@ -123,12 +123,12 @@ def llamadas_ingreso(base):
 
 def test_ingreso_lista_guias_pendientes(admin, ingreso):
     html = admin.get('/ingresoBodega.html').get_data(as_text=True)
-    assert 'Guía 8 · 414 Polera piqué · 20 unidades cortadas · 02/10/2026' in html
+    assert 'Guía COR-008 · 414 Polera piqué · 20 unidades cortadas · 02/10/2026' in html
     # El producto ya no tiene color ni talla base: se propone solo la cantidad cortada.
     assert 'data-cantidad="20"' in html and 'data-color=' not in html
-    assert 'Guía 4 ·' not in html  # ya ingresada: aparece en «Ingresos realizados», con su bodega
+    assert 'Guía COR-004 ·' not in html  # ya ingresada: aparece en «Ingresos realizados», con su bodega
     realizados = html.split('Ingresos realizados')[1]
-    assert '<td>4</td>' in realizados and '<td>03/10/2026</td>' in realizados and '<td>Central</td>' in realizados
+    assert '<td>COR-004</td>' in realizados and '<td>03/10/2026</td>' in realizados and '<td>Central</td>' in realizados
     # El color y la talla se eligen en cada línea.
     assert '<option value="9" data-cantidad="5"' in html
     assert '>Negro</option>' in html and '>M</option>' in html
@@ -139,7 +139,7 @@ def test_ingreso_por_color_talla_y_cantidad(admin, ingreso):
     r = admin.post('/ingresoBodega.html', data={'codigoCorte': 8, 'idBodega': 2, 'color': ['1', '2', '2'],
                                                 'talla': ['1', '1', '2'], 'cantidad': ['8', '7', '4']},
                    follow_redirects=True)
-    assert 'Se ingresaron 19 unidades de la guía de cortes 8 en la bodega Central' in r.get_data(as_text=True)
+    assert 'Se ingresaron 19 unidades de la guía de cortes COR-008 en la bodega Central' in r.get_data(as_text=True)
     assert llamadas_ingreso(ingreso) == [{
         'p_id_corte': 8, 'p_id_bodega': 2, 'p_usuario': 'admin',  # CU-39 paso 5: usuario responsable
         'p_lineas': [{'id_color': 1, 'id_talla': 1, 'cantidad': 8}, {'id_color': 2, 'id_talla': 1, 'cantidad': 7},

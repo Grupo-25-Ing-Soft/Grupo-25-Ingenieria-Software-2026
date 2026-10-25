@@ -30,6 +30,10 @@
   <div class="data-card mb-4">
     <div class="data-card-header"><div><h2>Filtros</h2><span>Por cliente, fecha de emisión y estado</span></div></div>
     <form method="GET" action="{{ url_for('facturas') }}" class="modal-body row g-3 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label" for="codigo">Código</label>
+        <input type="search" class="form-control" id="codigo" name="codigo" value="{{ filtros.codigo }}">
+      </div>
       <div class="col-md">
         <label class="form-label" for="cliente">Cliente</label>
         <input type="text" class="form-control" id="cliente" name="cliente" value="{{ filtros.cliente }}" placeholder="Nombre del cliente">
@@ -61,11 +65,11 @@
     {% if datos %}
     <div class="data-table-wrap data-table-wrap--scroll">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th>Folio</th><th>Fecha emisión</th><th>Vencimiento</th><th>Cliente</th><th>Pedido</th><th class="text-end">Neto</th><th class="text-end">Impuesto</th><th class="text-end">Total</th><th class="text-end">Saldo pendiente</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <thead><tr><th>Código</th><th>Folio</th><th>Fecha emisión</th><th>Vencimiento</th><th>Cliente</th><th>Pedido</th><th class="text-end">Neto</th><th class="text-end">Impuesto</th><th class="text-end">Total</th><th class="text-end">Saldo pendiente</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
         <tbody>
           {% for f in datos %}
           <tr>
-            <td>{{ f.folio }}</td>
+            <td>{{ f.codigo or 'Sin código' }}</td><td>{{ f.folio }}</td>
             <td>{{ f.fecha_emision|fecha }}</td>
             <td>{{ f.fecha_vencimiento|fecha if f.get('fecha_vencimiento') else '-' }}</td>
             <td>{{ f.cliente }}</td>
@@ -79,7 +83,7 @@
             <td class="text-end text-nowrap">
               {% if f.estado != 'anulada' %}
               <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="Factura {{ f.folio }}"
-                      data-valores='{{ {"idFacturaActualizar": f.id_factura, "folioActualizar": f.folio, "fechaEmisionActualizar": f.fecha_emision, "fechaVencimientoActualizar": f.get('fecha_vencimiento') or '', "pedidoActualizar": f.pedido_asociado, "montoNetoActualizar": f.monto_neto} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+                      data-valores='{{ {"idFacturaActualizar": f.id_factura, "codigoActualizar": f.codigo or "", "folioActualizar": f.folio, "fechaEmisionActualizar": f.fecha_emision, "fechaVencimientoActualizar": f.get('fecha_vencimiento') or '', "pedidoActualizar": f.pedido_asociado, "montoNetoActualizar": f.monto_neto} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
               <button type="button" class="btn btn-sm btn-outline-warning" title="Anular" data-modal="#anularModal" data-registro="Factura {{ f.folio }}"
                       data-valores='{{ {"idFacturaAnular": f.id_factura} | tojson }}'><i class="bi bi-x-octagon" aria-hidden="true"></i></button>
               {% endif %}
@@ -99,6 +103,10 @@
 </div>
 
 {% macro campos_factura(sufijo, folio='') %}
+<div class="mb-3">
+  <label class="form-label" for="codigo{{ sufijo }}">Código</label>
+  <input type="text" class="form-control" id="codigo{{ sufijo }}" name="codigo{{ sufijo }}">
+</div>
 <div class="row g-3">
   <div class="col-md-6">
     <label class="form-label" for="folio{{ sufijo }}">Folio</label>
@@ -117,7 +125,7 @@
     <label class="form-label" for="pedido{{ sufijo }}">Pedido asociado</label>
     <select class="form-select" id="pedido{{ sufijo }}" name="pedido{{ sufijo }}" required>
       <option value="" selected disabled>Seleccione un pedido</option>
-      {% for p in pedidos %}<option value="{{ p.id_pedido }}">{{ p.numero_pedido or p.id_pedido }} · {{ clientes.get(p.cliente_asociado, 'Sin cliente') }}</option>{% endfor %}
+      {% for p in pedidos %}<option value="{{ p.id_pedido }}">{{ p.codigo or p.numero_pedido or 'Sin código' }} · {{ clientes.get(p.cliente_asociado, 'Sin cliente') }}</option>{% endfor %}
     </select>
     <small class="text-muted">El cliente de la factura es el del pedido.</small>
   </div>

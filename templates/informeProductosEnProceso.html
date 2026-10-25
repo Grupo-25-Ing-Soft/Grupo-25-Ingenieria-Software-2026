@@ -19,14 +19,14 @@
     <tbody>
       {% for c in cortes %}
       <tr>
-        <td>{{ c.id_corte }}</td>
+        <td>{{ c.id_corte|codigo_registro('cortes') }}</td>
         <td>{{ c.fecha_corte|fecha }}</td>
         <td class="text-end">{{ c.dias_en_proceso if c.dias_en_proceso is not none else '' }}</td>
         <td>{{ c.producto or 'Sin producto' }}</td>
         <td class="text-end">{{ c.cantidad }}</td>
         <td>{{ c.cortador or '' }}</td>
         <td>{{ c.material_usado or '' }}</td>
-        <td>{% if c.id_pedido %}<a href="{{ url_for('verDetalle', id_pedido=c.id_pedido) }}">{{ c.numero_pedido or c.id_pedido }}</a>{% else %}Sin pedido{% endif %}</td>
+        <td>{% if c.id_pedido %}<a href="{{ url_for('verDetalle', id_pedido=c.id_pedido) }}">{{ c.id_pedido|codigo_registro('pedidos') }}</a>{% else %}Sin pedido{% endif %}</td>
         <td>{{ c.cliente or '' }}</td>
         <td class="text-end">{{ c.pendiente_pedido if c.pendiente_pedido is not none else '—' }}</td>
       </tr>

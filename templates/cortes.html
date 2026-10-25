@@ -30,8 +30,8 @@
     <div class="data-card-header">
       <div><h2>Guías de cortes</h2><span>{{ datos|length }} resultado{{ '' if datos|length == 1 else 's' }}</span></div>
       <form method="POST" action="{{ url_for('cortes') }}" class="d-flex gap-2" role="search">
-        <input type="hidden" name="_method" value="buscarID">
-        <input type="search" class="form-control form-control-sm" name="idBuscar" value="{{ busqueda }}" inputmode="numeric" placeholder="ID de corte" aria-label="Buscar corte por ID">
+        <input type="hidden" name="_method" value="buscarCodigo">
+        <input type="search" class="form-control form-control-sm" name="codigoBuscar" value="{{ busqueda }}" placeholder="Código de corte" aria-label="Buscar corte por código">
         <button type="submit" class="btn btn-sm btn-outline-secondary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
         {% if busqueda %}<a href="{{ url_for('cortes') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>{% endif %}
       </form>
@@ -39,11 +39,11 @@
     {% if datos %}
     <div class="data-table-wrap data-table-wrap--scroll">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th>ID</th><th>Fecha</th><th>Cortador</th><th>Producto</th><th class="text-end">Cantidad</th><th>Material</th><th>Observaciones</th><th>Estado</th><th>Ingreso a bodega</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <thead><tr><th>Código</th><th>Fecha</th><th>Cortador</th><th>Producto</th><th class="text-end">Cantidad</th><th>Material</th><th>Observaciones</th><th>Estado</th><th>Ingreso a bodega</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
         <tbody>
           {% for c in datos %}
           <tr>
-            <td>{{ c.id_corte }}</td>
+            <td>{{ c.codigo or 'Sin código' }}</td>
             <td>{{ c.fecha_corte|fecha }}</td>
             <td>{{ c.cortador or '' }}</td>
             <td>{{ c.producto or ('Producto ' ~ c.producto_asociado if c.producto_asociado else '—') }}</td>
@@ -55,9 +55,9 @@
             {% if puede_editar %}
             <td class="text-end text-nowrap">
               {% if c.estado == 'pendiente' %}
-              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="guía de cortes {{ c.id_corte }}"
-                      data-valores='{{ {"IdCorteActualizar": c.id_corte, "fechaCorteActualizar": c.fecha_corte, "cortadorActualizar": c.cortador or "", "cantidadActualizar": c.cantidad, "materialActualizar": c.material_usado or "", "observacionesActualizar": c.observaciones or "", "IdProductoActualizar": c.producto_asociado or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
-              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="guía de cortes {{ c.id_corte }}"
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="guía de cortes {{ c.codigo or 'Sin código' }}"
+                      data-valores='{{ {"IdCorteActualizar": c.id_corte, "codigoActualizar": c.codigo or "", "fechaCorteActualizar": c.fecha_corte, "cortadorActualizar": c.cortador or "", "cantidadActualizar": c.cantidad, "materialActualizar": c.material_usado or "", "observacionesActualizar": c.observaciones or "", "IdProductoActualizar": c.producto_asociado or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="guía de cortes {{ c.codigo or 'Sin código' }}"
                       data-valores='{{ {"idCorteBorrar": c.id_corte} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
               {% else %}
               <span class="text-muted small">Ingresada</span>
@@ -76,6 +76,10 @@
 </div>
 
 {% macro campos_corte(sufijo) %}
+<div class="mb-3">
+  <label class="form-label" for="codigo{{ sufijo }}">Código</label>
+  <input type="text" class="form-control" id="codigo{{ sufijo }}" name="codigo{{ sufijo }}">
+</div>
 <div class="row g-3">
   <div class="col-md-6">
     <label class="form-label" for="fechaCorte{{ sufijo }}">Fecha del corte</label>

@@ -101,7 +101,7 @@
     <div class="modal-body">
       <dl class="row mb-3">
         <dt class="col-sm-2">Estado</dt><dd class="col-sm-4">{{ d.estado }}</dd>
-        <dt class="col-sm-2">Bodega</dt><dd class="col-sm-4">{{ d.bodega or d.id_bodega }}</dd>
+        <dt class="col-sm-2">Bodega</dt><dd class="col-sm-4">{{ d.bodega or 'Sin bodega' }}</dd>
         <dt class="col-sm-2">Factura</dt><dd class="col-sm-4">{{ d.folio_factura or 'Sin factura' }}</dd>
         <dt class="col-sm-2">Vía</dt><dd class="col-sm-4">{{ d.via_despacho or '—' }}</dd>
         <dt class="col-sm-2">Observación</dt><dd class="col-sm-4">{{ d.observacion or '—' }}</dd>
@@ -188,9 +188,9 @@
           <tr>
             <td>{{ d.numero_guia }}</td>
             <td>{{ d.fecha|fecha }}</td>
-            <td>{{ d.numero_pedido or d.id_pedido }}</td>
+            <td>{{ d.id_pedido|codigo_registro('pedidos') }}</td>
             <td>{{ d.cliente or '' }}</td>
-            <td>{{ d.bodega or d.id_bodega }}</td>
+            <td>{{ d.bodega or 'Sin bodega' }}</td>
             <td>{{ d.folio_factura or '' }}</td>
             <td>{{ d.via_despacho or '' }}</td>
             <td>{{ d.unidades }} <small class="text-muted">({{ d.lineas }} línea{{ '' if d.lineas == 1 else 's' }})</small></td>

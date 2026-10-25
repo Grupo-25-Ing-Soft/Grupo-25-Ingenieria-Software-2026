@@ -24,7 +24,7 @@
       <tr>
         <td><a href="{{ url_for('despachos', ver=l.id_despacho) }}">{{ l.numero_guia }}</a></td>
         <td>{{ l.fecha|fecha }}</td>
-        <td>{{ l.numero_pedido or l.id_pedido }}</td>
+        <td>{{ l.id_pedido|codigo_registro('pedidos') }}</td>
         <td>{{ l.cliente or 'Sin cliente' }}</td>
         <td>{{ l.vendedor or '' }}</td>
         <td>{{ l.folio_factura or '—' }}</td>
