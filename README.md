@@ -48,6 +48,8 @@ Supabase en este orden (el detalle está al inicio de `supabase/00_esquema_base.
 9. `incremento4_inventario_variantes.sql`
 10. `incremento4_limpieza.sql` (opcional)
 11. `incremento4_ingreso_produccion.sql`
+12. `incremento4_feedback_productos.sql`
+13. `incremento4_cortes_cantidades.sql`
 
 Los scripts posteriores reemplazan funciones y vistas de los anteriores: sobre la base
 actual no se vuelve a ejecutar uno antiguo.

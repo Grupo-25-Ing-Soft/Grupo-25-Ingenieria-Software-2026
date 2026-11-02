@@ -2177,7 +2177,13 @@ def informeProductosEnProceso():
         pedidos = [p['id_pedido'] for p in supabase.table('pedidos').select('id_pedido')
                    .eq('cliente_asociado', _entero_positivo(filtros['cliente'])).execute().data or []]
         query = query.in_('id_pedido', pedidos or [0])
-    cortes = query.order('fecha_corte').order('id_corte').execute().data or []
+    try:
+        cortes = query.order('fecha_corte').order('id_corte').execute().data or []
+    except APIError as error:
+        if not _es_tabla_faltante(error):
+            raise
+        flash('Falta ejecutar supabase/incremento4_cortes_cantidades.sql en Supabase', 'error')
+        cortes = []
     # Un corte es de un producto, sin color ni talla: esos datos se definen al ingresarlo a
     # bodega (CU-21), así que el informe no los muestra.
     ids_pedido = list({c['id_pedido'] for c in cortes if c.get('id_pedido')})
@@ -2528,7 +2534,7 @@ def _leer_corte_formulario(sufijo):
         .eq('id_producto', id_producto).execute().data if id_producto else []
     if not producto:
         return None, 'Seleccione el producto del corte.'
-    return {'fecha_corte': fecha, 'cortador': cortador, 'cantidad': cantidad,
+    return {'fecha_corte': fecha, 'cortador': cortador, 'cantidad_producto': cantidad,
             'observaciones': _texto_o_nulo(request.form.get('observaciones' + sufijo)),
             'material_usado': _texto_o_nulo(request.form.get('material' + sufijo)),
             'producto_asociado': id_producto}, None
@@ -3778,10 +3784,10 @@ def ingresoBodega():
     # Si la base no responde se muestra la pantalla con el aviso (antes redirigía a sí misma en bucle).
     try:
         bodegas = supabase.table('bodegas').select('id_bodega, descripcion').order('descripcion').execute().data or []
-        cortes = supabase.table('cortes').select('id_corte, fecha_corte, cantidad, producto_asociado') \
+        cortes = supabase.table('cortes').select('id_corte, fecha_corte, cantidad_producto, producto_asociado') \
             .eq('estado', 'pendiente').order('id_corte').execute().data or []
         # Ingresos ya hechos: cortes ingresados, con la fecha y la bodega del ingreso.
-        ingresados = supabase.table('cortes').select('id_corte, cantidad, producto_asociado, fecha_ingreso, '
+        ingresados = supabase.table('cortes').select('id_corte, cantidad_producto, producto_asociado, fecha_ingreso, '
                                                      'id_bodega_ingreso') \
             .eq('estado', 'ingresado').order('fecha_ingreso', desc=True).execute().data or []
         productos = {p['id_producto']: p for p in supabase.table('productos')

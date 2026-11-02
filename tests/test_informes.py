@@ -2,6 +2,8 @@
 (AUD-030 a AUD-035): solo guías emitidas, lo despachado y no lo pedido, y agrupaciones."""
 import pytest
 
+from tests.supabase_falso import error
+
 
 def despacho(id_despacho, fecha, cliente, vendedor, cantidad, precio, descuento, estado='emitido', id_factura=None):
     bruto = cantidad * precio
@@ -244,6 +246,19 @@ def test_resumen_de_produccion_cu55(admin, base):
     assert '1 guía de cortes · 3 unidades' in admin.get('/resumenProduccion.html?articulo=3').get_data(as_text=True)
     html = admin.get('/resumenProduccion.html?cliente=2&articulo=2').get_data(as_text=True)
     assert 'No hay resultados para los filtros aplicados' in html
+
+
+def test_productos_en_proceso_sin_la_vista_avisa(admin, base):
+    # La vista se perdió en la base al cambiar cortes.cantidad: no debe dar error 500.
+    original = base.ejecutar
+
+    def ejecutar(consulta):
+        if consulta.nombre == 'v_productos_en_proceso':
+            raise error('Could not find the table public.v_productos_en_proceso', 'PGRST205')
+        return original(consulta)
+    base.ejecutar = ejecutar
+    r = admin.get('/informeProductosEnProceso.html')
+    assert r.status_code == 200 and 'Falta ejecutar supabase/incremento4_cortes_cantidades.sql' in r.get_data(as_text=True)
 
 
 def test_productos_en_proceso_cu54(admin, base):

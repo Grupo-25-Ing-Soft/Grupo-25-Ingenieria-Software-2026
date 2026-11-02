@@ -47,7 +47,7 @@
             <td>{{ c.fecha_corte|fecha }}</td>
             <td>{{ c.cortador or '' }}</td>
             <td>{{ c.producto or ('Producto ' ~ c.producto_asociado if c.producto_asociado else '—') }}</td>
-            <td class="text-end">{{ c.cantidad }}</td>
+            <td class="text-end">{{ c.cantidad_producto }}</td>
             <td>{{ c.material_usado or '' }}</td>
             <td>{{ c.observaciones or '' }}</td>
             <td><span class="badge {{ 'text-bg-success' if c.estado == 'ingresado' else 'text-bg-primary' if c.estado == 'pendiente' else 'text-bg-secondary' }}">{{ c.estado or '—' }}</span></td>
@@ -56,7 +56,7 @@
             <td class="text-end text-nowrap">
               {% if c.estado == 'pendiente' %}
               <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="guía de cortes {{ c.id_corte }}"
-                      data-valores='{{ {"IdCorteActualizar": c.id_corte, "fechaCorteActualizar": c.fecha_corte, "cortadorActualizar": c.cortador or "", "cantidadActualizar": c.cantidad, "materialActualizar": c.material_usado or "", "observacionesActualizar": c.observaciones or "", "IdProductoActualizar": c.producto_asociado or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+                      data-valores='{{ {"IdCorteActualizar": c.id_corte, "fechaCorteActualizar": c.fecha_corte, "cortadorActualizar": c.cortador or "", "cantidadActualizar": c.cantidad_producto, "materialActualizar": c.material_usado or "", "observacionesActualizar": c.observaciones or "", "IdProductoActualizar": c.producto_asociado or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
               <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="guía de cortes {{ c.id_corte }}"
                       data-valores='{{ {"idCorteBorrar": c.id_corte} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
               {% else %}

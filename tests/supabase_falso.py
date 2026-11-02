@@ -33,6 +33,9 @@ CASCADAS = {
     'pagos': [('pago_facturas', 'id_pago', 'id_pago')],
     'productos': [('producto_variantes', 'id_producto', 'id_producto')],
 }
+# Columnas que ya no existen en la base real: pedirlas o escribirlas da 42703, como allá
+# (cortes.cantidad pasó a cantidad_producto).
+COLUMNAS_RETIRADAS = {'cortes': {'cantidad'}}
 # Columnas identity que no son la clave primaria (pagos.folio en pagos.sql).
 IDENTIDADES_EXTRA = {'pagos': 'folio'}
 FORMATO_EAN = {'prefijo': '99', 'producto': 3, 'color': 4, 'talla': 3}
@@ -60,6 +63,9 @@ class ConsultaFalsa:
 
     # ---------------------------------------------------- construcción (como supabase-py)
     def select(self, *args, **kwargs):
+        for columna in COLUMNAS_RETIRADAS.get(self.nombre, ()):
+            if any(re.search(rf'{columna}', str(texto)) for texto in args):
+                raise error(f'column {self.nombre}.{columna} does not exist', '42703')
         return self
 
     def insert(self, valores):
@@ -204,6 +210,9 @@ class SupabaseFalso:
             fila[columna] = calculo(fila)
 
     def _validar(self, tabla, fila):
+        for columna in COLUMNAS_RETIRADAS.get(tabla, ()):
+            if columna in fila:
+                raise error(f'column "{columna}" of relation "{tabla}" does not exist', '42703')
         # Equivale a los check de supabase/incremento3_ean.sql.
         # productos.codigo_ean ya no se usa: la parte de producto del EAN es productos.codigo.
         if tabla in ('colores', 'tallas'):

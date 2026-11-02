@@ -41,8 +41,8 @@
             <select class="form-select" id="codigoCorte" name="codigoCorte" required>
               <option value="" {% if not corte_elegido %}selected{% endif %} disabled>{{ 'Seleccione una guía de cortes' if cortes else 'No hay guías de cortes pendientes de ingreso' }}</option>
               {% for corte in cortes %}
-              <option value="{{ corte.id_corte }}" data-cantidad="{{ corte.cantidad }}"
-                      {% if corte_elegido == corte.id_corte %}selected{% endif %} {% if not corte.ingresable %}disabled{% endif %}>Guía {{ corte.id_corte }} · {{ corte.codigo }} {{ corte.producto }} · {{ corte.cantidad }} unidades cortadas · {{ corte.fecha_corte|fecha }}{% if not corte.ingresable %} (sin producto asociado){% endif %}</option>
+              <option value="{{ corte.id_corte }}" data-cantidad="{{ corte.cantidad_producto }}"
+                      {% if corte_elegido == corte.id_corte %}selected{% endif %} {% if not corte.ingresable %}disabled{% endif %}>Guía {{ corte.id_corte }} · {{ corte.codigo }} {{ corte.producto }} · {{ corte.cantidad_producto }} unidades cortadas · {{ corte.fecha_corte|fecha }}{% if not corte.ingresable %} (sin producto asociado){% endif %}</option>
               {% endfor %}
             </select>
           </div>
@@ -100,7 +100,7 @@
           <tr>
             <td>{{ c.id_corte }}</td>
             <td>{{ c.producto }}</td>
-            <td class="text-end">{{ c.cantidad }}</td>
+            <td class="text-end">{{ c.cantidad_producto }}</td>
             <td>{{ c.fecha_ingreso|fecha }}</td>
             <td>{{ c.bodega }}</td>
           </tr>

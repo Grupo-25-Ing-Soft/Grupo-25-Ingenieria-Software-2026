@@ -13,9 +13,9 @@ def base(db):
     ]
     db.tablas['bodegas'] = [{'id_bodega': 2, 'descripcion': 'Central'}]
     db.tablas['cortes'] = [
-        {'id_corte': 4, 'fecha_corte': '2026-10-01', 'cortador': 'Juan', 'cantidad': 10, 'producto_asociado': 2,
+        {'id_corte': 4, 'fecha_corte': '2026-10-01', 'cortador': 'Juan', 'cantidad_producto': 10, 'producto_asociado': 2,
          'estado': 'ingresado', 'fecha_ingreso': '2026-10-03T10:00:00+00:00', 'id_bodega_ingreso': 2},
-        {'id_corte': 8, 'fecha_corte': '2026-10-02', 'cortador': 'Rosa', 'cantidad': 20, 'producto_asociado': 2,
+        {'id_corte': 8, 'fecha_corte': '2026-10-02', 'cortador': 'Rosa', 'cantidad_producto': 20, 'producto_asociado': 2,
          'estado': 'pendiente'},
     ]
     return db
@@ -47,6 +47,7 @@ def test_buscar_sin_resultado_o_invalido(admin, base, texto, mensaje):
 def test_listado_con_producto_y_bodega_sin_acciones_en_ingresados(admin, base):
     html = admin.get('/cortes.html').get_data(as_text=True)
     assert '<td>Polera piqué</td>' in html and '03/10/2026 · Central' in html
+    assert '<td class="text-end">20</td>' in html and '"cantidadActualizar": 20' in html  # cantidad_producto
     assert '"idCorteBorrar": 8' in html and '"idCorteBorrar": 4' not in html
 
 
@@ -54,7 +55,7 @@ def test_crear(admin, base):
     r = admin.post('/cortes.html', data={'_method': 'post', **formulario('Crear')}, follow_redirects=True)
     assert 'Guía de cortes 9 creada exitosamente' in r.get_data(as_text=True)
     nuevo = corte(9, base)
-    assert (nuevo['cantidad'], nuevo['producto_asociado'], nuevo['observaciones']) == (15, 2, None)
+    assert (nuevo['cantidad_producto'], nuevo['producto_asociado'], nuevo['observaciones']) == (15, 2, None)
 
 
 @pytest.mark.parametrize('cambios,mensaje', [
@@ -74,7 +75,7 @@ def test_editar_pendiente(admin, base):
     r = admin.post('/cortes.html', data={'_method': 'put', 'IdCorteActualizar': 8, **formulario('Actualizar')},
                    follow_redirects=True)
     assert 'Guía de cortes 8 actualizada' in r.get_data(as_text=True)
-    assert corte(8, base)['cantidad'] == 15 and corte(8, base)['cortador'] == 'Ana'
+    assert corte(8, base)['cantidad_producto'] == 15 and corte(8, base)['cortador'] == 'Ana'
 
 
 def test_no_se_edita_ni_borra_un_corte_ingresado(admin, base):
@@ -82,7 +83,7 @@ def test_no_se_edita_ni_borra_un_corte_ingresado(admin, base):
     r = admin.post('/cortes.html', data={'_method': 'put', 'IdCorteActualizar': 4, **formulario('Actualizar')},
                    follow_redirects=True)
     assert 'La guía de cortes 4 está ingresado: solo se modifican o eliminan' in r.get_data(as_text=True)
-    assert corte(4, base)['cantidad'] == 10
+    assert corte(4, base)['cantidad_producto'] == 10
     r = admin.post('/cortes.html', data={'_method': 'delete', 'idCorteBorrar': 4}, follow_redirects=True)
     assert 'solo se modifican o eliminan' in r.get_data(as_text=True)
     assert corte(4, base)
@@ -112,7 +113,7 @@ def ingreso(base):
     base.tablas['productos'][0].update(codigo='414')
     base.tablas['colores'] = [{'id_color': 1, 'descripcion': 'Blanco'}, {'id_color': 2, 'descripcion': 'Negro'}]
     base.tablas['tallas'] = [{'id_talla': 1, 'talla': 1, 'nombre': 'S'}, {'id_talla': 2, 'talla': 2, 'nombre': 'M'}]
-    base.tablas['cortes'].append({'id_corte': 9, 'fecha_corte': '2026-10-03', 'cortador': 'Ana', 'cantidad': 5,
+    base.tablas['cortes'].append({'id_corte': 9, 'fecha_corte': '2026-10-03', 'cortador': 'Ana', 'cantidad_producto': 5,
                                   'producto_asociado': 6, 'estado': 'pendiente'})
     return base
 

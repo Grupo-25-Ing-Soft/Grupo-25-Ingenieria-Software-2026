@@ -9,8 +9,8 @@
 --    automático y a la variante se le asigna uno manual en Códigos EAN.
 --    La app deja de leer y escribir productos.color, productos.talla y
 --    productos.codigo_ean (color y talla viven en producto_variantes). Las columnas no se
---    borran. Ojo: v_productos_en_proceso (incremento3_despachos.sql) todavía las une; si
---    algún día se eliminan, hay que recrear antes esa vista.
+--    borran. v_productos_en_proceso ya no depende de ellas después de
+--    incremento4_cortes_cantidades.sql.
 --
 -- 2. Presets de tallas (tablas presets_talla y presets_talla_detalle).
 --
