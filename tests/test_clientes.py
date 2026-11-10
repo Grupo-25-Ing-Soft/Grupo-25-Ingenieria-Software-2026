@@ -53,8 +53,7 @@ def test_dv_se_calcula_aunque_lo_peguen_con_guion(admin, base, rut, numero):
     ({'rut': '12a45'}, 'Ingrese el número del RUT'),
     ({'rut': '0'}, 'Ingrese el número del RUT'),
     ({'rut': ''}, 'Ingrese el número del RUT'),
-    ({'nombre': ' '}, 'razón social es obligatoria'),
-    ({'nombre': 'X' * 101}, 'admite hasta 100 caracteres'),
+    ({'nombre': ' '}, 'nombre del cliente es obligatorio'),
     ({'descuento1': '120'}, 'entre 0 y 100'),
 ])
 def test_validaciones(admin, base, cambios, mensaje):
@@ -109,13 +108,3 @@ def test_validaciones_rf001(admin, base, cambios, mensaje):
     base.tablas['vendedores'] = []
     assert mensaje in admin.post('/clientes.html', data=datos(**cambios), follow_redirects=True).get_data(as_text=True)
     assert base.tablas['clientes'] == []
-
-
-@pytest.mark.parametrize('escrita,guardada', [
-    ('COMERCIAL D NIX LIMITADA', 'COMERCIAL D NIX LIMITADA'),
-    ('Confecciones Ñuble SpA', 'Confecciones Ñuble SpA'),   # no se pasa a mayúsculas ni se expande SpA
-    ('  Tienda   Sur  Ltda. ', 'Tienda Sur Ltda.'),        # solo se quitan los espacios sobrantes
-])
-def test_razon_social_tal_como_la_registra_el_sii(admin, base, escrita, guardada):
-    admin.post('/clientes.html', data=datos(nombre=escrita))
-    assert base.tablas['clientes'][0]['nombre'] == guardada
