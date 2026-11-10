@@ -904,10 +904,8 @@ def _recalcular_factura(id_factura):
 def validar_folio(texto):
     """Único lugar donde se valida el folio de una factura. Devuelve (folio, error).
 
-    TODO(cliente): falta el formato de folio que pide el cliente (feedback del
-    Incremento 4). Pregunta pendiente: «¿Qué formato debe tener el folio de la factura
-    (numérico correlativo, con o sin ceros a la izquierda, con prefijo)?». Mientras
-    tanto se mantiene la regla actual: entero mayor que cero (facturas.folio es bigint)."""
+    El cliente no pide un formato de folio por ahora (respuesta al feedback del
+    Incremento 4): basta un entero mayor que cero (facturas.folio es bigint)."""
     try:
         folio = int(str(texto or '').strip())
         if folio <= 0:
@@ -917,16 +915,31 @@ def validar_folio(texto):
     return folio, None
 
 
+# Largo del campo razón social en la factura electrónica del SII (RznSoc y RznSocRecep).
+LARGO_RAZON_SOCIAL_SII = 100
+
+
+def validar_razon_social(texto):
+    """Único lugar donde se valida la razón social (clientes.nombre y la de la empresa en
+    Configuración). Devuelve (razón social, error).
+
+    Va como el SII la tiene registrada para el RUT (respuesta del cliente al feedback del
+    Incremento 4): no se cambian mayúsculas, tildes ni abreviaturas, y no sirve un nombre
+    de fantasía. Solo se quitan los espacios sobrantes y se limita al largo del SII."""
+    razon = ' '.join(str(texto or '').split())
+    if not razon:
+        return None, 'La razón social es obligatoria.'
+    if len(razon) > LARGO_RAZON_SOCIAL_SII:
+        return None, (f'La razón social admite hasta {LARGO_RAZON_SOCIAL_SII} caracteres, el largo que '
+                      'acepta el SII en la factura electrónica.')
+    return razon, None
+
+
 @app.template_filter('razon_social')
 def formatear_razon_social(nombre):
-    """Único lugar donde se da formato a la razón social que muestran facturas, notas de
-    crédito y cobranza. La razón social es clientes.nombre (no se copia en la factura).
-
-    TODO(cliente): falta el formato que pide el cliente (feedback del Incremento 4).
-    Pregunta pendiente: «¿Cómo debe escribirse la razón social (tal como en el SII, en
-    mayúsculas, con o sin abreviaturas como LTDA/SPA)?». Mientras tanto se muestra tal
-    como está en la ficha del cliente."""
-    return (nombre or '').strip()
+    """Razón social que muestran facturas, notas de crédito, pagos y cobranza: la de la
+    ficha del cliente (no se copia en la factura), tal como la registra el SII."""
+    return ' '.join(str(nombre or '').split())
 
 
 def _clientes_de_pedidos(ids_pedido):
@@ -2793,9 +2806,9 @@ def _porcentaje(valor, nombre, obligatorio=False):
 def _leer_cliente_formulario(sufijo, id_cliente=None):
     """Valida el modal de clientes (RF-001, CU-01.1 y CU-01.5). Devuelve (datos, error)."""
     form = lambda campo: request.form.get(campo + sufijo)
-    nombre = (form('nombre') or '').strip()
-    if not nombre:
-        return None, 'El nombre del cliente es obligatorio.'
+    nombre, error = validar_razon_social(form('nombre'))
+    if error:
+        return None, error
     # CU-01.5: el usuario ingresa solo el número; el dígito verificador lo calcula el sistema.
     rut = _leer_rut(form('rut'))
     if rut is None:
@@ -3784,8 +3797,9 @@ def configuracion():
     except (TypeError, ValueError):
         impuesto = None
 
-    if not campos["razon_social"]:
-        flash("La razón social es obligatoria", "error")
+    campos["razon_social"], error_razon = validar_razon_social(campos["razon_social"])
+    if error_razon:
+        flash(error_razon, "error")
         return redirect(url_for('configuracion'))
     if not rut_valido:
         flash("Ingrese el número del RUT: solo dígitos, con o sin puntos (el dígito verificador se calcula solo)", "error")

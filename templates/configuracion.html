@@ -34,7 +34,8 @@
         <div class="row g-3">
           <div class="col-md-6">
             <label for="razon_social" class="form-label">Razón social</label>
-            <input type="text" class="form-control" id="razon_social" name="razon_social" value="{{ parametros.razon_social }}" required maxlength="160">
+            <input type="text" class="form-control" id="razon_social" name="razon_social" value="{{ parametros.razon_social }}" required maxlength="100">
+            <small class="text-muted">Tal como está registrada en el SII.</small>
           </div>
           <div class="col-md-6">
             <label for="rut" class="form-label">RUT (sin dígito verificador)</label>

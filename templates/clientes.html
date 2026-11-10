@@ -102,7 +102,8 @@
 <div class="row g-3">
   <div class="col-md-8">
     <label class="form-label" for="nombre{{ sufijo }}">Nombre completo (apellidos-nombres o razón social)</label>
-    <input type="text" class="form-control" id="nombre{{ sufijo }}" name="nombre{{ sufijo }}" required>
+    <input type="text" class="form-control" id="nombre{{ sufijo }}" name="nombre{{ sufijo }}" required maxlength="100">
+    <small class="text-muted">Tal como está registrado en el SII para el RUT (no el nombre de fantasía).</small>
   </div>
   <div class="col-md-4">
     <label class="form-label" for="codigo{{ sufijo }}">Código de cliente</label>

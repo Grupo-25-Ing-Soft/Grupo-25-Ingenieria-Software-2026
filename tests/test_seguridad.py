@@ -122,3 +122,14 @@ def test_vendedor_asignado_a_clientes_no_se_elimina(admin, db):
                      pedidos=[], clientes=[{'id_cliente': 1, 'nombre': 'Tienda', 'id_vendedor': 1}])
     r = admin.post('/vendedores.html', data={'_method': 'delete', 'idVendedorBorrar': 1}, follow_redirects=True)
     assert 'está en uso en clientes' in r.get_data(as_text=True) and db.tablas['vendedores']
+
+
+@pytest.mark.parametrize('razon,guardada', [('  COMERCIAL  D NIX LIMITADA ', 'COMERCIAL D NIX LIMITADA'),
+                                            ('X' * 101, None), ('   ', None)])
+def test_razon_social_de_la_empresa_como_en_el_sii(admin, db, razon, guardada):
+    db.tablas['parametros_sistema'] = [{'id': 1}]
+    datos = {'razon_social': razon, 'rut': '12345678', 'correo': 'a@b.cl', 'moneda': 'CLP',
+             'formato_moneda': '$#,##0', 'porcentaje_impuesto': '19'}
+    html = admin.post('/configuracion.html', data=datos, follow_redirects=True).get_data(as_text=True)
+    assert db.tablas['parametros_sistema'][0].get('razon_social') == guardada
+    assert ('Configuración guardada' in html) is (guardada is not None)
