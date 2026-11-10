@@ -1,7 +1,7 @@
 {% extends '_informe_base.html' %}
 {% import '_informe_macros.html' as inf %}
 {% block titulo %}Análisis de inventario{% endblock %}
-{% block descripcion %}Stock disponible, productos con defectos y si cada producto está asociado a pedidos pendientes de despacho (CU-53).{% endblock %}
+{% block descripcion %}Stock disponible, productos con defectos y si cada producto está asociado a pedidos pendientes de despacho.{% endblock %}
 
 {% block filtros %}
 {{ inf.lista('bodega', 'Bodega', bodegas, filtros, vacio='Todas') }}

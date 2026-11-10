@@ -1,7 +1,7 @@
 {% extends '_informe_base.html' %}
 {% import '_informe_macros.html' as inf %}
 {% block titulo %}Despachos según factura y cliente{% endblock %}
-{% block descripcion %}Número, cantidad y monto de los despachos hechos a un cliente y sus facturas asociadas (CU-48). Las guías anuladas no se cuentan.{% endblock %}
+{% block descripcion %}Número, cantidad y monto de los despachos hechos a un cliente y sus facturas asociadas. Las guías anuladas no se cuentan.{% endblock %}
 
 {% block filtros %}
 {{ inf.fecha('desde', 'Desde', filtros) }}

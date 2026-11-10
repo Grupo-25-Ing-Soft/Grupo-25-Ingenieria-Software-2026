@@ -1,7 +1,7 @@
 {% extends '_informe_base.html' %}
 {% import '_informe_macros.html' as inf %}
 {% block titulo %}Productos terminados{% endblock %}
-{% block descripcion %}Productos terminados (guías de cortes ingresadas a bodega) entre las fechas elegidas, por talla y color, con sus unidades con defectos y si están asociados a pedidos (CU-52).{% endblock %}
+{% block descripcion %}Productos terminados (guías de cortes ingresadas a bodega) entre las fechas elegidas, por talla y color, con sus unidades con defectos y si están asociados a pedidos.{% endblock %}
 
 {% block filtros %}
 {{ inf.fecha('desde', 'Desde', filtros) }}

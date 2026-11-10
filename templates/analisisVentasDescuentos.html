@@ -1,7 +1,7 @@
 {% extends '_informe_base.html' %}
 {% import '_informe_macros.html' as inf %}
 {% block titulo %}Ventas y descuentos{% endblock %}
-{% block descripcion %}Venta despachada desde la perspectiva elegida (cliente, vendedor, producto, factura o guía): monto bruto, descuento aplicado (los del cliente en cascada), monto neto y comisión estimada del vendedor (CU-47).{% endblock %}
+{% block descripcion %}Venta despachada desde la perspectiva elegida (cliente, vendedor, producto, factura o guía): monto bruto, descuento aplicado (los del cliente en cascada), monto neto y comisión estimada del vendedor.{% endblock %}
 
 {% block filtros %}
 {{ inf.fecha('desde', 'Desde', filtros) }}

@@ -1,7 +1,7 @@
 {% extends '_informe_base.html' %}
 {% import '_informe_macros.html' as inf %}
 {% block titulo %}Productos en proceso{% endblock %}
-{% block descripcion %}Productos de guías de cortes que todavía no se ingresan a bodega, con su pedido, su cliente y lo que a ese pedido le falta despachar (CU-54).{% endblock %}
+{% block descripcion %}Productos de guías de cortes que todavía no se ingresan a bodega, con su pedido, su cliente y lo que a ese pedido le falta despachar.{% endblock %}
 
 {% block filtros %}
 {{ inf.fecha('desde', 'Cortes desde', filtros) }}
