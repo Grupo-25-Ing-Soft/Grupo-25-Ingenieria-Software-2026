@@ -151,6 +151,21 @@ def test_no_se_elimina_un_rol_con_usuarios():
     assert tablas['roles']
 
 
+def test_eliminar_usuario_y_rol_confirma_con_el_modal_de_la_app():
+    tablas = tablas_con_rol_vendedor()
+    tablas['roles'].append({'id_rol': 8, 'nombre': 'Bodega', 'descripcion': None})
+    cliente, tablas = preparar(tablas, id_usuario=1)
+    for pagina in ('/usuarios.html', '/roles.html'):
+        html = cliente.get(pagina).get_data(as_text=True)
+        assert 'id="borrarModal"' in html and 'data-modal="#borrarModal"' in html
+        assert 'confirm(' not in html
+    # El modal envía el mismo formulario que antes: el borrado sigue igual.
+    cliente.post('/usuarios.html', data={'_method': 'delete', 'id_usuario': '2'})
+    assert [u['id_usuario'] for u in tablas['usuarios']] == [1]
+    cliente.post('/roles.html', data={'_method': 'delete', 'id_rol': '8'})
+    assert [r['id_rol'] for r in tablas['roles']] == [7]
+
+
 def test_solo_quien_tiene_permiso_administra_roles():
     cliente, _ = preparar(tablas_con_rol_vendedor(), id_usuario=2)
     assert cliente.get('/roles.html').headers['Location'] == '/'

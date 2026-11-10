@@ -8,6 +8,7 @@
   <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
   <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
 <body>
 {% include '_flash_toast.html' %}
@@ -59,11 +60,8 @@
               {% if not protegido %}
               <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick='abrirUsuario({{ usuario.id_usuario | tojson }})'><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Editar</span></button>
               {% if not es_propio %}
-              <form method="POST" class="d-inline" data-confirmacion="¿Eliminar al usuario «{{ usuario.nombre_usuario }}»? Si solo quieres quitarle el acceso, puedes desactivarlo." onsubmit="return confirm(this.dataset.confirmacion);">
-                <input type="hidden" name="_method" value="delete">
-                <input type="hidden" name="id_usuario" value="{{ usuario.id_usuario }}">
-                <button type="submit" class="btn btn-sm btn-outline-danger icon-button"><i class="bi bi-trash" aria-hidden="true"></i><span>Eliminar</span></button>
-              </form>
+              <button type="button" class="btn btn-sm btn-outline-danger icon-button" data-modal="#borrarModal" data-registro="{{ usuario.nombre_usuario }}"
+                      data-valores='{{ {"id_usuario": usuario.id_usuario} | tojson }}'><i class="bi bi-trash" aria-hidden="true"></i><span>Eliminar</span></button>
               {% endif %}
               {% endif %}
             </td>
@@ -129,6 +127,24 @@
       </div>
     </form>
   </div>
+</div>
+
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar usuario</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="id_usuario">
+        <p>¿Seguro que quieres eliminar al usuario <strong data-registro></strong>? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Si solo quieres quitarle el acceso, puedes desactivarlo desde «Editar».</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
 </div>
 
 <script>

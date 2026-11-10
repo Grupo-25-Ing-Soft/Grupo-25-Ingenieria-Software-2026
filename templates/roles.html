@@ -8,6 +8,7 @@
   <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
   <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
 </head>
 <body>
 {% include '_flash_toast.html' %}
@@ -63,11 +64,8 @@
               <span class="text-muted small">Tu rol</span>
               {% else %}
               <button type="button" class="btn btn-sm btn-outline-secondary icon-button" onclick="abrirRol({{ rol.id_rol }})"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Editar</span></button>
-              <form method="POST" class="d-inline" data-confirmacion="¿Eliminar el rol «{{ rol.nombre }}»?" onsubmit="return confirm(this.dataset.confirmacion);">
-                <input type="hidden" name="_method" value="delete">
-                <input type="hidden" name="id_rol" value="{{ rol.id_rol }}">
-                <button type="submit" class="btn btn-sm btn-outline-danger icon-button" {% if rol.cantidad_usuarios %}disabled title="Tiene usuarios asignados"{% endif %}><i class="bi bi-trash" aria-hidden="true"></i><span>Eliminar</span></button>
-              </form>
+              <button type="button" class="btn btn-sm btn-outline-danger icon-button" data-modal="#borrarModal" data-registro="{{ rol.nombre }}"
+                      data-valores='{{ {"id_rol": rol.id_rol} | tojson }}' {% if rol.cantidad_usuarios %}disabled title="Tiene usuarios asignados"{% endif %}><i class="bi bi-trash" aria-hidden="true"></i><span>Eliminar</span></button>
               {% endif %}
             </td>
             {% endif %}
@@ -129,6 +127,24 @@
       </div>
     </form>
   </div>
+</div>
+
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar rol</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="id_rol">
+        <p>¿Seguro que quieres eliminar el rol <strong data-registro></strong>? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">No se elimina si tiene usuarios asignados.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
 </div>
 
 <script>
