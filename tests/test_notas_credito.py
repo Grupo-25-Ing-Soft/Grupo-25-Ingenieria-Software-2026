@@ -7,13 +7,14 @@ def base(db):
     db.tablas.update({
         'parametros_sistema': [{'id': 1, 'porcentaje_impuesto': 19}],
         'clientes': [{'id_cliente': 1, 'nombre': 'Tienda Sur'}],
-        'facturas': [{'id_factura': 1, 'folio': 500, 'cliente_asociado': 1, 'pedido_asociado': 10,
+        'facturas': [{'id_factura': 1, 'folio': 500, 'pedido_asociado': 10,
                       'monto_total': 11900, 'saldo_pendiente': 11900, 'estado': 'vigente'},
-                     {'id_factura': 2, 'folio': 501, 'cliente_asociado': 1, 'pedido_asociado': 10,
+                     {'id_factura': 2, 'folio': 501, 'pedido_asociado': 10,
                       'monto_total': 1190, 'saldo_pendiente': 1190, 'estado': 'anulada'}],
-        'notas_credito': [{'id_nota_credito': 1, 'folio': 7, 'factura_referencia': 1, 'cliente_asociado': 1,
+        'notas_credito': [{'id_nota_credito': 1, 'folio': 7, 'factura_referencia': 1,
                            'fecha': '2026-09-01', 'monto_neto': 0, 'monto_impuesto': 0, 'monto_total': 0,
                            'motivo': 'Antigua', 'estado': 'anulada'}],
+        'pedidos': [{'id_pedido': 10, 'numero_pedido': 'PED-000010', 'cliente_asociado': 1}],
         'pagos': [], 'pago_facturas': [],
     })
     return db
@@ -39,7 +40,7 @@ def test_lee_las_columnas_del_script_y_propone_folio(admin, base):
 def test_crear_rebaja_el_saldo_de_la_factura(admin, base):
     assert 'Nota de crédito 8 creada' in crear(admin).get_data(as_text=True)
     nota = base.tablas['notas_credito'][-1]
-    assert (nota['monto_impuesto'], nota['monto_total'], nota['cliente_asociado']) == (950, 5950, 1)
+    assert (nota['monto_impuesto'], nota['monto_total']) == (950, 5950) and 'cliente_asociado' not in nota
     assert factura(base)['saldo_pendiente'] == 5950 and factura(base)['estado'] == 'parcialmente_pagada'
 
 

@@ -20,6 +20,8 @@
 --  11. incremento4_ingreso_produccion.sql (ingresar_guia_corte por color, talla y cantidad)
 --  12. incremento4_feedback_productos.sql (EAN con productos.codigo y presets de tallas)
 --  13. incremento4_cortes_cantidades.sql  (v_productos_en_proceso sin color ni talla base)
+--  14. incremento4_feedback_documentos.sql (quita detalle_pedidos.precio_unitario y subtotal, las
+--                                      copias del cliente en facturas y cambia los estados de pedidos)
 -- Los scripts posteriores reemplazan funciones y vistas de los anteriores: no
 -- volver a ejecutar uno antiguo sobre la base actual.
 -- El paso 4 ya no crea v_pendientes_despacho ni v_inventario_analisis (las crea el

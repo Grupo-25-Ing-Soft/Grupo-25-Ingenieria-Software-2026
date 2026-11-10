@@ -7,13 +7,15 @@ def base(db):
     db.tablas.update({
         'clientes': [{'id_cliente': 1, 'nombre': 'Tienda Sur'}, {'id_cliente': 2, 'nombre': 'Outlet Norte'}],
         'facturas': [
-            {'id_factura': 1, 'folio': 100, 'cliente_asociado': 1, 'fecha_emision': '2026-09-01',
+            {'id_factura': 1, 'folio': 100, 'pedido_asociado': 1, 'fecha_emision': '2026-09-01',
              'monto_total': 1000, 'saldo_pendiente': 1000, 'estado': 'vigente'},
-            {'id_factura': 2, 'folio': 101, 'cliente_asociado': 2, 'fecha_emision': '2026-09-05',
+            {'id_factura': 2, 'folio': 101, 'pedido_asociado': 2, 'fecha_emision': '2026-09-05',
              'monto_total': 500, 'saldo_pendiente': 500, 'estado': 'vigente'},
-            {'id_factura': 3, 'folio': 102, 'cliente_asociado': 2, 'fecha_emision': '2026-09-05',
+            {'id_factura': 3, 'folio': 102, 'pedido_asociado': 2, 'fecha_emision': '2026-09-05',
              'monto_total': 700, 'saldo_pendiente': 700, 'estado': 'anulada'},
         ],
+        # La factura no guarda el cliente: es el del pedido (pedido N = cliente N).
+        'pedidos': [{'id_pedido': 1, 'cliente_asociado': 1}, {'id_pedido': 2, 'cliente_asociado': 2}],
         'pagos': [], 'pago_facturas': [], 'notas_credito': [],
     })
     return db
@@ -68,7 +70,7 @@ def test_mora_desde_la_fecha_limite_de_pago(admin, base):
 def test_saldo_a_favor_del_cliente_en_cobranza(admin, base):
     # Un pago vigente de $1.500 con $1.000 aplicados deja $500 a favor del cliente.
     factura = base.tablas['facturas'][0]
-    base.tablas['pagos'].append({'id_pago': 90, 'folio': 90, 'cliente_asociado': factura['cliente_asociado'],
+    base.tablas['pagos'].append({'id_pago': 90, 'folio': 90, 'cliente_asociado': 1,  # cliente del pedido 1
                                  'monto': 1500, 'estado': 'vigente'})
     base.tablas['pago_facturas'].append({'id_pago_factura': 90, 'id_pago': 90, 'id_factura': 999, 'monto_aplicado': 1000})
     html = admin.get('/informeCobranza.html').get_data(as_text=True)

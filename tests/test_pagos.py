@@ -7,13 +7,15 @@ def base(db):
     db.tablas.update({
         'clientes': [{'id_cliente': 1, 'nombre': 'Tienda Sur'}, {'id_cliente': 2, 'nombre': 'Outlet Norte'}],
         'facturas': [
-            {'id_factura': 1, 'folio': 100, 'cliente_asociado': 1, 'fecha_emision': '2026-09-01',
+            {'id_factura': 1, 'folio': 100, 'pedido_asociado': 1, 'fecha_emision': '2026-09-01',
              'monto_total': 1000, 'saldo_pendiente': 1000, 'estado': 'vigente'},
-            {'id_factura': 2, 'folio': 101, 'cliente_asociado': 1, 'fecha_emision': '2026-09-05',
+            {'id_factura': 2, 'folio': 101, 'pedido_asociado': 1, 'fecha_emision': '2026-09-05',
              'monto_total': 500, 'saldo_pendiente': 500, 'estado': 'vigente'},
-            {'id_factura': 3, 'folio': 102, 'cliente_asociado': 2, 'fecha_emision': '2026-09-05',
+            {'id_factura': 3, 'folio': 102, 'pedido_asociado': 2, 'fecha_emision': '2026-09-05',
              'monto_total': 700, 'saldo_pendiente': 700, 'estado': 'vigente'},
         ],
+        # La factura no guarda el cliente: es el del pedido (pedido N = cliente N).
+        'pedidos': [{'id_pedido': 1, 'cliente_asociado': 1}, {'id_pedido': 2, 'cliente_asociado': 2}],
         'pagos': [], 'pago_facturas': [], 'notas_credito': [],
     })
     return db
@@ -82,7 +84,7 @@ def test_la_nota_de_credito_tambien_cuenta_en_el_saldo(admin, base):
 
 def test_saldo_a_favor_queda_visible_y_se_aplica_al_editar(admin, base):
     # AUD-024: el sobrante solo aparecía en un mensaje y luego no se veía en ninguna parte.
-    pendientes = [f['id_factura'] for f in base.tablas['facturas'] if f.get('cliente_asociado') == 1]
+    pendientes = [f['id_factura'] for f in base.tablas['facturas'] if f.get('pedido_asociado') == 1]
     primera = pendientes[0]
     saldo = next(f['saldo_pendiente'] for f in base.tablas['facturas'] if f['id_factura'] == primera)
     r = admin.post('/pagos.html', data={'_method': 'post', 'cliente': 1, 'monto': str(saldo + 1000),

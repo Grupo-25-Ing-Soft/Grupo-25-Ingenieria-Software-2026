@@ -609,11 +609,15 @@ def usuarios():
 
 # NOTA: las páginas html tienen que estar dentro de templates
 
-# Estados de pedido: los que admite el check pedidos_estado_check (supabase/00_esquema_base.sql).
-ESTADOS_PEDIDO = {'pendiente': 'Pendiente', 'confirmado': 'Confirmado', 'en_produccion': 'En producción',
-                  'despachado': 'Despachado', 'entregado': 'Entregado', 'anulado': 'Anulado'}
+# Estados de pedido del Documento 0: los que admite el check pedidos_estado_check
+# (supabase/incremento4_feedback_documentos.sql).
+ESTADOS_PEDIDO = {'registrado': 'Registrado', 'pendiente': 'Pendiente', 'en_produccion': 'En producción',
+                  'listo_para_despacho': 'Listo para despacho', 'despachado': 'Despachado', 'pagado': 'Pagado',
+                  'anulado': 'Anulado', 'finalizado': 'Finalizado'}
 # Un pedido cerrado ya no se modifica (CU-22.3), no se anula (CU-25) ni se despacha.
-ESTADOS_PEDIDO_CERRADOS = ('despachado', 'entregado', 'anulado')
+ESTADOS_PEDIDO_CERRADOS = ('despachado', 'pagado', 'finalizado', 'anulado')
+# 'despachado' lo pone registrar_despacho y 'anulado', la anulación: no se eligen a mano.
+ESTADOS_PEDIDO_MANUALES = tuple(e for e in ESTADOS_PEDIDO if e not in ('despachado', 'anulado'))
 
 
 def _pedido_o_none(id_pedido):
@@ -626,7 +630,8 @@ def _nombre_pedido(pedido):
 
 
 def _leer_pedido_formulario(sufijo):
-    """Valida cliente, vendedor y fechas del modal de pedidos. Devuelve (datos, error)."""
+    """Valida el modal de pedidos (cliente, vendedor, fechas, estado, código y
+    observaciones). Los montos no se ingresan: se calculan desde las líneas. Devuelve (datos, error)."""
     cliente = _entero_positivo(request.form.get('IDCliente' + sufijo))
     vendedor = _entero_positivo(request.form.get('IDVendedor' + sufijo))
     if not cliente or not vendedor:
@@ -637,8 +642,18 @@ def _leer_pedido_formulario(sufijo):
         return None, 'Ingrese la fecha del pedido.'
     if fecha_entrega and fecha_entrega < fecha_pedido:
         return None, 'La fecha de entrega no puede ser anterior a la fecha del pedido.'
+    estado = (request.form.get('estado' + sufijo) or 'registrado').strip()
+    if estado not in ESTADOS_PEDIDO_MANUALES:
+        return None, 'El estado elegido no es válido (despachado y anulado los asigna el sistema).'
+    observaciones = _texto_o_nulo(request.form.get('observaciones' + sufijo))
+    if observaciones and len(observaciones) > 500:
+        return None, 'Las observaciones admiten hasta 500 caracteres.'
+    codigo = _texto_o_nulo(request.form.get('codigo' + sufijo))
+    if codigo and len(codigo) > 30:
+        return None, 'El código admite hasta 30 caracteres.'
     return {'cliente_asociado': cliente, 'vendedor_asociado': vendedor,
-            'fecha_pedido': fecha_pedido, 'fecha_entrega': fecha_entrega}, None
+            'fecha_pedido': fecha_pedido, 'fecha_entrega': fecha_entrega, 'estado': estado,
+            'codigo': codigo, 'observaciones': observaciones}, None
 
 
 @app.route('/pedidos.html', methods=['GET', 'POST'])
@@ -732,14 +747,10 @@ def pedidos():
         query = query.eq('estado', filtros['estado'])
     filas = query.order('id_pedido', desc=True).execute().data or []
 
-    # RF-026: monto total de cada pedido = suma de sus líneas (_monto_linea, sin anuladas).
-    lineas = supabase.table('detalle_pedidos').select('id_pedido, cantidad, cantidad_anulada, precio_unitario') \
+    # RF-026: neto, descuento, impuesto y total de cada pedido, calculados desde sus líneas.
+    lineas = supabase.table('detalle_pedidos').select('id_pedido, id_variante, cantidad, cantidad_anulada') \
         .in_('id_pedido', [p['id_pedido'] for p in filas]).execute().data if filas else []
-    totales, unidades = {}, {}
-    for linea in lineas or []:
-        totales[linea['id_pedido']] = totales.get(linea['id_pedido'], 0) + _monto_linea(linea)
-        unidades[linea['id_pedido']] = (unidades.get(linea['id_pedido'], 0)
-                                        + int(linea.get('cantidad') or 0) - int(linea.get('cantidad_anulada') or 0))
+    montos = _montos_pedidos(filas, lineas or [], {c['id_cliente']: c for c in clientes})
 
     datos = []
     for pedido in filas:
@@ -747,10 +758,11 @@ def pedidos():
         if filtros['cliente'] and filtros['cliente'].lower() not in (cliente or '').lower():
             continue
         datos.append({**pedido, 'cliente': cliente, 'vendedor': nombre_vendedor.get(pedido.get('vendedor_asociado'), ''),
-                      'total': totales.get(pedido['id_pedido'], 0), 'unidades': unidades.get(pedido['id_pedido'], 0)})
+                      **montos[pedido['id_pedido']]})
 
     return render_template('pedidos.html', datos=datos, filtros=filtros, clientes=clientes, vendedores=vendedores,
-                           estados=ESTADOS_PEDIDO, estados_cerrados=ESTADOS_PEDIDO_CERRADOS)
+                           estados=ESTADOS_PEDIDO, estados_manuales=ESTADOS_PEDIDO_MANUALES,
+                           estados_cerrados=ESTADOS_PEDIDO_CERRADOS)
 
 
 @app.route('/verDetalle.html', methods=['GET'])
@@ -889,19 +901,60 @@ def _recalcular_factura(id_factura):
     }).eq('id_factura', id_factura).execute()
 
 
-def _leer_factura_formulario(sufijo):
-    """Valida el modal de facturas ("Crear" o "Actualizar"). Devuelve (datos, error)."""
+def validar_folio(texto):
+    """Único lugar donde se valida el folio de una factura. Devuelve (folio, error).
+
+    TODO(cliente): falta el formato de folio que pide el cliente (feedback del
+    Incremento 4). Pregunta pendiente: «¿Qué formato debe tener el folio de la factura
+    (numérico correlativo, con o sin ceros a la izquierda, con prefijo)?». Mientras
+    tanto se mantiene la regla actual: entero mayor que cero (facturas.folio es bigint)."""
     try:
-        folio = int(request.form.get('folio' + sufijo, ''))
+        folio = int(str(texto or '').strip())
         if folio <= 0:
             raise ValueError
     except ValueError:
         return None, 'El folio debe ser un número entero mayor que cero.'
+    return folio, None
+
+
+@app.template_filter('razon_social')
+def formatear_razon_social(nombre):
+    """Único lugar donde se da formato a la razón social que muestran facturas, notas de
+    crédito y cobranza. La razón social es clientes.nombre (no se copia en la factura).
+
+    TODO(cliente): falta el formato que pide el cliente (feedback del Incremento 4).
+    Pregunta pendiente: «¿Cómo debe escribirse la razón social (tal como en el SII, en
+    mayúsculas, con o sin abreviaturas como LTDA/SPA)?». Mientras tanto se muestra tal
+    como está en la ficha del cliente."""
+    return (nombre or '').strip()
+
+
+def _clientes_de_pedidos(ids_pedido):
+    """id_pedido -> id_cliente. Facturas y notas de crédito no guardan el cliente: es el
+    del pedido de la factura (supabase/incremento4_feedback_documentos.sql)."""
+    ids = list({i for i in ids_pedido if i})
+    return {p['id_pedido']: p.get('cliente_asociado') for p in supabase.table('pedidos')
+            .select('id_pedido, cliente_asociado').in_('id_pedido', ids).execute().data or []} if ids else {}
+
+
+def _con_cliente(facturas):
+    """Agrega a cada factura (leída con pedido_asociado) el cliente de su pedido como
+    'cliente_asociado'. Devuelve la misma lista."""
+    cliente = _clientes_de_pedidos(f.get('pedido_asociado') for f in facturas)
+    for factura in facturas:
+        factura['cliente_asociado'] = cliente.get(factura.get('pedido_asociado'))
+    return facturas
+
+
+def _leer_factura_formulario(sufijo):
+    """Valida el modal de facturas ("Crear" o "Actualizar"). Devuelve (datos, error)."""
+    folio, error = validar_folio(request.form.get('folio' + sufijo))
+    if error:
+        return None, error
     id_pedido = _entero_positivo(request.form.get('pedido' + sufijo))
     if not id_pedido:
         return None, 'Seleccione el pedido asociado a la factura.'
-    pedido = supabase.table('pedidos').select('id_pedido, cliente_asociado, estado') \
-        .eq('id_pedido', id_pedido).execute().data
+    pedido = supabase.table('pedidos').select('id_pedido, estado').eq('id_pedido', id_pedido).execute().data
     if not pedido:
         return None, 'El pedido seleccionado no existe.'
     if pedido[0].get('estado') == 'anulado':
@@ -918,11 +971,10 @@ def _leer_factura_formulario(sufijo):
         return None, 'El monto neto debe ser un número mayor o igual a cero.'
     # El impuesto sale del porcentaje configurado en Configuración (RF-056).
     impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
+    # El cliente no se guarda: es el del pedido. Los montos sí, porque son lo que se emitió.
     datos = {
         'folio': folio,
         'pedido_asociado': id_pedido,
-        # El cliente es el del pedido, para que no puedan quedar distintos.
-        'cliente_asociado': pedido[0].get('cliente_asociado'),
         'fecha_emision': fecha,
         'monto_neto': neto,
         'monto_impuesto': impuesto,
@@ -1032,10 +1084,13 @@ def facturas():
                 flash(f"Factura {actual['folio']} anulada", 'success')
         return redirect(url_for('facturas'))
 
-    clientes = _obtener_clientes_map()
+    # Razón social y RUT salen de la ficha del cliente del pedido (la factura no los copia).
+    fichas = {c['id_cliente']: c for c in supabase.table('clientes')
+              .select('*').execute().data or []}
+    clientes = {i: formatear_razon_social(c.get('nombre')) or 'Sin cliente' for i, c in fichas.items()}
     pedidos = supabase.table('pedidos').select('id_pedido, numero_pedido, cliente_asociado, estado') \
         .order('id_pedido').execute().data or []
-    numero_pedido = {p['id_pedido']: p.get('numero_pedido') or str(p['id_pedido']) for p in pedidos}
+    por_id = {p['id_pedido']: p for p in pedidos}
 
     filtros = {campo: request.args.get(campo, '').strip() for campo in ('cliente', 'desde', 'hasta', 'estado')}
     query = supabase.table('facturas').select('*')
@@ -1047,22 +1102,32 @@ def facturas():
         query = query.eq('estado', filtros['estado'])
     datos = []
     for fila in query.order('folio', desc=True).execute().data or []:
-        cliente = clientes.get(fila.get('cliente_asociado'), 'Sin cliente') if fila.get('cliente_asociado') else 'Sin cliente'
+        pedido = por_id.get(fila.get('pedido_asociado'), {})
+        ficha = fichas.get(pedido.get('cliente_asociado'), {})
+        cliente = clientes.get(pedido.get('cliente_asociado'), 'Sin cliente')
         if filtros['cliente'] and filtros['cliente'].lower() not in cliente.lower():
             continue
-        datos.append({**fila, 'cliente': cliente, 'numero_pedido': numero_pedido.get(fila.get('pedido_asociado'), '')})
+        datos.append({**fila, 'cliente': cliente,
+                      'rut_cliente': formatear_rut(ficha['rut'], ficha.get('digito_verificador')) if ficha.get('rut') else '',
+                      'numero_pedido': pedido.get('numero_pedido') or ''})
+
+    # El neto se propone con el total con descuentos del pedido (se puede ajustar, p. ej. al
+    # facturar solo una parte); lo que se guarda en la factura es el monto emitido.
+    abiertos = [p for p in pedidos if p.get('estado') != 'anulado']
+    lineas = supabase.table('detalle_pedidos').select('id_pedido, id_variante, cantidad, cantidad_anulada') \
+        .in_('id_pedido', [p['id_pedido'] for p in abiertos]).execute().data if abiertos else []
+    neto_pedido = {i: m['monto_neto'] - m['monto_descuento']
+                   for i, m in _montos_pedidos(abiertos, lineas or [], fichas).items()}
 
     folios = [f.get('folio') or 0 for f in supabase.table('facturas').select('folio').execute().data or []]
-    return render_template('facturas.html', datos=datos, filtros=filtros,
-                           pedidos=[p for p in pedidos if p.get('estado') != 'anulado'],
-                           clientes=clientes, siguiente_folio=max(folios, default=0) + 1,
+    return render_template('facturas.html', datos=datos, filtros=filtros, pedidos=abiertos,
+                           clientes=clientes, neto_pedido=neto_pedido, siguiente_folio=max(folios, default=0) + 1,
                            porcentaje_impuesto=obtener_porcentaje_impuesto())
 
 
 def _monto_linea(linea):
-    """Monto de una línea de pedido: (cantidad - anulada) x precio unitario. Es el que
-    suman la lista de pedidos y su detalle; detalle_pedidos.subtotal de la base no resta
-    las unidades anuladas. Los descuentos del cliente se aplican al despachar."""
+    """Monto de una línea de pedido: (cantidad - anulada) x precio unitario. El precio lo
+    pone _precios_lineas(): detalle_pedidos ya no guarda precio ni subtotal."""
     cantidad = int(linea.get('cantidad') or 0) - int(linea.get('cantidad_anulada') or 0)
     return cantidad * int(linea.get('precio_unitario') or 0)
 
@@ -1082,22 +1147,15 @@ def _monto_descuento(monto, porcentaje):
 
 
 def _leer_linea_formulario(sufijo):
-    """Cantidad, precio y observación de una línea de detalle (CU-24.1). Devuelve (datos, error)."""
+    """Cantidad y observación de una línea de detalle (CU-24.1). El precio no se ingresa:
+    es el de la variante (_precios_lineas). Devuelve (datos, error)."""
     cantidad = _entero_positivo(request.form.get('cantidad' + sufijo))
     if cantidad is None:
         return None, 'La cantidad debe ser un número entero mayor que cero.'
-    try:
-        precio = int(request.form.get('precioUnitario' + sufijo, ''))
-        if precio < 0:
-            raise ValueError
-    except ValueError:
-        return None, 'El precio unitario debe ser un número entero mayor o igual a cero.'
     observacion = _texto_o_nulo(request.form.get('observacion' + sufijo))
     if observacion and len(observacion) > 256:
         return None, 'La observación admite hasta 256 caracteres.'
-    # detalle_pedidos.subtotal es una columna generada (cantidad * precio_unitario): la
-    # calcula la base y no se envía, porque PostgreSQL rechaza un valor explícito (428C9).
-    return {'cantidad': cantidad, 'precio_unitario': precio, 'observacion': observacion}, None
+    return {'cantidad': cantidad, 'observacion': observacion}, None
 
 
 def _precios_de_lista(lista):
@@ -1118,6 +1176,59 @@ def _precio_sugerido(variante, lista, precios_lista):
     if variante.get('en_liquidacion') and variante.get('precio_liquidacion'):
         return variante['precio_liquidacion']
     return precios_lista.get(variante['id_variante'], variante.get('precio_venta') or 0)
+
+
+def _precios_lineas(lineas, lista_por_pedido):
+    """Pone en cada línea de pedido su precio_unitario y su subtotal. El precio no se guarda
+    en detalle_pedidos: es el de la variante (producto + color + talla) según la lista de
+    precios del cliente del pedido (_precio_sugerido). Devuelve las mismas líneas."""
+    ids = {linea['id_variante'] for linea in lineas}
+    variantes = {v['id_variante']: v for v in supabase.table('producto_variantes').select('*')
+                 .in_('id_variante', list(ids)).execute().data or []} if ids else {}
+    precios_por_lista = {}
+    for linea in lineas:
+        lista = lista_por_pedido.get(linea['id_pedido'], 1)
+        if lista not in precios_por_lista:
+            precios_por_lista[lista] = _precios_de_lista(lista)
+        variante = variantes.get(linea['id_variante'])
+        linea['precio_unitario'] = int(_precio_sugerido(variante, lista, precios_por_lista[lista]) or 0) \
+            if variante else 0
+        linea['subtotal'] = _monto_linea(linea)
+    return lineas
+
+
+def _montos_pedido(lineas, cliente, porcentaje_impuesto):
+    """RF-026: neto (suma de las líneas), descuento (los del cliente en cascada, redondeado por
+    línea como en el despacho), impuesto (% de Configuración sobre el neto con descuento) y total.
+    Se calculan siempre: pedidos no guarda montos."""
+    porcentaje = _descuento_cliente(cliente or {})
+    neto = sum(linea['subtotal'] for linea in lineas)
+    descuento = sum(_monto_descuento(linea['subtotal'], porcentaje) for linea in lineas)
+    impuesto = _monto_descuento(neto - descuento, Decimal(str(porcentaje_impuesto)))
+    return {'monto_neto': neto, 'monto_descuento': descuento, 'monto_impuesto': impuesto,
+            'monto_total': neto - descuento + impuesto, 'porcentaje_descuento': porcentaje,
+            'unidades': sum(int(l.get('cantidad') or 0) - int(l.get('cantidad_anulada') or 0) for l in lineas)}
+
+
+def _montos_pedidos(pedidos, lineas, clientes_por_id):
+    """_montos_pedido() de varios pedidos, por id_pedido. También pone el precio en las líneas."""
+    lista_por_pedido = {p['id_pedido']: int((clientes_por_id.get(p.get('cliente_asociado')) or {})
+                                            .get('lista_precios') or 1) for p in pedidos}
+    _precios_lineas(lineas, lista_por_pedido)
+    por_pedido = {}
+    for linea in lineas:
+        por_pedido.setdefault(linea['id_pedido'], []).append(linea)
+    impuesto = obtener_porcentaje_impuesto()
+    return {p['id_pedido']: _montos_pedido(por_pedido.get(p['id_pedido'], []),
+                                           clientes_por_id.get(p.get('cliente_asociado')), impuesto)
+            for p in pedidos}
+
+
+def _cliente_de_pedido(pedido):
+    """Ficha del cliente del pedido (con lista de precios y descuentos), o {}."""
+    filas = supabase.table('clientes').select('*').eq('id_cliente', pedido.get('cliente_asociado')) \
+        .execute().data if pedido.get('cliente_asociado') else []
+    return filas[0] if filas else {}
 
 
 @app.route('/crudDetallePedido.html', methods=['GET', 'POST'])
@@ -1192,29 +1303,23 @@ def crudDetallePedido():
     lineas = supabase.table('detalle_pedidos').select('*').eq('id_pedido', id_pedido) \
         .order('id_detalle_pedido').execute().data or []
     variantes_activas = supabase.table('producto_variantes').select('*').execute().data or []
-    cliente_pedido = supabase.table('clientes').select('*').eq('id_cliente', pedido.get('cliente_asociado')) \
-        .execute().data or [{}]
-    lista_cliente = int(cliente_pedido[0].get('lista_precios') or 1)
+    cliente_pedido = _cliente_de_pedido(pedido)
+    lista_cliente = int(cliente_pedido.get('lista_precios') or 1)
+    montos = _montos_pedidos([pedido], lineas, {pedido.get('cliente_asociado'): cliente_pedido})[id_pedido]
     descripcion = _variantes_por_id({v['id_variante'] for v in variantes_activas} | {l['id_variante'] for l in lineas})
     for linea in lineas:
         linea.update(descripcion.get(linea['id_variante'], {}))
-        linea['subtotal'] = _monto_linea(linea)
     precios_lista = _precios_de_lista(lista_cliente)
     opciones = sorted(
         ({'id_variante': v['id_variante'], 'precio_venta': _precio_sugerido(v, lista_cliente, precios_lista),
           'en_liquidacion': bool(v.get('en_liquidacion')),
           **descripcion.get(v['id_variante'], {})} for v in variantes_activas if v.get('activo') is not False),
         key=lambda v: (str(v.get('producto') or ''), str(v.get('color') or ''), str(v.get('talla') or '')))
-    clientes = _obtener_clientes_map()
-    descuento = _descuento_cliente(cliente_pedido[0])
     return render_template('crudDetallePedido.html', pedido=pedido, nombre=nombre,
-                           cliente=clientes.get(pedido.get('cliente_asociado'), 'Sin cliente'),
-                           lineas=lineas, variantes=opciones, lista_cliente=lista_cliente,
-                           total=sum(l['subtotal'] for l in lineas),
-                           descuentos=[float(cliente_pedido[0].get(f'descuento_{n}') or 0) for n in (1, 2, 3)],
-                           descuento=descuento,
-                           total_con_descuentos=sum(l['subtotal'] - _monto_descuento(l['subtotal'], descuento)
-                                                    for l in lineas),
+                           cliente=cliente_pedido.get('nombre') or 'Sin cliente',
+                           lineas=lineas, variantes=opciones, lista_cliente=lista_cliente, montos=montos,
+                           descuentos=[float(cliente_pedido.get(f'descuento_{n}') or 0) for n in (1, 2, 3)],
+                           porcentaje_impuesto=obtener_porcentaje_impuesto(),
                            estados=ESTADOS_PEDIDO, editable=pedido.get('estado') not in ESTADOS_PEDIDO_CERRADOS)
 
 
@@ -1286,6 +1391,16 @@ def despachos():
                 if not lineas:
                     flash("Ingrese la cantidad a despachar de al menos una línea", "error")
                     return redirect(url_for('despachos', pedido=id_pedido))
+                # El precio de cada línea es el de su variante (el mismo que muestra el pedido);
+                # registrar_despacho lo guarda en detalle_despachos como precio del despacho.
+                pedido = _pedido_o_none(id_pedido) or {'id_pedido': id_pedido}
+                cliente = _cliente_de_pedido(pedido)
+                del_pedido = supabase.table('detalle_pedidos').select('*').eq('id_pedido', id_pedido).execute().data or []
+                precios = {l['id_detalle_pedido']: l['precio_unitario'] for l in _precios_lineas(
+                    del_pedido, {id_pedido: int(cliente.get('lista_precios') or 1)})}
+                for linea in lineas:
+                    if linea['id_detalle_pedido'] in precios:
+                        linea['precio'] = precios[linea['id_detalle_pedido']]
                 id_despacho = supabase.rpc('registrar_despacho', {
                     'p_id_pedido': id_pedido,
                     'p_id_bodega': id_bodega,
@@ -1473,7 +1588,7 @@ def _leer_nota_formulario(sufijo, id_nota=None):
     if _folio_repetido('notas_credito', 'id_nota_credito', folio, id_nota):
         return None, f'Ya existe una nota de crédito con el folio {folio}.'
     id_factura = _entero_positivo(request.form.get('factura' + sufijo))
-    factura = supabase.table('facturas').select('id_factura, folio, cliente_asociado, saldo_pendiente, estado') \
+    factura = supabase.table('facturas').select('id_factura, folio, saldo_pendiente, estado') \
         .eq('id_factura', id_factura).execute().data if id_factura else []
     if not factura:
         return None, 'Seleccione la factura de referencia.'
@@ -1503,8 +1618,8 @@ def _leer_nota_formulario(sufijo, id_nota=None):
         return None, (f"La nota ({formatear_moneda(total)}) supera el saldo pendiente de la factura "
                       f"{factura['folio']} ({formatear_moneda(disponible)}).")
     return {
-        'folio': folio, 'factura_referencia': id_factura, 'cliente_asociado': factura.get('cliente_asociado'),
-        'fecha': fecha, 'monto_neto': neto, 'monto_impuesto': impuesto, 'monto_total': total, 'motivo': motivo,
+        # El cliente no se guarda: es el del pedido de la factura.
+        'folio': folio, 'factura_referencia': id_factura, 'fecha': fecha, 'monto_neto': neto, 'monto_impuesto': impuesto, 'monto_total': total, 'motivo': motivo,
     }, None
 
 
@@ -1585,18 +1700,19 @@ def notasCredito():
 
     try:
         rows = supabase.table('notas_credito').select('*').execute().data or []
-        facturas_rows = supabase.table('facturas').select(
-            'id_factura, folio, cliente_asociado, saldo_pendiente, estado').execute().data or []
+        facturas_rows = _con_cliente(supabase.table('facturas').select(
+            'id_factura, folio, pedido_asociado, saldo_pendiente, estado').execute().data or [])
     except APIError:
         app.logger.exception('No se pudo cargar el listado de notas de crédito')
         flash("No se pudo cargar el listado de notas de crédito. Intenta nuevamente.", "error")
         rows, facturas_rows = [], []
     clientes_map = _obtener_clientes_map()
     folio_factura = {f['id_factura']: f.get('folio') for f in facturas_rows}
+    cliente_factura = {f['id_factura']: f.get('cliente_asociado') for f in facturas_rows}
 
     normalized = []
     for row in rows:
-        cliente_id = row.get('cliente_asociado')
+        cliente_id = cliente_factura.get(row.get('factura_referencia'))
         normalized.append({
             'id_nota_credito': row.get('id_nota_credito'),
             'folio': row.get('folio'),
@@ -1648,18 +1764,23 @@ def notasCredito():
 
 
 def _obtener_clientes_map():
+    """id_cliente -> razón social (con formatear_razon_social) para facturas, notas, pagos y cobranza."""
     rows = supabase.table('clientes').select('id_cliente, nombre').execute().data or []
-    return {int(row.get('id_cliente')): (row.get('nombre') or 'Sin cliente') for row in rows if row.get('id_cliente') is not None}
+    return {int(row.get('id_cliente')): (formatear_razon_social(row.get('nombre')) or 'Sin cliente')
+            for row in rows if row.get('id_cliente') is not None}
 
 
 def _facturas_pendientes(cliente_id=None):
     """Facturas no anuladas con saldo por cobrar (de un cliente o de todos), por fecha y folio."""
     query = supabase.table('facturas').select(
-        'id_factura, folio, cliente_asociado, fecha_emision, monto_total, saldo_pendiente, estado')
+        'id_factura, folio, pedido_asociado, fecha_emision, monto_total, saldo_pendiente, estado')
     if cliente_id is not None:
-        query = query.eq('cliente_asociado', cliente_id)
+        # La factura no guarda el cliente: se filtra por los pedidos del cliente.
+        pedidos = [p['id_pedido'] for p in supabase.table('pedidos').select('id_pedido')
+                   .eq('cliente_asociado', cliente_id).execute().data or []]
+        query = query.in_('pedido_asociado', pedidos or [0])
     # Sin try: si la base falla, se informa el error en vez de decir que no hay facturas.
-    rows = query.execute().data or []
+    rows = _con_cliente(query.execute().data or [])
     pendientes = [{**row, 'monto_total': float(row.get('monto_total') or 0),
                    'saldo_pendiente': float(row.get('saldo_pendiente') or 0)}
                   for row in rows
@@ -1717,8 +1838,8 @@ def _repartir_pago(cliente_id, monto, ids_facturas, liberado=None):
     liberado = liberado or {}
     saldos = {f['id_factura']: f['saldo_pendiente'] for f in _facturas_pendientes(cliente_id)}
     if liberado:
-        for f in supabase.table('facturas').select('id_factura, cliente_asociado, saldo_pendiente, estado') \
-                .in_('id_factura', list(liberado)).execute().data or []:
+        for f in _con_cliente(supabase.table('facturas').select('id_factura, pedido_asociado, saldo_pendiente, estado')
+                              .in_('id_factura', list(liberado)).execute().data or []):
             if str(f.get('cliente_asociado')) == str(cliente_id) and f.get('estado') != 'anulada':
                 saldos[f['id_factura']] = float(f.get('saldo_pendiente') or 0) + liberado[f['id_factura']]
     if any(i not in saldos for i in ids_facturas):
@@ -1974,7 +2095,8 @@ def obtener_informe_cobranza(request_args):
         dias_min = None
 
     # select('*'): fecha_vencimiento existe solo después de incremento4_campos_documento0.sql.
-    facturas = supabase.table('facturas').select('*').gt('saldo_pendiente', 0).neq('estado', 'anulada').execute().data or []
+    facturas = _con_cliente(supabase.table('facturas').select('*').gt('saldo_pendiente', 0)
+                            .neq('estado', 'anulada').execute().data or [])
     clientes = _obtener_clientes_map()
 
     ids_factura = [f['id_factura'] for f in facturas]
@@ -2755,10 +2877,10 @@ def clientes():
                     supabase.table("clientes").update(datos).eq("id_cliente", id_cliente).execute()
                     flash(f"Cliente {datos['nombre']} actualizado exitosamente", "success")
             else:
-                # CU-01.4 excepción 2: no se elimina un cliente con pedidos, facturas o pagos.
+                # CU-01.4 excepción 2: no se elimina un cliente con pedidos, facturas o pagos. Las
+                # facturas son de un pedido del cliente, así que quedan cubiertas por 'pedidos'.
                 asociados = [texto for texto, tabla, columna in (
-                    ('pedidos', 'pedidos', 'cliente_asociado'), ('facturas', 'facturas', 'cliente_asociado'),
-                    ('pagos', 'pagos', 'cliente_asociado'))
+                    ('pedidos', 'pedidos', 'cliente_asociado'), ('pagos', 'pagos', 'cliente_asociado'))
                     if supabase.table(tabla).select(columna).eq(columna, id_cliente).limit(1).execute().data]
                 if asociados:
                     flash(f"El cliente {actual[0]['nombre']} tiene {', '.join(asociados)} asociados y no se puede eliminar",

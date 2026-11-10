@@ -76,7 +76,7 @@ MARKER_COLUMNS = {
     "cortes": "observaciones",
     "despachos": "observacion",
     "inventario": "usuario_actualizacion",
-    "facturas": "razon_social",
+    "facturas": "usuario_creacion",  # razon_social se eliminó (incremento4_feedback_documentos.sql)
 }
 
 SEEDED_TABLES = (
@@ -100,7 +100,7 @@ SEEDED_TABLES = (
 SUPPLIED_DDL_COLUMNS = {
     "detalle_pedidos": {
         "id_detalle_pedido", "id_pedido", "id_variante", "cantidad",
-        "precio_unitario", "subtotal", "observacion", "cantidad_anulada",
+        "observacion", "cantidad_anulada",  # sin precio_unitario ni subtotal (feedback Inc. 4)
     },
     "despachos": {
         "id_despacho", "numero_guia", "fecha", "id_pedido", "id_factura",
@@ -508,8 +508,6 @@ def seed_data(
                 "id_pedido": ids["pedido"],
                 "id_variante": variant_id,
                 "cantidad": line_number,
-                "precio_unitario": 100 * line_number,
-                "subtotal": 100 * line_number * line_number,
                 "observacion": f"{marker}_DETALLE_{line_number}",
                 "cantidad_anulada": 0,
             },

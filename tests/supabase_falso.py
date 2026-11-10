@@ -24,9 +24,8 @@ CLAVES_AUTOINCREMENTALES = {
 }
 # Columnas generadas (generated always as ... stored): la base las calcula y rechaza un valor
 # explícito con el error 428C9, igual que aquí.
-COLUMNAS_GENERADAS = {
-    'detalle_pedidos': {'subtotal': lambda f: (f.get('cantidad') or 0) * (f.get('precio_unitario') or 0)},
-}
+# (detalle_pedidos.subtotal se eliminó en incremento4_feedback_documentos.sql.)
+COLUMNAS_GENERADAS = {}
 # Tablas hijas que la base borra en cascada: tabla -> [(hija, columna, clave del padre)].
 CASCADAS = {
     'pedidos': [('detalle_pedidos', 'id_pedido', 'id_pedido')],
@@ -34,8 +33,16 @@ CASCADAS = {
     'productos': [('producto_variantes', 'id_producto', 'id_producto')],
 }
 # Columnas que ya no existen en la base real: pedirlas o escribirlas da 42703, como allá
-# (cortes.cantidad pasó a cantidad_producto).
-COLUMNAS_RETIRADAS = {'cortes': {'cantidad'}}
+# (cortes.cantidad pasó a cantidad_producto; facturas, notas_credito y detalle_pedidos, en
+# incremento4_feedback_documentos.sql).
+COLUMNAS_RETIRADAS = {
+    'cortes': {'cantidad'},
+    'facturas': {'numero_factura', 'id_pedido', 'id_cliente', 'fecha', 'neto', 'iva', 'total', 'saldo',
+                 'creado_en', 'razon_social', 'rut', 'direccion', 'giro', 'codigo', 'detalle', 'forma_pago',
+                 'cliente_asociado'},
+    'notas_credito': {'cliente_asociado'},
+    'detalle_pedidos': {'precio_unitario', 'subtotal'},
+}
 # Columnas identity que no son la clave primaria (pagos.folio en pagos.sql).
 IDENTIDADES_EXTRA = {'pagos': 'folio'}
 FORMATO_EAN = {'prefijo': '99', 'producto': 3, 'color': 4, 'talla': 3}
@@ -64,7 +71,7 @@ class ConsultaFalsa:
     # ---------------------------------------------------- construcción (como supabase-py)
     def select(self, *args, **kwargs):
         for columna in COLUMNAS_RETIRADAS.get(self.nombre, ()):
-            if any(re.search(rf'{columna}', str(texto)) for texto in args):
+            if any(re.search(rf'\b{columna}\b', str(texto)) for texto in args):
                 raise error(f'column {self.nombre}.{columna} does not exist', '42703')
         return self
 

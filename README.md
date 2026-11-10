@@ -50,6 +50,8 @@ Supabase en este orden (el detalle está al inicio de `supabase/00_esquema_base.
 11. `incremento4_ingreso_produccion.sql`
 12. `incremento4_feedback_productos.sql`
 13. `incremento4_cortes_cantidades.sql`
+14. `incremento4_feedback_documentos.sql` (facturas sin copias del cliente, estados y observaciones de
+    pedidos, detalle de pedidos sin precio propio)
 
 Los scripts posteriores reemplazan funciones y vistas de los anteriores: sobre la base
 actual no se vuelve a ejecutar uno antiguo.

@@ -61,7 +61,7 @@
     {% if datos %}
     <div class="data-table-wrap data-table-wrap--scroll">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th>Folio</th><th>Fecha emisión</th><th>Vencimiento</th><th>Cliente</th><th>Pedido</th><th class="text-end">Neto</th><th class="text-end">Impuesto</th><th class="text-end">Total</th><th class="text-end">Saldo pendiente</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <thead><tr><th>Folio</th><th>Fecha emisión</th><th>Vencimiento</th><th>Razón social</th><th>RUT</th><th>Pedido</th><th class="text-end">Neto</th><th class="text-end">Impuesto</th><th class="text-end">Total</th><th class="text-end">Saldo pendiente</th><th>Estado</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
         <tbody>
           {% for f in datos %}
           <tr>
@@ -69,6 +69,7 @@
             <td>{{ f.fecha_emision|fecha }}</td>
             <td>{{ f.fecha_vencimiento|fecha if f.get('fecha_vencimiento') else '-' }}</td>
             <td>{{ f.cliente }}</td>
+            <td class="text-nowrap">{{ f.rut_cliente or '—' }}</td>
             <td>{{ f.numero_pedido }}</td>
             <td class="text-end">{{ f.monto_neto|moneda }}</td>
             <td class="text-end">{{ f.monto_impuesto|moneda }}</td>
@@ -117,9 +118,9 @@
     <label class="form-label" for="pedido{{ sufijo }}">Pedido asociado</label>
     <select class="form-select" id="pedido{{ sufijo }}" name="pedido{{ sufijo }}" required>
       <option value="" selected disabled>Seleccione un pedido</option>
-      {% for p in pedidos %}<option value="{{ p.id_pedido }}">{{ p.numero_pedido or p.id_pedido }} · {{ clientes.get(p.cliente_asociado, 'Sin cliente') }}</option>{% endfor %}
+      {% for p in pedidos %}<option value="{{ p.id_pedido }}" data-neto="{{ neto_pedido.get(p.id_pedido, 0) }}">{{ p.numero_pedido or p.id_pedido }} · {{ clientes.get(p.cliente_asociado, 'Sin cliente') }}</option>{% endfor %}
     </select>
-    <small class="text-muted">El cliente de la factura es el del pedido.</small>
+    <small class="text-muted">La razón social y el RUT son los del cliente del pedido. Al elegir el pedido se propone su total con descuentos como neto.</small>
   </div>
   <div class="col-md-4">
     <label class="form-label" for="montoNeto{{ sufijo }}">Monto neto</label>
@@ -218,6 +219,12 @@
   }
   document.querySelectorAll('.monto-neto').forEach(function (campo) {
     campo.addEventListener('input', function () { recalcularTotal(campo); });
+  });
+  // Al elegir el pedido en una factura nueva se propone su total con descuentos (sin impuesto).
+  document.getElementById('pedidoCrear').addEventListener('change', function () {
+    const opcion = this.selectedOptions[0];
+    const neto = document.getElementById('montoNetoCrear');
+    if (opcion && opcion.dataset.neto) { neto.value = opcion.dataset.neto; recalcularTotal(neto); }
   });
   document.getElementById('actualizarModal').addEventListener('shown.bs.modal', function () {
     recalcularTotal(document.getElementById('montoNetoActualizar'));

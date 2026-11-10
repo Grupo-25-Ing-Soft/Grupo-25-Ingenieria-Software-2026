@@ -26,7 +26,7 @@ def test_crear_calcula_impuesto_y_toma_el_cliente_del_pedido(admin, base):
     f = base.tablas['facturas'][0]
     assert (f['monto_neto'], f['monto_impuesto'], f['monto_total']) == (10000, 1900, 11900)
     assert f['saldo_pendiente'] == 11900 and f['estado'] == 'vigente'
-    assert f['cliente_asociado'] == 1 and f['pedido_asociado'] == 10
+    assert f['pedido_asociado'] == 10 and 'cliente_asociado' not in f  # el cliente es el del pedido
     html = admin.get('/facturas.html').get_data(as_text=True)
     assert 'Tienda Sur' in html and 'PED-000010' in html and '$11.900' in html and '01/10/2026' in html
 
@@ -156,7 +156,7 @@ def test_no_se_cambia_el_pedido_con_registros_asociados(admin, base, asociado):
     html = editar_pedido(admin, 12).get_data(as_text=True)
     assert 'no se puede cambiar su pedido' in html
     factura = base.tablas['facturas'][0]
-    assert factura['pedido_asociado'] == 10 and factura['cliente_asociado'] == 1
+    assert factura['pedido_asociado'] == 10
     # Sin cambiar el pedido, la factura se sigue pudiendo editar.
     assert 'Factura 100 actualizada' in editar_pedido(admin, 10).get_data(as_text=True)
 
@@ -167,4 +167,32 @@ def test_sin_asociados_se_puede_cambiar_el_pedido(admin, base):
     crear(admin)
     assert 'Factura 100 actualizada' in editar_pedido(admin, 12).get_data(as_text=True)
     factura = base.tablas['facturas'][0]
-    assert factura['pedido_asociado'] == 12 and factura['cliente_asociado'] == 2
+    assert factura['pedido_asociado'] == 12
+    assert 'Outlet Norte' in admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
+
+
+def test_razon_social_y_rut_salen_del_cliente_del_pedido(admin, base):
+    # Feedback Inc. 4: la factura no copia razón social ni RUT; si el cliente cambia, la factura lo refleja.
+    base.tablas['clientes'][0].update({'rut': '76123456', 'digito_verificador': '0'})
+    crear(admin)
+    html = admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
+    assert 'Tienda Sur' in html and '76.123.456-0' in html
+    base.tablas['clientes'][0]['nombre'] = 'Tienda Sur SpA'
+    assert 'Tienda Sur SpA' in admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
+
+
+def test_el_neto_se_propone_con_el_total_con_descuentos_del_pedido(admin, base):
+    base.tablas['clientes'][0]['descuento_1'] = 10
+    base.tablas['producto_variantes'] = [{'id_variante': 5, 'precio_venta': 1000, 'activo': True}]
+    base.tablas['detalle_pedidos'] = [{'id_detalle_pedido': 1, 'id_pedido': 10, 'id_variante': 5, 'cantidad': 3,
+                                       'cantidad_anulada': 0}]
+    html = admin.get('/facturas.html').get_data(as_text=True)
+    assert '<option value="10" data-neto="2700">' in html
+
+
+def test_validar_folio_es_la_unica_regla_del_folio():
+    import realFlask
+    assert realFlask.validar_folio(' 42 ') == (42, None)
+    for malo in ('0', '-3', 'F-1', '', None):
+        assert realFlask.validar_folio(malo)[1] == 'El folio debe ser un número entero mayor que cero.'
+    assert realFlask.formatear_razon_social('  Tienda Sur ') == 'Tienda Sur'

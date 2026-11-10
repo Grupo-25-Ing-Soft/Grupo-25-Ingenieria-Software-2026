@@ -58,3 +58,18 @@ def test_anular_informa_la_guia(admin, base):
                    follow_redirects=True)
     assert 'Despacho GD-000007 anulado' in r.get_data(as_text=True)
     assert ('anular_despacho', {'p_id_despacho': 7, 'p_motivo': 'Error de bodega', 'p_usuario': 'admin'}) in base.llamadas
+
+
+def test_el_precio_del_despacho_es_el_de_la_variante(admin, base):
+    # Feedback Inc. 4: detalle_pedidos no guarda precio; la app envía a registrar_despacho el
+    # precio de la variante según la lista del cliente, que queda como precio del despacho.
+    base.tablas['producto_variantes'] = [{'id_variante': 5, 'precio_venta': 2990, 'activo': True}]
+    base.tablas['variante_precios_lista'] = [{'id_variante': 5, 'lista_precios': 2, 'precio': 2500}]
+    base.tablas['detalle_pedidos'] = [{'id_detalle_pedido': 3, 'id_pedido': 1, 'id_variante': 5, 'cantidad': 4,
+                                       'cantidad_anulada': 0}]
+    admin.post('/despachos.html', data={'_method': 'post', 'idPedido': 1, 'idBodega': 1, 'cantidad_3': '2'})
+    base.tablas['clientes'][0]['lista_precios'] = 2
+    admin.post('/despachos.html', data={'_method': 'post', 'idPedido': 1, 'idBodega': 1, 'cantidad_3': '1'})
+    lineas = [params['p_lineas'] for nombre, params in base.llamadas if nombre == 'registrar_despacho']
+    assert lineas == [[{'id_detalle_pedido': 3, 'cantidad': 2, 'precio': 2990}],
+                      [{'id_detalle_pedido': 3, 'cantidad': 1, 'precio': 2500}]]
