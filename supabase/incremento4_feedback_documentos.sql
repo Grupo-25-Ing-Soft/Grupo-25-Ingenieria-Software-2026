@@ -37,9 +37,8 @@
 --
 -- Es idempotente. Se ejecuta completo en el SQL Editor; si algo falla, no se
 -- aplica nada. Recrea v_despachos_detalle (la de Supabase leía
--- facturas.numero_factura) y elimina v_pedidos_detalle y v_pedidos_resumen (creadas
--- fuera de estos scripts, sin uso en la app). Si otra vista usa alguna de las
--- columnas que se eliminan, el script se detiene y las nombra (no se usa cascade).
+-- facturas.numero_factura). Si otra vista usa alguna de las columnas que se
+-- eliminan, el script se detiene y las nombra (no se usa cascade).
 -- =====================================================================
 begin;
 

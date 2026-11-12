@@ -105,6 +105,9 @@ MENSAJES_BASE_DATOS = {
     '22P02': 'algún dato tiene un formato no válido',
     '22007': 'alguna fecha no es válida',
     '428C9': 'se intentó guardar un dato que calcula la base',
+    # La app usa una columna que la base todavía no tiene: falta un script de supabase/.
+    '42703': ('la base de datos no está actualizada. Falta ejecutar en Supabase el script '
+              'supabase/incremento4_feedback_documentos.sql'),
 }
 
 
@@ -667,10 +670,8 @@ def pedidos():
             if error:
                 flash(error, 'error')
                 return redirect(url_for('pedidos'))
-            try:
-                creado = supabase.table('pedidos').insert(datos).execute().data
-            except APIError:
-                creado = None
+            # Si la base lo rechaza, error_base_datos() muestra el motivo real.
+            creado = supabase.table('pedidos').insert(datos).execute().data
             if creado:
                 flash(f"Pedido {_nombre_pedido(creado[0])} creado. Agrega sus productos en el detalle.", 'success')
                 return redirect(url_for('crudDetallePedido', id_pedido=creado[0]['id_pedido']))
