@@ -37,8 +37,9 @@
 --
 -- Es idempotente. Se ejecuta completo en el SQL Editor; si algo falla, no se
 -- aplica nada. Recrea v_despachos_detalle (la de Supabase leía
--- facturas.numero_factura). Si otra vista usa alguna de las columnas que se
--- eliminan, el script se detiene y las nombra (no se usa cascade).
+-- facturas.numero_factura) y elimina v_pedidos_detalle y v_pedidos_resumen (creadas
+-- fuera de estos scripts, sin uso en la app). Si otra vista usa alguna de las
+-- columnas que se eliminan, el script se detiene y las nombra (no se usa cascade).
 -- =====================================================================
 begin;
 
@@ -118,6 +119,14 @@ select de.id_despacho,
   left join vendedores v     on v.id_vendedor = p.vendedor_asociado
   left join facturas f       on f.id_factura = de.id_factura
   left join bodegas b        on b.id_bodega = de.id_bodega;
+
+-- v_pedidos_detalle y v_pedidos_resumen se crearon directo en Supabase (no están en
+-- supabase/ ni las usa la app) y calculan montos con detalle_pedidos.precio_unitario y
+-- subtotal, que este script elimina. La app calcula esos montos con el precio de la
+-- variante (_montos_pedidos en realFlask.py), así que se eliminan. Sin cascade: si otra
+-- vista dependiera de ellas, el script se detiene sin aplicar nada.
+drop view if exists public.v_pedidos_resumen;
+drop view if exists public.v_pedidos_detalle;
 
 -- Si alguna otra vista usa una columna que este script elimina, se detiene aquí y
 -- las nombra todas (en vez de fallar en el primer drop column, de a una).
