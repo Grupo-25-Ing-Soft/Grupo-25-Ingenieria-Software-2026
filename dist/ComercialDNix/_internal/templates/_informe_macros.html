@@ -1,0 +1,31 @@
+{#- Campos de filtro y celdas comunes de los informes (se importan con
+    {% import '_informe_macros.html' as inf %}). -#}
+
+{% macro fecha(nombre, etiqueta, filtros, tipo='date') %}
+<div class="col-md-2">
+  <label class="form-label" for="{{ nombre }}">{{ etiqueta }}</label>
+  <input type="{{ tipo }}" class="form-control" id="{{ nombre }}" name="{{ nombre }}" value="{{ filtros.get(nombre, '') }}">
+</div>
+{% endmacro %}
+
+{% macro lista(nombre, etiqueta, opciones, filtros, vacio='Todos') %}
+<div class="col-md">
+  <label class="form-label" for="{{ nombre }}">{{ etiqueta }}</label>
+  <select class="form-select" id="{{ nombre }}" name="{{ nombre }}">
+    <option value="">{{ vacio }}</option>
+    {% for valor, texto in opciones %}<option value="{{ valor }}" {% if filtros.get(nombre) == valor|string %}selected{% endif %}>{{ texto }}</option>{% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+{% macro producto(fila) -%}
+{{ fila.producto or 'Sin producto' }}{% if fila.color %} · {{ fila.color }}{% endif %}{% if fila.talla %} · {{ fila.talla }}{% endif %}
+{%- endmacro %}
+
+{% macro sin_resultados(filtros) %}
+<div class="empty-state">No hay resultados{% if filtros.values()|select|list %} para los filtros aplicados{% endif %}.</div>
+{% endmacro %}
+
+{% macro porcentaje(valor) -%}
+{% if valor is none %}—{% else %}{{ '%.1f'|format(valor) }} %{% endif %}
+{%- endmacro %}

@@ -1,0 +1,15 @@
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Despachos por cliente y producto{% endblock %}
+{% block descripcion %}Unidades despachadas a cada cliente, por producto, en guías emitidas.{% endblock %}
+
+{% block filtros %}
+{{ inf.fecha('desde', 'Desde', filtros) }}
+{{ inf.fecha('hasta', 'Hasta', filtros) }}
+{{ inf.lista('cliente', 'Cliente', clientes, filtros) }}
+{{ inf.lista('producto', 'Producto', productos, filtros) }}
+{% endblock %}
+
+{% block resultados %}
+{% with columna='cliente', etiqueta='Cliente' %}{% include '_informe_despachos_agrupados.html' %}{% endwith %}
+{% endblock %}

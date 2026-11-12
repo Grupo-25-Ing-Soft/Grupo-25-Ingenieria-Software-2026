@@ -1,0 +1,37 @@
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Análisis de inventario{% endblock %}
+{% block descripcion %}Stock disponible, productos con defectos y si cada producto está asociado a pedidos pendientes de despacho.{% endblock %}
+
+{% block filtros %}
+{{ inf.lista('bodega', 'Bodega', bodegas, filtros, vacio='Todas') }}
+{{ inf.lista('producto', 'Producto', productos, filtros) }}
+{{ inf.lista('situacion', 'Situación', situaciones, filtros, vacio='Todas') }}
+{% endblock %}
+
+{% block resultados %}
+<div class="data-card-header"><div><h2>Resultados</h2><span>{{ filas|length }} registro{{ '' if filas|length == 1 else 's' }} · {{ totales.cantidad }} unidad{{ '' if totales.cantidad == 1 else 'es' }} disponible{{ '' if totales.cantidad == 1 else 's' }} · {{ totales.cantidad_defectuosa }} con defectos</span></div></div>
+{% if filas %}
+<div class="data-table-wrap data-table-wrap--scroll">
+  <table class="table table-striped align-middle mb-0">
+    <thead><tr><th>Bodega</th><th>Producto</th><th class="text-end">Stock disponible</th><th class="text-end">Con defectos</th><th class="text-end">Comprometidas en pedidos</th><th>Asociado a pedidos</th></tr></thead>
+    <tbody>
+      {% for f in filas %}
+      <tr>
+        <td>{{ f.bodega }}</td>
+        <td>{{ inf.producto(f) }}</td>
+        <td class="text-end">{{ f.cantidad }}</td>
+        <td class="text-end">{% if f.cantidad_defectuosa %}<span class="text-danger fw-semibold">{{ f.cantidad_defectuosa }}</span>{% else %}0{% endif %}</td>
+        <td class="text-end">{{ f.comprometidas }}</td>
+        <td>{% if f.comprometidas %}<span class="badge text-bg-primary">Sí</span>{% else %}<span class="badge text-bg-light">No</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th colspan="2" class="text-end">Total</th><th class="text-end">{{ totales.cantidad }}</th><th class="text-end">{{ totales.cantidad_defectuosa }}</th><th colspan="2"></th></tr></tfoot>
+  </table>
+</div>
+<p class="text-muted small m-3">«Comprometidas en pedidos» es lo pendiente de despachar de ese producto, color y talla en todos los pedidos, sin distinguir bodega. Las unidades con defectos se registran en Bodegas.</p>
+{% else %}
+<div class="empty-state">No existen resultados disponibles{% if filtros.values()|select|list %} para los filtros aplicados{% endif %}.</div>
+{% endif %}
+{% endblock %}

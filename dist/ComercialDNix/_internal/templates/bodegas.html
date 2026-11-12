@@ -1,0 +1,129 @@
+{% extends '_maestro_simple.html' %}
+{% block titulo %}Bodegas{% endblock %}
+{% block eyebrow %}Archivos maestros / Logística{% endblock %}
+{% block descripcion %}Administra las bodegas y consulta sus existencias por producto, talla y color.{% endblock %}
+{% block boton_nuevo %}Nueva bodega{% endblock %}
+
+{% block despues_tabla %}
+{# Las existencias son del módulo Inventario (RF-037), no de Bodegas: se ven y editan con sus permisos. #}
+{% if puede('inventario', 'ver') %}
+{% set editar_inventario = puede('inventario', 'editar') and inventario_disponible %}
+<div class="data-card mt-4">
+  <div class="data-card-header">
+    <div><h2>Inventario por bodega</h2><span>{{ inventario|length }} producto{{ '' if inventario|length == 1 else 's' }} · {{ total_unidades }} unidades disponibles · {{ total_defectuosas }} defectuosas</span></div>
+    <div class="d-flex gap-2 align-items-center">
+      {% if datos %}
+      <form method="GET" action="{{ url_for('bodegas') }}" class="d-flex gap-2">
+        <label class="visually-hidden" for="bodegaSeleccionada">Bodega</label>
+        <select class="form-select form-select-sm" id="bodegaSeleccionada" name="bodega" onchange="this.form.submit()">
+          {% for b in datos %}<option value="{{ b.id_bodega }}" {% if b.id_bodega == bodega_actual %}selected{% endif %}>{{ b.descripcion }}</option>{% endfor %}
+        </select>
+      </form>
+      {% endif %}
+      {% if editar_inventario and datos %}
+      <button type="button" class="btn btn-sm btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearInventarioModal"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i><span>Registrar existencias</span></button>
+      {% endif %}
+    </div>
+  </div>
+  {% if not inventario_disponible %}<div class="alert alert-warning m-3" role="alert"><i class="bi bi-database-exclamation" aria-hidden="true"></i> La tabla de inventario aún no está creada en Supabase.</div>{% endif %}
+  {% if inventario %}
+  <div class="data-table-wrap data-table-wrap--scroll">
+    <table class="table table-striped align-middle mb-0">
+      <thead><tr><th>Producto</th><th>Talla</th><th>Color</th><th class="text-end">Cantidad</th><th class="text-end">Cantidad defectuosa</th><th>Última actualización</th>{% if editar_inventario %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for r in inventario %}
+        {% set registro = r.producto ~ ' ' ~ r.color ~ ' ' ~ r.talla %}
+        <tr>
+          <td>{{ r.producto }}</td>
+          <td>{{ r.talla }}</td>
+          <td>{{ r.color }}</td>
+          <td class="text-end">{{ r.cantidad or 0 }}</td>
+          <td class="text-end">{{ r.cantidad_defectuosa or 0 }}</td>
+          <td>{{ r.fecha_actualizacion|fecha }}{% if r.usuario_actualizacion %} · {{ r.usuario_actualizacion }}{% endif %}</td>
+          {% if editar_inventario %}
+          <td class="text-end text-nowrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarInventarioModal" data-registro="{{ registro }}"
+                    data-valores='{{ {"idInventario": r.id_inventario, "cantidadInventario": r.cantidad or 0, "cantidadDefectuosaInventario": r.cantidad_defectuosa or 0} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger" title="Borrar" data-modal="#borrarInventarioModal" data-registro="{{ registro }}"
+                    data-valores='{{ {"idInventario": r.id_inventario} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif inventario_disponible %}
+  <div class="empty-state">{% if datos %}La bodega seleccionada no tiene existencias.{% else %}Registra una bodega para ver su inventario.{% endif %}</div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if editar_inventario %}
+<div class="modal fade" id="crearInventarioModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Registrar existencias</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" action="{{ url_for('bodegas') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="inventario_post">
+        <div class="mb-3"><label class="form-label" for="idBodegaInventario">Bodega</label>
+          <select class="form-select" id="idBodegaInventario" name="idBodegaInventario" required>
+            {% for b in datos %}<option value="{{ b.id_bodega }}" {% if b.id_bodega == bodega_actual %}selected{% endif %}>{{ b.descripcion }}</option>{% endfor %}
+          </select></div>
+        <div class="mb-3"><label class="form-label" for="idVarianteInventario">Producto, color y talla</label>
+          <select class="form-select" id="idVarianteInventario" name="idVarianteInventario" required>
+            <option value="" selected disabled>Seleccione una variante</option>
+            {% for v in variantes %}<option value="{{ v.id_variante }}">{{ v.producto or ('Variante ' ~ v.id_variante) }} · {{ v.color or 'sin color' }} · {{ v.talla or 'sin talla' }}</option>{% endfor %}
+          </select></div>
+        <div class="row g-3">
+          <div class="col-6"><label class="form-label" for="cantidadInventario">Cantidad disponible</label><input type="number" class="form-control" id="cantidadInventario" name="cantidadInventario" min="0" step="1" required></div>
+          <div class="col-6"><label class="form-label" for="cantidadDefectuosaInventario">Cantidad defectuosa</label><input type="number" class="form-control" id="cantidadDefectuosaInventario" name="cantidadDefectuosaInventario" min="0" step="1" value="0"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Registrar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="actualizarInventarioModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Existencias de <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" action="{{ url_for('bodegas') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="inventario_put">
+        <input type="hidden" name="idInventario">
+        <div class="row g-3">
+          <div class="col-6"><label class="form-label" for="cantidadInventarioActualizar">Cantidad disponible</label><input type="number" class="form-control" id="cantidadInventarioActualizar" name="cantidadInventario" min="0" step="1" required></div>
+          <div class="col-6"><label class="form-label" for="cantidadDefectuosaActualizar">Cantidad defectuosa</label><input type="number" class="form-control" id="cantidadDefectuosaActualizar" name="cantidadDefectuosaInventario" min="0" step="1"></div>
+        </div>
+        <small class="text-muted d-block mt-2">Los despachos y el ingreso de producción actualizan estas cantidades solos; edítalas solo para ajustes.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="borrarInventarioModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Borrar existencias</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" action="{{ url_for('bodegas') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="inventario_delete">
+        <input type="hidden" name="idInventario">
+        <p>¿Seguro que quieres borrar las existencias de <strong data-registro></strong> en esta bodega?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Borrar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% endblock %}

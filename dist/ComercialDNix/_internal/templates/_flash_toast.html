@@ -1,0 +1,33 @@
+{% include '_csrf.html' %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-toasts" aria-live="polite" aria-atomic="true">
+      {% for category, message in messages %}
+        <div class="flash-toast flash-toast-{{ category }}" role="alert">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+    <script>
+      // Cada aviso se desvanece a los 3,5 s (o al hacer clic) y luego se quita del DOM, para
+      // que no quede invisible encima de los botones de la página.
+      (function () {
+        function ocultar(toast) {
+          if (toast.classList.contains('flash-toast-hidden')) return;
+          toast.classList.add('flash-toast-hidden');
+          window.setTimeout(function () {
+            var contenedor = toast.parentNode;
+            toast.remove();
+            if (contenedor && !contenedor.querySelector('.flash-toast')) contenedor.remove();
+          }, 400);  // un poco más que la transición de .flash-toast (0,35 s)
+        }
+        document.querySelectorAll('.flash-toast').forEach(function (toast) {
+          toast.addEventListener('click', function () { ocultar(toast); });
+        });
+        window.setTimeout(function () {
+          document.querySelectorAll('.flash-toast').forEach(ocultar);
+        }, 3500);
+      })();
+    </script>
+  {% endif %}
+{% endwith %}

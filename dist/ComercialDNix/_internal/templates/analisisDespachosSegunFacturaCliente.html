@@ -1,0 +1,39 @@
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Despachos según factura y cliente{% endblock %}
+{% block descripcion %}Número, cantidad y monto de los despachos hechos a un cliente y sus facturas asociadas. Las guías anuladas no se cuentan.{% endblock %}
+
+{% block filtros %}
+{{ inf.fecha('desde', 'Desde', filtros) }}
+{{ inf.fecha('hasta', 'Hasta', filtros) }}
+{{ inf.lista('cliente', 'Cliente', clientes, filtros) }}
+{{ inf.lista('factura', 'Factura', facturas, filtros, vacio='Todas') }}
+{% endblock %}
+
+{% block resultados %}
+<div class="data-card-header"><div><h2>Resultados</h2><span>{{ guias|length }} despacho{{ '' if guias|length == 1 else 's' }} · {{ totales.cantidad }} unidad{{ '' if totales.cantidad == 1 else 'es' }} · {{ totales.subtotal_neto|moneda }} neto{% if sin_factura %} · {{ sin_factura }} sin factura{% endif %}</span></div></div>
+{% if guias %}
+<div class="data-table-wrap data-table-wrap--scroll">
+  <table class="table table-striped align-middle mb-0">
+    <thead><tr><th>Guía</th><th>Fecha</th><th>Cliente</th><th>Pedido</th><th>Factura</th><th class="text-end">Productos</th><th class="text-end">Unidades</th><th class="text-end">Monto neto</th></tr></thead>
+    <tbody>
+      {% for g in guias %}
+      <tr>
+        <td><a href="{{ url_for('despachos', ver=g.id_despacho) }}">{{ g.numero_guia }}</a></td>
+        <td>{{ g.fecha|fecha }}</td>
+        <td>{{ g.cliente or 'Sin cliente' }}</td>
+        <td>{{ g.numero_pedido or '' }}</td>
+        <td>{{ g.folio_factura or 'Sin factura' }}</td>
+        <td class="text-end">{{ g.distintos }}</td>
+        <td class="text-end">{{ g.cantidad }}</td>
+        <td class="text-end">{{ g.subtotal_neto|moneda }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th colspan="6" class="text-end">Total</th><th class="text-end">{{ totales.cantidad }}</th><th class="text-end">{{ totales.subtotal_neto|moneda }}</th></tr></tfoot>
+  </table>
+</div>
+{% else %}
+{{ inf.sin_resultados(filtros) }}
+{% endif %}
+{% endblock %}

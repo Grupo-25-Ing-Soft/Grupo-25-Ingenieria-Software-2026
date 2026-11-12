@@ -1,0 +1,14 @@
+{#- AUD-005: agrega el token CSRF de la sesión a cada formulario POST de la página. -#}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('form').forEach(function (formulario) {
+      if ((formulario.getAttribute('method') || 'get').toLowerCase() !== 'post') return;
+      if (formulario.querySelector('input[name="_csrf"]')) return;
+      const campo = document.createElement('input');
+      campo.type = 'hidden';
+      campo.name = '_csrf';
+      campo.value = {{ csrf_token() | tojson }};
+      formulario.appendChild(campo);
+    });
+  });
+</script>
