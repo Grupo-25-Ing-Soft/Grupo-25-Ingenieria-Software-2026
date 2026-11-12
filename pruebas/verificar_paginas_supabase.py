@@ -76,7 +76,7 @@ MARKER_COLUMNS = {
     "cortes": "observaciones",
     "despachos": "observacion",
     "inventario": "usuario_actualizacion",
-    "facturas": "usuario_creacion",  # razon_social se eliminó (incremento4_feedback_documentos.sql)
+    "facturas": "razon_social",
 }
 
 SEEDED_TABLES = (

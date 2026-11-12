@@ -171,14 +171,35 @@ def test_sin_asociados_se_puede_cambiar_el_pedido(admin, base):
     assert 'Outlet Norte' in admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
 
 
-def test_razon_social_y_rut_salen_del_cliente_del_pedido(admin, base):
-    # Feedback Inc. 4: la factura no copia razón social ni RUT; si el cliente cambia, la factura lo refleja.
+def test_nombre_y_rut_salen_del_cliente_del_pedido(admin, base):
+    # Feedback Inc. 4: la factura no copia el nombre ni el RUT; si el cliente cambia, la factura lo refleja.
     base.tablas['clientes'][0].update({'rut': '76123456', 'digito_verificador': '0'})
     crear(admin)
-    html = admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
-    assert 'Tienda Sur' in html and '76.123.456-0' in html
-    base.tablas['clientes'][0]['nombre'] = 'Tienda Sur SpA'
-    assert 'Tienda Sur SpA' in admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
+    html = admin.get('/facturas.html').get_data(as_text=True)
+    assert '<th>Nombre del cliente</th><th>Razón social</th><th>RUT</th>' in html
+    assert 'Tienda Sur' in html.split('<tbody>')[1] and '76.123.456-0' in html.split('<tbody>')[1]
+    base.tablas['clientes'][0]['nombre'] = 'Tienda Sur Mayorista'
+    assert 'Tienda Sur Mayorista' in admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
+
+
+def test_razon_social_se_ingresa_al_crear_y_editar(admin, base):
+    admin.post('/facturas.html', data={'_method': 'post', 'folioCrear': 100, 'pedidoCrear': 10,
+                                       'fechaEmisionCrear': '2026-10-01', 'montoNetoCrear': '10000',
+                                       'razonSocialCrear': '  Comercial Sur SpA '})
+    factura = base.tablas['facturas'][0]
+    assert factura['razon_social'] == 'Comercial Sur SpA'
+    html = admin.get('/facturas.html').get_data(as_text=True)
+    assert 'name="razonSocialCrear"' in html and '<td>Comercial Sur SpA</td>' in html.split('<tbody>')[1]
+    assert '"razonSocialActualizar": "Comercial Sur SpA"' in html
+    admin.post('/facturas.html', data={'_method': 'put', 'idFacturaActualizar': 1, 'folioActualizar': 100,
+                                       'pedidoActualizar': 10, 'fechaEmisionActualizar': '2026-10-01',
+                                       'montoNetoActualizar': '10000', 'razonSocialActualizar': ''})
+    assert factura['razon_social'] is None  # es opcional
+    assert '<td>—</td>' in admin.get('/facturas.html').get_data(as_text=True).split('<tbody>')[1]
+    r = admin.post('/facturas.html', data={'_method': 'post', 'folioCrear': 101, 'pedidoCrear': 10,
+                                           'fechaEmisionCrear': '2026-10-01', 'montoNetoCrear': '1',
+                                           'razonSocialCrear': 'X' * 161}, follow_redirects=True)
+    assert 'admite hasta 160 caracteres' in r.get_data(as_text=True) and len(base.tablas['facturas']) == 1
 
 
 def test_el_neto_se_propone_con_el_total_con_descuentos_del_pedido(admin, base):

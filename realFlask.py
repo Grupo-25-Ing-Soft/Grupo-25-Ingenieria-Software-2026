@@ -916,14 +916,13 @@ def validar_folio(texto):
 
 
 @app.template_filter('razon_social')
-def formatear_razon_social(nombre):
-    """Único lugar donde se da formato a la razón social que muestran facturas, notas de
-    crédito y cobranza. La razón social es clientes.nombre (no se copia en la factura).
+def formatear_razon_social(razon_social):
+    """Único lugar donde se da formato a la razón social de la factura (facturas.razon_social,
+    que se ingresa al crearla; el nombre del cliente sale de su ficha).
 
     TODO: el cliente pidió que vaya «como el SII dicta», pero la regla todavía no se
-    incluye (no se puede comprobar contra el SII). Por ahora se muestra tal como está
-    en la ficha del cliente."""
-    return (nombre or '').strip()
+    incluye (no se puede comprobar contra el SII). Por ahora se muestra tal como se ingresó."""
+    return (razon_social or '').strip()
 
 
 def _clientes_de_pedidos(ids_pedido):
@@ -968,7 +967,8 @@ def _leer_factura_formulario(sufijo):
         return None, 'El monto neto debe ser un número mayor o igual a cero.'
     # El impuesto sale del porcentaje configurado en Configuración (RF-056).
     impuesto = round(neto * obtener_porcentaje_impuesto() / 100, 2)
-    # El cliente no se guarda: es el del pedido. Los montos sí, porque son lo que se emitió.
+    # El cliente no se guarda: es el del pedido. Los montos y la razón social sí, porque son
+    # lo que se emitió.
     datos = {
         'folio': folio,
         'pedido_asociado': id_pedido,
@@ -977,6 +977,10 @@ def _leer_factura_formulario(sufijo):
         'monto_impuesto': impuesto,
         'monto_total': round(neto + impuesto, 2),
     }
+    if ('razonSocial' + sufijo) in request.form:
+        datos['razon_social'] = _texto_o_nulo(request.form.get('razonSocial' + sufijo))
+        if datos['razon_social'] and len(datos['razon_social']) > 160:
+            return None, 'La razón social admite hasta 160 caracteres.'
     if ('fechaVencimiento' + sufijo) in request.form:
         datos['fecha_vencimiento'] = vencimiento or None
     return datos, None
@@ -1081,10 +1085,10 @@ def facturas():
                 flash(f"Factura {actual['folio']} anulada", 'success')
         return redirect(url_for('facturas'))
 
-    # Razón social y RUT salen de la ficha del cliente del pedido (la factura no los copia).
+    # Nombre y RUT salen de la ficha del cliente del pedido; la razón social es la de la factura.
     fichas = {c['id_cliente']: c for c in supabase.table('clientes')
               .select('*').execute().data or []}
-    clientes = {i: formatear_razon_social(c.get('nombre')) or 'Sin cliente' for i, c in fichas.items()}
+    clientes = {i: (c.get('nombre') or '').strip() or 'Sin cliente' for i, c in fichas.items()}
     pedidos = supabase.table('pedidos').select('id_pedido, numero_pedido, cliente_asociado, estado') \
         .order('id_pedido').execute().data or []
     por_id = {p['id_pedido']: p for p in pedidos}
@@ -1761,10 +1765,8 @@ def notasCredito():
 
 
 def _obtener_clientes_map():
-    """id_cliente -> razón social (con formatear_razon_social) para facturas, notas, pagos y cobranza."""
     rows = supabase.table('clientes').select('id_cliente, nombre').execute().data or []
-    return {int(row.get('id_cliente')): (formatear_razon_social(row.get('nombre')) or 'Sin cliente')
-            for row in rows if row.get('id_cliente') is not None}
+    return {int(row.get('id_cliente')): (row.get('nombre') or 'Sin cliente') for row in rows if row.get('id_cliente') is not None}
 
 
 def _facturas_pendientes(cliente_id=None):

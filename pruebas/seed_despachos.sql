@@ -126,9 +126,10 @@ select p.id_pedido, pv.id_variante, v.cantidad, 0, 'SEED'
 --    Neto = (10 x 2.000 + 5 x 5.000) - 10 % = 40.500; impuesto 19 % = 7.695.
 --    trg_factura_calcular_saldo recalcula saldo_pendiente y estado al insertar.
 -- ---------------------------------------------------------------------
-insert into public.facturas (folio, pedido_asociado, fecha_emision, fecha_vencimiento,
+insert into public.facturas (folio, pedido_asociado, razon_social, fecha_emision, fecha_vencimiento,
                              monto_neto, monto_impuesto, monto_total, saldo_pendiente, estado, usuario_creacion)
-select 990001, id_pedido, '2026-07-15', '2026-08-14', 40500, 7695, 48195, 48195, 'vigente', 'SEED'
+select 990001, id_pedido, 'SEED COMERCIAL NORTE LIMITADA', '2026-07-15', '2026-08-14',
+       40500, 7695, 48195, 48195, 'vigente', 'SEED'
   from public.pedidos where numero_pedido = 'SEED-0001';
 
 -- ---------------------------------------------------------------------

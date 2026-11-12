@@ -61,7 +61,7 @@ Los informes muestran el número de talla (`tallas.talla`), no su nombre.
 | SEED-GD-0003 | 03/09/2026 | SEED-0002 | — | emitido | Calzón Negro M 3 |
 | SEED-GD-0004 | 05/10/2026 | SEED-0004 | — | **anulado** | Calzón Negro S 5. No debe aparecer en ningún informe |
 
-**Factura 990001** (pedido SEED-0001, emitida el 15/07/2026)
+**Factura 990001** (pedido SEED-0001, emitida el 15/07/2026, razón social «SEED COMERCIAL NORTE LIMITADA»)
 
 - Neto: $40.500. Es $45.000 menos el 10 % de descuento.
 - Impuesto (19 %): $7.695.

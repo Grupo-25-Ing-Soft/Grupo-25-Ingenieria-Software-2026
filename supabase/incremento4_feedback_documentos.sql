@@ -4,11 +4,13 @@
 --   1. FACTURAS: se eliminan los datos que ya se obtienen por FK.
 --      * Las copias antiguas que llenaba trg_facturas_columnas_antiguas
 --        (numero_factura, id_pedido, id_cliente, fecha, neto, iva, total, saldo,
---        creado_en, razon_social, rut) y el trigger con su función.
+--        creado_en, rut) y el trigger con su función.
 --      * direccion, giro, codigo, detalle y forma_pago (la app no las usa;
 --        dirección y giro son del cliente).
 --      * cliente_asociado: el cliente es el del pedido (pedido_asociado ->
---        pedidos.cliente_asociado). Razón social y RUT se muestran desde clientes.
+--        pedidos.cliente_asociado). Nombre y RUT se muestran desde clientes.
+--      Se conserva razon_social: ya no la copia el trigger, se ingresa al crear o
+--      editar la factura (en una base nueva se crea la columna).
 --      Se conservan monto_neto, monto_impuesto y monto_total (valor histórico
 --      emitido: el % de impuesto y el pedido pueden cambiar) y saldo_pendiente
 --      (lo mantiene trg_factura_calcular_saldo y lo usa el informe de cobranza).
@@ -76,7 +78,6 @@ alter table public.facturas
   drop column if exists total,
   drop column if exists saldo,
   drop column if exists creado_en,
-  drop column if exists razon_social,
   drop column if exists rut,
   drop column if exists direccion,
   drop column if exists giro,
@@ -84,6 +85,9 @@ alter table public.facturas
   drop column if exists detalle,
   drop column if exists forma_pago,
   drop column if exists cliente_asociado;
+
+-- Razón social de la factura: se ingresa al crearla (no sale de clientes).
+alter table public.facturas add column if not exists razon_social text;
 
 -- pedido_asociado es obligatorio si ya no quedan facturas sin pedido.
 do $$

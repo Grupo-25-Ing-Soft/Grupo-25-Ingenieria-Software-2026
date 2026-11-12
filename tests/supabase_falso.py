@@ -38,7 +38,7 @@ CASCADAS = {
 COLUMNAS_RETIRADAS = {
     'cortes': {'cantidad'},
     'facturas': {'numero_factura', 'id_pedido', 'id_cliente', 'fecha', 'neto', 'iva', 'total', 'saldo',
-                 'creado_en', 'razon_social', 'rut', 'direccion', 'giro', 'codigo', 'detalle', 'forma_pago',
+                 'creado_en', 'rut', 'direccion', 'giro', 'codigo', 'detalle', 'forma_pago',
                  'cliente_asociado'},
     'notas_credito': {'cliente_asociado'},
     'detalle_pedidos': {'precio_unitario', 'subtotal'},
