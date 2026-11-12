@@ -36,8 +36,9 @@
 -- y la versión anterior de registrar_despacho.
 --
 -- Es idempotente. Se ejecuta completo en el SQL Editor; si algo falla, no se
--- aplica nada. Si una vista propia de la base usa alguna de las columnas que se
--- eliminan, PostgreSQL rechaza el script (no se usa cascade).
+-- aplica nada. Recrea v_despachos_detalle (la de Supabase leía
+-- facturas.numero_factura). Si otra vista usa alguna de las columnas que se
+-- eliminan, el script se detiene y las nombra (no se usa cascade).
 -- =====================================================================
 begin;
 
@@ -66,6 +67,83 @@ begin
               and not exists (select 1 from public.pago_facturas pf where pf.id_factura = f.id_factura)
               and not exists (select 1 from public.notas_credito nc where nc.factura_referencia = f.id_factura)
               and not exists (select 1 from public.despachos d where d.id_factura = f.id_factura)' || v_extra;
+end $$;
+
+-- La v_despachos_detalle que hay en Supabase es anterior a la corrección de
+-- incremento3_despachos.sql y lee facturas.numero_factura (por eso el drop column
+-- fallaba con 2BP01). Se recrea con la definición del repositorio, que toma el folio.
+-- Se usa drop + create porque sus columnas pueden no coincidir con las de la versión
+-- antigua; si otra vista dependiera de ella, el drop falla y no se aplica nada.
+drop view if exists public.v_despachos_detalle;
+create view public.v_despachos_detalle
+with (security_invoker = true) as
+select de.id_despacho,
+       de.numero_guia,
+       de.fecha,
+       date_trunc('month', de.fecha)::date as mes,
+       de.estado,
+       de.id_bodega,
+       b.descripcion          as bodega,
+       de.via_despacho,
+       p.id_pedido,
+       p.numero_pedido,
+       p.cliente_asociado     as id_cliente,
+       c.nombre               as cliente,
+       p.vendedor_asociado    as id_vendedor,
+       v.nombre               as vendedor,
+       de.id_factura,
+       f.folio::text          as numero_factura,
+       dd.id_detalle_despacho,
+       pv.id_variante,
+       pv.id_producto,
+       pr.descripcion         as producto,
+       co.descripcion         as color,
+       t.talla,
+       dd.cantidad,
+       dd.precio_unitario,
+       dd.descuento_porcentaje,
+       dd.cantidad * dd.precio_unitario                                    as subtotal_bruto,
+       round(dd.cantidad * dd.precio_unitario * dd.descuento_porcentaje / 100) as monto_descuento,
+       dd.cantidad * dd.precio_unitario
+         - round(dd.cantidad * dd.precio_unitario * dd.descuento_porcentaje / 100) as subtotal_neto
+  from detalle_despachos dd
+  join despachos de          on de.id_despacho = dd.id_despacho
+  join pedidos p             on p.id_pedido = de.id_pedido
+  join detalle_pedidos d     on d.id_detalle_pedido = dd.id_detalle_pedido
+  join producto_variantes pv on pv.id_variante = d.id_variante
+  left join productos pr     on pr.id_producto = pv.id_producto
+  left join colores co       on co.id_color = pv.id_color
+  left join tallas t         on t.id_talla = pv.id_talla
+  left join clientes c       on c.id_cliente = p.cliente_asociado
+  left join vendedores v     on v.id_vendedor = p.vendedor_asociado
+  left join facturas f       on f.id_factura = de.id_factura
+  left join bodegas b        on b.id_bodega = de.id_bodega;
+
+-- Si alguna otra vista usa una columna que este script elimina, se detiene aquí y
+-- las nombra todas (en vez de fallar en el primer drop column, de a una).
+do $$
+declare
+  v_lista text;
+begin
+  select string_agg(distinct format('%s (usa %s.%s)', v.relname, t.relname, a.attname), ', ')
+    into v_lista
+    from pg_depend d
+    join pg_rewrite r   on r.oid = d.objid
+    join pg_class v     on v.oid = r.ev_class
+    join pg_class t     on t.oid = d.refobjid
+    join pg_attribute a on a.attrelid = d.refobjid and a.attnum = d.refobjsubid
+   where d.classid = 'pg_rewrite'::regclass
+     and d.refclassid = 'pg_class'::regclass
+     and t.relnamespace = 'public'::regnamespace
+     and v.oid <> t.oid
+     and ((t.relname = 'facturas' and a.attname in ('numero_factura', 'id_pedido', 'id_cliente', 'fecha', 'neto',
+             'iva', 'total', 'saldo', 'creado_en', 'rut', 'direccion', 'giro', 'codigo', 'detalle', 'forma_pago',
+             'cliente_asociado'))
+       or (t.relname = 'notas_credito' and a.attname = 'cliente_asociado')
+       or (t.relname = 'detalle_pedidos' and a.attname in ('precio_unitario', 'subtotal')));
+  if v_lista is not null then
+    raise exception 'Estas vistas usan columnas que el script elimina; hay que actualizarlas primero: %', v_lista;
+  end if;
 end $$;
 
 alter table public.facturas
