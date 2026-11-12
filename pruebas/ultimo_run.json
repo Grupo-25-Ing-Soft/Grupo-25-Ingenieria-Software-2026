@@ -1,0 +1,8 @@
+{
+  "run_id": "261005234804",
+  "prefix": "ZZTEST_261005234804",
+  "records": [],
+  "schema_blockers": [
+    "No se confirmó la relación inventario -> bodega/producto/talla/color."
+  ]
+}

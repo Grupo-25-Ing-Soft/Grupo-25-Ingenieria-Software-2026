@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Ingreso a bodega - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar">
+  <input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema">
+</header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Operación / Producción</div>
+      <h1>Ingreso a bodega</h1>
+      <p>Registra en inventario los productos fabricados de una guía de cortes, por color y talla.</p>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <div>
+        <h2>Ingresar producción</h2>
+        <span>Elige la guía de cortes y la bodega, e ingresa los productos fabricados por color y talla.</span>
+      </div>
+    </div>
+    <div class="modal-body">
+      <form method="POST" action="{{ url_for('ingresoBodega') }}" id="formIngreso">
+        <div class="row g-3 mb-3">
+          <div class="col-md-8">
+            <label for="codigoCorte" class="form-label">Guía de cortes pendiente</label>
+            <select class="form-select" id="codigoCorte" name="codigoCorte" required>
+              <option value="" {% if not corte_elegido %}selected{% endif %} disabled>{{ 'Seleccione una guía de cortes' if cortes else 'No hay guías de cortes pendientes de ingreso' }}</option>
+              {% for corte in cortes %}
+              <option value="{{ corte.id_corte }}" data-cantidad="{{ corte.cantidad_producto }}"
+                      {% if corte_elegido == corte.id_corte %}selected{% endif %} {% if not corte.ingresable %}disabled{% endif %}>Guía {{ corte.id_corte }} · {{ corte.codigo }} {{ corte.producto }} · {{ corte.cantidad_producto }} unidades cortadas · {{ corte.fecha_corte|fecha }}{% if not corte.ingresable %} (sin producto asociado){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label for="idBodega" class="form-label">Bodega destino</label>
+            <select class="form-select" id="idBodega" name="idBodega" required>
+              <option value="" selected disabled>Seleccione una bodega</option>
+              {% for bodega in bodegas %}
+              <option value="{{ bodega.id_bodega }}">{{ bodega.descripcion }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <h3 class="h6">Productos fabricados</h3>
+        <div class="data-table-wrap mb-2">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Color</th><th>Talla</th><th style="width: 9rem">Cantidad</th><th></th></tr></thead>
+            <tbody id="lineasIngreso">
+              <tr class="linea-ingreso">
+                <td><select class="form-select form-select-sm" name="color" required>
+                  <option value="" selected disabled>Color</option>
+                  {% for c in colores %}<option value="{{ c.id_color }}">{{ c.descripcion }}</option>{% endfor %}
+                </select></td>
+                <td><select class="form-select form-select-sm" name="talla" required>
+                  <option value="" selected disabled>Talla</option>
+                  {% for t in tallas %}<option value="{{ t.id_talla }}">{{ t.nombre or t.talla }}</option>{% endfor %}
+                </select></td>
+                <td><input type="number" class="form-control form-control-sm" name="cantidad" min="1" step="1" required></td>
+                <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger quitar-linea" title="Quitar" aria-label="Quitar línea"><i class="bi bi-x-lg" aria-hidden="true"></i></button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary icon-button" id="agregarLinea"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Agregar color o talla</span></button>
+          <span class="small text-muted" id="resumenCantidades"></span>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i><span>Ingresar a bodega</span></button>
+          <a href="{{ url_for('produccion') }}" class="btn btn-outline-secondary icon-button"><i class="bi bi-arrow-left" aria-hidden="true"></i><span>Volver a Producción</span></a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="data-card mt-4">
+    <div class="data-card-header"><div><h2>Ingresos realizados</h2><span>{{ ingresados|length }} guía{{ '' if ingresados|length == 1 else 's' }} de cortes ingresada{{ '' if ingresados|length == 1 else 's' }} a bodega</span></div></div>
+    {% if ingresados %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Guía</th><th>Producto</th><th class="text-end">Cantidad</th><th>Fecha de ingreso</th><th>Bodega</th></tr></thead>
+        <tbody>
+          {% for c in ingresados %}
+          <tr>
+            <td>{{ c.id_corte }}</td>
+            <td>{{ c.producto }}</td>
+            <td class="text-end">{{ c.cantidad_producto }}</td>
+            <td>{{ c.fecha_ingreso|fecha }}</td>
+            <td>{{ c.bodega }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">Todavía no se ha ingresado ninguna guía de cortes a bodega.</div>
+    {% endif %}
+  </div>
+</div>
+<script>
+  // Líneas de productos fabricados (CU-21, paso 3): agregar o quitar colores y tallas, propuesta
+  // inicial con la cantidad cortada y total ingresado frente a lo cortado. El producto no tiene
+  // color ni talla base: se eligen en cada línea.
+  document.addEventListener('DOMContentLoaded', function () {
+    const cuerpo = document.getElementById('lineasIngreso');
+    const modelo = cuerpo.querySelector('.linea-ingreso').cloneNode(true);
+    const guia = document.getElementById('codigoCorte');
+    const resumen = document.getElementById('resumenCantidades');
+
+    function actualizarResumen() {
+      const total = Array.from(cuerpo.querySelectorAll('input[name="cantidad"]'))
+        .reduce(function (suma, campo) { return suma + (parseInt(campo.value, 10) || 0); }, 0);
+      const opcion = guia.selectedOptions[0];
+      const cortadas = opcion && opcion.dataset.cantidad ? parseInt(opcion.dataset.cantidad, 10) : null;
+      resumen.textContent = cortadas === null ? 'Total a ingresar: ' + total
+        : 'Total a ingresar: ' + total + ' de ' + cortadas + ' unidades cortadas'
+          + (total && total !== cortadas ? ' (la diferencia no se ingresa)' : '');
+    }
+    function proponer() {
+      const opcion = guia.selectedOptions[0];
+      if (!opcion || !opcion.value || cuerpo.querySelectorAll('.linea-ingreso').length !== 1) return actualizarResumen();
+      const linea = cuerpo.querySelector('.linea-ingreso');
+      linea.querySelector('input[name="cantidad"]').value = opcion.dataset.cantidad;
+      actualizarResumen();
+    }
+    document.getElementById('agregarLinea').addEventListener('click', function () {
+      cuerpo.appendChild(modelo.cloneNode(true));
+      actualizarResumen();
+    });
+    cuerpo.addEventListener('click', function (evento) {
+      const boton = evento.target.closest('.quitar-linea');
+      if (boton && cuerpo.querySelectorAll('.linea-ingreso').length > 1) {
+        boton.closest('.linea-ingreso').remove();
+        actualizarResumen();
+      }
+    });
+    cuerpo.addEventListener('input', actualizarResumen);
+    guia.addEventListener('change', proponer);
+    proponer();
+  });
+</script>
+</body>
+</html>

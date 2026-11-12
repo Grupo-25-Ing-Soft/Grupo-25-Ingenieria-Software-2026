@@ -1,0 +1,45 @@
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Productos despachados{% endblock %}
+{% block descripcion %}Productos que salieron en guías de despacho emitidas. Las guías anuladas no se cuentan.{% endblock %}
+
+{% block filtros %}
+{{ inf.fecha('desde', 'Desde', filtros) }}
+{{ inf.fecha('hasta', 'Hasta', filtros) }}
+{{ inf.lista('pedido', 'Pedido', pedidos, filtros) }}
+{{ inf.lista('cliente', 'Cliente', clientes, filtros) }}
+{{ inf.lista('vendedor', 'Vendedor', vendedores, filtros) }}
+{{ inf.lista('producto', 'Producto', productos, filtros) }}
+{{ inf.lista('factura', 'Factura', facturas, filtros, vacio='Todas') }}
+{% endblock %}
+
+{% block resultados %}
+<div class="data-card-header"><div><h2>Resultados</h2><span>{{ guias }} guía{{ '' if guias == 1 else 's' }} · {{ totales.cantidad }} unidades · {{ totales.subtotal_neto|moneda }} neto</span></div></div>
+{% if lineas %}
+<div class="data-table-wrap data-table-wrap--scroll">
+  <table class="table table-striped align-middle mb-0">
+    <thead><tr><th>Guía</th><th>Fecha</th><th>Pedido</th><th>Cliente</th><th>Vendedor</th><th>Factura</th><th>Producto</th><th class="text-end">Cantidad</th><th class="text-end">Precio unitario</th><th class="text-end">Descuento</th><th class="text-end">Subtotal neto</th></tr></thead>
+    <tbody>
+      {% for l in lineas %}
+      <tr>
+        <td><a href="{{ url_for('despachos', ver=l.id_despacho) }}">{{ l.numero_guia }}</a></td>
+        <td>{{ l.fecha|fecha }}</td>
+        <td>{{ l.numero_pedido or l.id_pedido }}</td>
+        <td>{{ l.cliente or 'Sin cliente' }}</td>
+        <td>{{ l.vendedor or '' }}</td>
+        <td>{{ l.folio_factura or '—' }}</td>
+        <td>{{ inf.producto(l) }}</td>
+        <td class="text-end">{{ l.cantidad }}</td>
+        <td class="text-end">{{ l.precio_unitario|moneda }}</td>
+        <td class="text-end">{{ '%.2f'|format(l.descuento_porcentaje or 0) }} %</td>
+        <td class="text-end">{{ l.subtotal_neto|moneda }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th colspan="7" class="text-end">Total</th><th class="text-end">{{ totales.cantidad }}</th><th colspan="2"></th><th class="text-end">{{ totales.subtotal_neto|moneda }}</th></tr></tfoot>
+  </table>
+</div>
+{% else %}
+{{ inf.sin_resultados(filtros) }}
+{% endif %}
+{% endblock %}

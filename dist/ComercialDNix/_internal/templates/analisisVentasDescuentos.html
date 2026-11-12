@@ -1,0 +1,49 @@
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Ventas y descuentos{% endblock %}
+{% block descripcion %}Venta despachada desde la perspectiva elegida (cliente, vendedor, producto, factura o guía): monto bruto, descuento aplicado (los del cliente en cascada), monto neto y comisión estimada del vendedor.{% endblock %}
+
+{% block filtros %}
+{{ inf.fecha('desde', 'Desde', filtros) }}
+{{ inf.fecha('hasta', 'Hasta', filtros) }}
+{{ inf.lista('cliente', 'Cliente', clientes, filtros) }}
+{{ inf.lista('vendedor', 'Vendedor', vendedores, filtros) }}
+{{ inf.lista('producto', 'Producto', productos, filtros) }}
+{{ inf.lista('factura', 'Factura', facturas, filtros, vacio='Todas') }}
+<div class="col-md-2">
+  <label class="form-label" for="agrupar">Agrupar por</label>
+  <select class="form-select" id="agrupar" name="agrupar">
+    {% for valor, texto in perspectivas %}<option value="{{ valor }}" {% if filtros.agrupar == valor %}selected{% endif %}>{{ texto }}</option>{% endfor %}
+  </select>
+</div>
+{% endblock %}
+
+{% block resultados %}
+<div class="data-card-header"><div><h2>Resultados</h2><span>{{ totales.subtotal_neto|moneda }} neto · {{ totales.monto_descuento|moneda }} en descuentos</span></div></div>
+{% if grupos %}
+<div class="data-table-wrap data-table-wrap--scroll">
+  <table class="table table-striped align-middle mb-0">
+    <thead><tr><th>{{ etiqueta }}</th><th class="text-end">Guías</th><th class="text-end">Unidades</th><th class="text-end">Venta bruta</th><th class="text-end">Descuento</th><th class="text-end">% descuento</th><th class="text-end">Venta neta</th><th class="text-end">Comisión</th></tr></thead>
+    <tbody>
+      {% for g in grupos %}
+      <tr>
+        <td>{{ g.nombre or ('Sin ' ~ etiqueta|lower) }}</td>
+        <td class="text-end">{{ g.distintos }}</td>
+        <td class="text-end">{{ g.cantidad }}</td>
+        <td class="text-end">{{ g.subtotal_bruto|moneda }}</td>
+        <td class="text-end">{{ g.monto_descuento|moneda }}</td>
+        <td class="text-end">{{ '%.2f'|format(g.porcentaje_descuento) }} %</td>
+        <td class="text-end">{{ g.subtotal_neto|moneda }}</td>
+        <td class="text-end">{{ g.comision|moneda }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th colspan="2" class="text-end">Total</th><th class="text-end">{{ totales.cantidad }}</th><th class="text-end">{{ totales.subtotal_bruto|moneda }}</th><th class="text-end">{{ totales.monto_descuento|moneda }}</th><th></th><th class="text-end">{{ totales.subtotal_neto|moneda }}</th><th class="text-end">{{ totales.comision|moneda }}</th></tr></tfoot>
+  </table>
+</div>
+<p class="text-muted small m-3">La comisión es una estimación: monto neto de cada línea por el porcentaje de comisión actual del vendedor del pedido.</p>
+{% else %}
+{# «agrupar» siempre tiene valor: no cuenta como filtro aplicado. #}
+{{ inf.sin_resultados({'filtro': filtros.desde or filtros.hasta or filtros.cliente or filtros.vendedor or filtros.producto or filtros.factura}) }}
+{% endif %}
+{% endblock %}

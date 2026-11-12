@@ -1,0 +1,108 @@
+{# Barra lateral común a todas las páginas. El enlace activo se elige según request.endpoint. #}
+{% macro enlace(endpoint, icono, texto, activo=False) %}
+<a href="{{ url_for(endpoint) }}"{% if activo or request.endpoint == endpoint %} class="active"{% endif %} title="{{ texto }}"><span class="shared-nav-icon"><i class="bi {{ icono }}" aria-hidden="true"></i></span><span>{{ texto }}</span></a>
+{% endmacro %}
+{% set ep = request.endpoint or '' %}
+<script>
+  // Barra contraída o expandida (body.sidebar-contraida, app.css). Se aplica aquí, antes de
+  // dibujar la barra y la página, para que no parpadee. En pantallas de menos de 992 px
+  // empieza contraída; en las demás se recuerda la última elección del usuario.
+  (function () {
+    var contraida = window.matchMedia('(max-width: 991.98px)').matches;
+    if (!contraida) {
+      try { contraida = window.localStorage.getItem('barraLateralContraida') === '1'; } catch (e) { contraida = false; }
+    }
+    if (contraida) document.body.classList.add('sidebar-contraida');
+  })();
+</script>
+<aside class="shared-sidebar" id="barraLateral">
+  <div class="shared-brand"><img class="shared-brand-mark" src="{{ url_logotipo() }}" alt="Comercial D Nix"><span class="shared-brand-text">Comercial D Nix</span></div>
+  <button type="button" class="shared-toggle" id="alternarBarraLateral" aria-controls="barraLateral" aria-expanded="true" title="Contraer menú">
+    <span class="shared-nav-icon"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></span><span>Contraer menú</span>
+  </button>
+
+  <div class="shared-caption">Operación</div>
+  {{ enlace('index', 'bi-grid-1x2-fill', 'Panel de control') }}
+  {# Los informes y análisis se abren desde Reportes. #}
+  {{ enlace('reportes', 'bi-bar-chart-line', 'Reportes',
+            ep.startswith('analisis') or ep.startswith('informeProductos') or ep in ('inventario', 'resumenProduccion')) }}
+  {{ enlace('informeCobranza', 'bi-cash-stack', 'Informe de cobranza') }}
+
+  <div class="shared-caption">Ventas</div>
+  {{ enlace('pedidos', 'bi-receipt-cutoff', 'Pedidos', ep in ('verDetalle', 'crudDetallePedido')) }}
+  {{ enlace('despachos', 'bi-truck', 'Despachos') }}
+  {{ enlace('facturas', 'bi-file-earmark-text', 'Facturas') }}
+  {{ enlace('notasCredito', 'bi-receipt-cutoff', 'Notas de crédito') }}
+  {{ enlace('pagos', 'bi-cash-coin', 'Pagos') }}
+
+  <div class="shared-caption">Producción</div>
+  {{ enlace('cortes', 'bi-scissors', 'Cortes') }}
+  {{ enlace('ingresoBodega', 'bi-box-arrow-in-down', 'Ingreso a bodega') }}
+
+  <div class="shared-caption">Archivos maestros</div>
+  {{ enlace('clientes', 'bi-person-vcard-fill', 'Clientes') }}
+  {{ enlace('productos', 'bi-box-seam-fill', 'Productos') }}
+  {{ enlace('colores', 'bi-palette-fill', 'Colores') }}
+  {{ enlace('tallas', 'bi-rulers', 'Tallas') }}
+  {{ enlace('codigosEAN', 'bi-upc-scan', 'Códigos EAN', ep == 'emisionEAN') }}
+  {{ enlace('vendedores', 'bi-person-badge-fill', 'Vendedores') }}
+  {{ enlace('zonasVenta', 'bi-geo-alt-fill', 'Zonas de venta') }}
+  {{ enlace('bodegas', 'bi-building-fill', 'Bodegas') }}
+  {% include '_sesion_usuario.html' %}
+</aside>
+<datalist id="secciones-sistema"></datalist>
+<script>
+  // Botón «Contraer menú»: cambia la clase del body y recuerda la elección (si el navegador
+  // no permite localStorage, igual funciona mientras dure la página).
+  (function () {
+    var boton = document.getElementById('alternarBarraLateral');
+    function mostrar() {
+      var contraida = document.body.classList.contains('sidebar-contraida');
+      var texto = contraida ? 'Expandir menú' : 'Contraer menú';
+      boton.setAttribute('aria-expanded', String(!contraida));
+      boton.title = texto;
+      boton.querySelector('span:last-child').textContent = texto;
+      boton.querySelector('i').className = 'bi ' + (contraida ? 'bi-chevron-double-right' : 'bi-chevron-double-left');
+    }
+    boton.addEventListener('click', function () {
+      var contraida = document.body.classList.toggle('sidebar-contraida');
+      try { window.localStorage.setItem('barraLateralContraida', contraida ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
+      mostrar();
+    });
+    mostrar();
+  })();
+</script>
+<script>
+  // Barra «Buscar en el sistema» de cada página: lleva a la sección del menú cuyo nombre
+  // coincide (RF-061: menos clics). Solo ofrece las secciones que el rol puede ver.
+  document.addEventListener('DOMContentLoaded', function () {
+    const lista = document.getElementById('secciones-sistema');
+    function secciones() {
+      return Array.from(document.querySelectorAll('.shared-sidebar a[href]'))
+        .filter(function (enlace) { return enlace.style.display !== 'none' && enlace.textContent.trim(); })
+        .map(function (enlace) { return {nombre: enlace.textContent.trim(), url: enlace.href}; });
+    }
+    function ir(campo, exacto) {
+      const texto = campo.value.trim().toLowerCase();
+      if (!texto) return;
+      const todas = secciones();
+      const destino = todas.find(function (s) { return s.nombre.toLowerCase() === texto; })
+        || (exacto ? null : todas.find(function (s) { return s.nombre.toLowerCase().includes(texto); }));
+      if (destino) window.location.href = destino.url;
+    }
+    document.querySelectorAll('.shared-search').forEach(function (campo) {
+      campo.placeholder = 'Ir a una sección…';
+      campo.setAttribute('list', 'secciones-sistema');
+      campo.addEventListener('focus', function () {
+        lista.innerHTML = '';
+        secciones().forEach(function (s) {
+          const opcion = document.createElement('option');
+          opcion.value = s.nombre;
+          lista.appendChild(opcion);
+        });
+      });
+      campo.addEventListener('change', function () { ir(campo, true); });
+      campo.addEventListener('keydown', function (evento) { if (evento.key === 'Enter') ir(campo, false); });
+    });
+  });
+</script>

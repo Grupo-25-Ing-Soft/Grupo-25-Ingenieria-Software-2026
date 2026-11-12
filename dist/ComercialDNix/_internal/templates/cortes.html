@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Cortes - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('produccion', 'editar') %}
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Operación / Producción</div><h1>Cortes</h1><p>Registra las guías de cortes. Solo se modifican o eliminan mientras no se ingresan a bodega.</p></div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo corte</span></button>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <div><h2>Guías de cortes</h2><span>{{ datos|length }} resultado{{ '' if datos|length == 1 else 's' }}</span></div>
+      <form method="POST" action="{{ url_for('cortes') }}" class="d-flex gap-2" role="search">
+        <input type="hidden" name="_method" value="buscarID">
+        <input type="search" class="form-control form-control-sm" name="idBuscar" value="{{ busqueda }}" inputmode="numeric" placeholder="ID de corte" aria-label="Buscar corte por ID">
+        <button type="submit" class="btn btn-sm btn-outline-secondary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
+        {% if busqueda %}<a href="{{ url_for('cortes') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>{% endif %}
+      </form>
+    </div>
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>ID</th><th>Fecha</th><th>Cortador</th><th>Producto</th><th class="text-end">Cantidad</th><th>Material</th><th>Observaciones</th><th>Estado</th><th>Ingreso a bodega</th>{% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for c in datos %}
+          <tr>
+            <td>{{ c.id_corte }}</td>
+            <td>{{ c.fecha_corte|fecha }}</td>
+            <td>{{ c.cortador or '' }}</td>
+            <td>{{ c.producto or ('Producto ' ~ c.producto_asociado if c.producto_asociado else '—') }}</td>
+            <td class="text-end">{{ c.cantidad_producto }}</td>
+            <td>{{ c.material_usado or '' }}</td>
+            <td>{{ c.observaciones or '' }}</td>
+            <td><span class="badge {{ 'text-bg-success' if c.estado == 'ingresado' else 'text-bg-primary' if c.estado == 'pendiente' else 'text-bg-secondary' }}">{{ c.estado or '—' }}</span></td>
+            <td>{% if c.estado == 'ingresado' %}{{ c.fecha_ingreso|fecha }}{% if c.bodega_ingreso %} · {{ c.bodega_ingreso }}{% endif %}{% else %}—{% endif %}</td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              {% if c.estado == 'pendiente' %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="guía de cortes {{ c.id_corte }}"
+                      data-valores='{{ {"IdCorteActualizar": c.id_corte, "fechaCorteActualizar": c.fecha_corte, "cortadorActualizar": c.cortador or "", "cantidadActualizar": c.cantidad_producto, "materialActualizar": c.material_usado or "", "observacionesActualizar": c.observaciones or "", "IdProductoActualizar": c.producto_asociado or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="guía de cortes {{ c.id_corte }}"
+                      data-valores='{{ {"idCorteBorrar": c.id_corte} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+              {% else %}
+              <span class="text-muted small">Ingresada</span>
+              {% endif %}
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">No hay guías de cortes registradas.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% macro campos_corte(sufijo) %}
+<div class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label" for="fechaCorte{{ sufijo }}">Fecha del corte</label>
+    <input type="date" class="form-control" id="fechaCorte{{ sufijo }}" name="fechaCorte{{ sufijo }}" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="cortador{{ sufijo }}">Cortador</label>
+    <input type="text" class="form-control" id="cortador{{ sufijo }}" name="cortador{{ sufijo }}" required>
+  </div>
+  <div class="col-md-8">
+    <label class="form-label" for="IdProducto{{ sufijo }}">Producto</label>
+    <select class="form-select" id="IdProducto{{ sufijo }}" name="IdProducto{{ sufijo }}" required>
+      <option value="" selected disabled>Seleccione un producto</option>
+      {% for p in productos %}<option value="{{ p.id_producto }}">{% if p.codigo %}{{ p.codigo }} · {% endif %}{{ p.descripcion }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="cantidad{{ sufijo }}">Cantidad</label>
+    <input type="number" class="form-control" id="cantidad{{ sufijo }}" name="cantidad{{ sufijo }}" min="1" step="1" required>
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="material{{ sufijo }}">Material usado</label>
+    <input type="text" class="form-control" id="material{{ sufijo }}" name="material{{ sufijo }}">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="observaciones{{ sufijo }}">Observaciones</label>
+    <input type="text" class="form-control" id="observaciones{{ sufijo }}" name="observaciones{{ sufijo }}">
+  </div>
+</div>
+{% endmacro %}
+
+{% if puede_editar %}
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Nueva guía de cortes</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('cortes') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="post">
+        {{ campos_corte('Crear') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('cortes') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="IdCorteActualizar">
+        {{ campos_corte('Actualizar') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar guía de cortes</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('cortes') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idCorteBorrar">
+        <p>¿Seguro que quieres eliminar la <strong data-registro></strong>? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Solo se eliminan las guías pendientes; una guía ingresada a bodega ya está en el inventario.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+</body>
+</html>

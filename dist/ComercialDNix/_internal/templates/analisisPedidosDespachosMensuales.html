@@ -1,0 +1,36 @@
+{% extends '_informe_base.html' %}
+{% import '_informe_macros.html' as inf %}
+{% block titulo %}Pedidos y despachos mensuales{% endblock %}
+{% block descripcion %}Pedidos no anulados (por fecha del pedido) y despachos emitidos (por fecha de la guía) de cada mes.{% endblock %}
+
+{% block filtros %}
+{{ inf.fecha('mes_desde', 'Desde el mes', filtros, tipo='month') }}
+{{ inf.fecha('mes_hasta', 'Hasta el mes', filtros, tipo='month') }}
+{% endblock %}
+
+{% block resultados %}
+<div class="data-card-header"><div><h2>Resultados</h2><span>{{ meses|length }} mes{{ '' if meses|length == 1 else 'es' }}</span></div></div>
+{% if meses %}
+<div class="data-table-wrap data-table-wrap--scroll">
+  <table class="table table-striped align-middle mb-0">
+    <thead><tr><th>Mes</th><th class="text-end">Pedidos</th><th class="text-end">Unidades pedidas</th><th class="text-end">Despachos</th><th class="text-end">Unidades despachadas</th><th class="text-end">Despachado / pedido</th></tr></thead>
+    <tbody>
+      {% for m in meses %}
+      <tr>
+        <td>{{ m.mes[5:7] }}/{{ m.mes[:4] }}</td>
+        <td class="text-end">{{ m.pedidos }}</td>
+        <td class="text-end">{{ m.unidades_pedidas }}</td>
+        <td class="text-end">{{ m.despachos }}</td>
+        <td class="text-end">{{ m.unidades_despachadas }}</td>
+        <td class="text-end">{{ inf.porcentaje(m.porcentaje) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th class="text-end">Total</th><th class="text-end">{{ totales.pedidos }}</th><th class="text-end">{{ totales.unidades_pedidas }}</th><th class="text-end">{{ totales.despachos }}</th><th class="text-end">{{ totales.unidades_despachadas }}</th><th></th></tr></tfoot>
+  </table>
+</div>
+<p class="text-muted small m-3">Las unidades despachadas en un mes pueden corresponder a pedidos de meses anteriores.</p>
+{% else %}
+{{ inf.sin_resultados(filtros) }}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Clientes - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='tabla_helpers.js') }}"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar"><input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema"></header>
+{% set puede_editar = puede('clientes', 'editar') %}
+{% set nombre_zona = {} %}
+{% for z in zonasVenta %}{% set _ = nombre_zona.update({z.id_zona_venta: z.nombre or z.descripcion}) %}{% endfor %}
+{% set nombre_vendedor = {} %}
+{% for v in vendedores %}{% set _ = nombre_vendedor.update({v.id_vendedor: v.nombre}) %}{% endfor %}
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div><div class="eyebrow">Archivos maestros / Comercial</div><h1>Clientes</h1><p>Administra los clientes, sus condiciones comerciales y descuentos.</p></div>
+    {% if puede_editar %}
+    <div class="heading-actions">
+      <button type="button" class="btn btn-success icon-button" data-bs-toggle="modal" data-bs-target="#crearModal"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>Nuevo cliente</span></button>
+    </div>
+    {% endif %}
+  </div>
+  <div class="data-card">
+    <div class="data-card-header">
+      <div><h2>Clientes registrados</h2><span>{{ datos|length }} cliente{{ '' if datos|length == 1 else 's' }}</span></div>
+      <form method="GET" action="{{ url_for('clientes') }}" class="d-flex gap-2" role="search">
+        <input type="search" class="form-control form-control-sm" name="q" value="{{ busqueda }}" placeholder="Buscar por nombre, RUT o código" aria-label="Buscar cliente">
+        <button type="submit" class="btn btn-sm btn-outline-secondary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Buscar</span></button>
+        {% if busqueda %}<a href="{{ url_for('clientes') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>{% endif %}
+      </form>
+    </div>
+    {% if datos %}
+    <div class="data-table-wrap data-table-wrap--scroll">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr>
+          <th>Nombre</th><th>Código</th><th>RUT</th><th>Abreviación</th><th>Giro</th><th>Teléfonos</th><th>Correo</th><th>Dirección</th>
+          <th>Comuna</th><th>Ciudad</th><th>Zona de venta</th><th>Vendedor</th><th class="text-end">Lista de precios</th><th class="text-end">Descuentos</th><th class="text-end">Comisión</th>
+          <th class="text-end">Cobranza</th><th>Vía de despacho</th><th>Condiciones de venta</th><th>Observaciones</th>
+          {% if puede_editar %}<th class="text-end">Acciones</th>{% endif %}
+        </tr></thead>
+        <tbody>
+          {% for c in datos %}
+          <tr>
+            <td>{{ c.nombre }}</td>
+            <td>{{ c.codigo or '' }}</td>
+            <td class="text-nowrap">{{ c.rut|rut(c.digito_verificador) }}</td>
+            <td>{{ c.abreviacion or '' }}</td>
+            <td>{{ c.get('giro') or '' }}</td>
+            <td class="text-nowrap">{{ c.telefono or '' }}{% if c.get('telefono_2') %}<br>{{ c.get('telefono_2') }}{% endif %}</td>
+            <td>{{ c.correo or '' }}</td>
+            <td>{{ c.direccion or '' }}</td>
+            <td>{{ c.comuna or '' }}</td>
+            <td>{{ c.ciudad or '' }}</td>
+            <td>{{ nombre_zona.get(c.id_zona_venta, '') }}</td>
+            <td>{{ nombre_vendedor.get(c.get('id_vendedor'), '') }}</td>
+            <td class="text-end">{{ c.get('lista_precios') or 1 }}</td>
+            <td class="text-end text-nowrap">{{ '%.2f'|format(c.descuento_1 or 0) }}% / {{ '%.2f'|format(c.descuento_2 or 0) }}% / {{ '%.2f'|format(c.descuento_3 or 0) }}%</td>
+            <td class="text-end">{% if c.get('porcentaje_comision') is not none %}{{ '%.2f'|format(c.get('porcentaje_comision')) }}%{% endif %}</td>
+            <td class="text-end">{% if c.get('porcentaje_cobranza') is not none %}{{ '%.2f'|format(c.get('porcentaje_cobranza')) }}%{% endif %}</td>
+            <td>{{ c.via_despacho or '' }}</td>
+            <td>{{ c.condiciones_venta or '' }}</td>
+            <td>{{ c.observaciones or '' }}</td>
+            {% if puede_editar %}
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar" data-modal="#actualizarModal" data-registro="cliente {{ c.nombre }}"
+                      data-valores='{{ {"idClienteActualizar": c.id_cliente, "nombreActualizar": c.nombre, "codigoActualizar": c.codigo or "",
+                        "rutActualizar": c.rut,"abreviacionActualizar": c.abreviacion or "",
+                        "telefonoActualizar": c.telefono or "", "correoActualizar": c.correo or "", "direccionActualizar": c.direccion or "",
+                        "comunaActualizar": c.comuna or "", "ciudadActualizar": c.ciudad or "", "idZonaVentaActualizar": c.id_zona_venta or "",
+                        "giroActualizar": c.get('giro') or "", "telefono2Actualizar": c.get('telefono_2') or "",
+                        "listaPreciosActualizar": c.get('lista_precios') or 1, "idVendedorActualizar": c.get('id_vendedor') or "",
+                        "descuento1Actualizar": c.descuento_1 or 0, "descuento2Actualizar": c.descuento_2 or 0, "descuento3Actualizar": c.descuento_3 or 0,
+                        "porComisionActualizar": c.get('porcentaje_comision') if c.get('porcentaje_comision') is not none else "",
+                        "porCobranzaActualizar": c.get('porcentaje_cobranza') if c.get('porcentaje_cobranza') is not none else "",
+                        "viaDespachoActualizar": c.via_despacho or "", "condicionesVentaActualizar": c.condiciones_venta or "",
+                        "observacionesActualizar": c.observaciones or ""} | tojson }}'><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Eliminar" data-modal="#borrarModal" data-registro="cliente {{ c.nombre }}"
+                      data-valores='{{ {"idClienteBorrar": c.id_cliente} | tojson }}'><i class="bi bi-trash3" aria-hidden="true"></i></button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">{% if busqueda %}No se encontraron resultados para «{{ busqueda }}».{% else %}Sin clientes registrados todavía.{% endif %}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% macro campos_cliente(sufijo) %}
+<div class="row g-3">
+  <div class="col-md-8">
+    <label class="form-label" for="nombre{{ sufijo }}">Nombre completo (apellidos-nombres o razón social)</label>
+    <input type="text" class="form-control" id="nombre{{ sufijo }}" name="nombre{{ sufijo }}" required>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="codigo{{ sufijo }}">Código de cliente</label>
+    <input type="text" class="form-control" id="codigo{{ sufijo }}" name="codigo{{ sufijo }}">
+  </div>
+  <div class="col-md-7">
+    <label class="form-label" for="rut{{ sufijo }}">RUT (sin dígito verificador)</label>
+    <input type="text" class="form-control" id="rut{{ sufijo }}" name="rut{{ sufijo }}" inputmode="numeric" placeholder="Ej: 12.345.678" required>
+    <small class="text-muted">El dígito verificador lo calcula el sistema.</small>
+  </div>
+  <div class="col-md-5">
+    <label class="form-label" for="abreviacion{{ sufijo }}">Abreviación</label>
+    <input type="text" class="form-control" id="abreviacion{{ sufijo }}" name="abreviacion{{ sufijo }}">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="giro{{ sufijo }}">Giro</label>
+    <input type="text" class="form-control" id="giro{{ sufijo }}" name="giro{{ sufijo }}" placeholder="Actividad económica del cliente">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="telefono{{ sufijo }}">Teléfono 1</label>
+    <input type="text" class="form-control" id="telefono{{ sufijo }}" name="telefono{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="telefono2{{ sufijo }}">Teléfono 2</label>
+    <input type="text" class="form-control" id="telefono2{{ sufijo }}" name="telefono2{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="correo{{ sufijo }}">Correo</label>
+    <input type="email" class="form-control" id="correo{{ sufijo }}" name="correo{{ sufijo }}">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="direccion{{ sufijo }}">Dirección</label>
+    <input type="text" class="form-control" id="direccion{{ sufijo }}" name="direccion{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="comuna{{ sufijo }}">Comuna</label>
+    <input type="text" class="form-control" id="comuna{{ sufijo }}" name="comuna{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="ciudad{{ sufijo }}">Ciudad</label>
+    <input type="text" class="form-control" id="ciudad{{ sufijo }}" name="ciudad{{ sufijo }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="idZonaVenta{{ sufijo }}">Zona de venta</label>
+    <select class="form-select" id="idZonaVenta{{ sufijo }}" name="idZonaVenta{{ sufijo }}">
+      <option value="">Sin zona</option>
+      {% for zona in zonasVenta %}<option value="{{ zona.id_zona_venta }}">{{ zona.nombre or zona.descripcion }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-8">
+    <label class="form-label" for="idVendedor{{ sufijo }}">Vendedor asociado</label>
+    <select class="form-select" id="idVendedor{{ sufijo }}" name="idVendedor{{ sufijo }}">
+      <option value="">Sin vendedor</option>
+      {% for v in vendedores %}<option value="{{ v.id_vendedor }}">{% if v.codigo %}{{ v.codigo }} · {% endif %}{{ v.nombre }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="listaPrecios{{ sufijo }}">N° de lista de precios</label>
+    <input type="number" class="form-control" id="listaPrecios{{ sufijo }}" name="listaPrecios{{ sufijo }}" min="1" step="1" value="1">
+  </div>
+  {% for n in [1, 2, 3] %}
+  <div class="col-md-4">
+    <label class="form-label" for="descuento{{ n }}{{ sufijo }}">Descuento {{ n }} (%)</label>
+    <input type="number" class="form-control" id="descuento{{ n }}{{ sufijo }}" name="descuento{{ n }}{{ sufijo }}" min="0" max="100" step="0.01" value="0">
+  </div>
+  {% endfor %}
+  <div class="col-md-6">
+    <label class="form-label" for="porComision{{ sufijo }}">Porcentaje de comisión (%)</label>
+    <input type="number" class="form-control" id="porComision{{ sufijo }}" name="porComision{{ sufijo }}" min="0" max="100" step="0.01">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="porCobranza{{ sufijo }}">Porcentaje de cobranza (%)</label>
+    <input type="number" class="form-control" id="porCobranza{{ sufijo }}" name="porCobranza{{ sufijo }}" min="0" max="100" step="0.01">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="viaDespacho{{ sufijo }}">Vía de despacho</label>
+    <input type="text" class="form-control" id="viaDespacho{{ sufijo }}" name="viaDespacho{{ sufijo }}" placeholder="Ej.: Starken, retiro en tienda">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="condicionesVenta{{ sufijo }}">Condiciones de venta</label>
+    <input type="text" class="form-control" id="condicionesVenta{{ sufijo }}" name="condicionesVenta{{ sufijo }}" placeholder="Ej.: 30 días">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="observaciones{{ sufijo }}">Observaciones</label>
+    <textarea class="form-control" id="observaciones{{ sufijo }}" name="observaciones{{ sufijo }}" maxlength="256" rows="2"></textarea>
+  </div>
+</div>
+{% endmacro %}
+
+{% if puede_editar %}
+<div class="modal fade" id="crearModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Nuevo cliente</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('clientes') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="post">
+        {{ campos_cliente('Crear') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Crear</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="actualizarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Editar <span data-registro></span></h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('clientes') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="put">
+        <input type="hidden" name="idClienteActualizar">
+        {{ campos_cliente('Actualizar') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary icon-button"><i class="bi bi-check2" aria-hidden="true"></i><span>Guardar</span></button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="borrarModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Eliminar cliente</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <form method="POST" role="form" action="{{ url_for('clientes') }}">
+      <div class="modal-body">
+        <input type="hidden" name="_method" value="delete">
+        <input type="hidden" name="idClienteBorrar">
+        <p>¿Seguro que quieres eliminar al <strong data-registro></strong>? Esta acción no se puede deshacer.</p>
+        <small class="text-muted">Un cliente con pedidos, facturas o pagos no se puede eliminar.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+</body>
+</html>
