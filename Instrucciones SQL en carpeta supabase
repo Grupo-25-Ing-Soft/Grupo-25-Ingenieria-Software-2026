@@ -7,3 +7,6 @@ y el valor para la columna "descripcion" es la variable descripcion.
 Es equivalente a la expresión:
 INSERT INTO colores (codigo_color, descripcion);
 VALUES (codigo, descripcion)
+
+
+Nota: En la carpeta supabase están los archivos .sql que contienen las instrucciones para crear y modificar las tablas de la propia base de datos.
