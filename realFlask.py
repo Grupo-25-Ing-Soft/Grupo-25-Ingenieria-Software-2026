@@ -9,6 +9,7 @@ import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from html.parser import HTMLParser
 from xml.etree import ElementTree
 from flask import Flask
 from flask import flash
@@ -3752,11 +3753,11 @@ def emisionEAN():
 
 
 # ---------------------------------------------------------------------
-# Migración de datos desde otros sistemas (RF-060). Se sube un archivo CSV o Excel
-# (.xlsx) por cada archivo maestro; la primera fila trae los títulos de las columnas.
+# Migración de datos desde otros sistemas (RF-060). Se sube un archivo CSV, Excel
+# (.xlsx) o HTML (una tabla) por cada archivo maestro; la primera fila trae los títulos de las columnas.
 # Cada fila pasa por las mismas reglas que los formularios; las que ya existen (por RUT
 # o código) se omiten, así que el mismo archivo se puede subir más de una vez.
-# No usa librerías extra: el .xlsx se lee con zipfile y xml (va en el instalador).
+# No usa librerías extra: el .xlsx se lee con zipfile y xml, y el HTML con html.parser.
 MAX_FILAS_MIGRACION = 5000
 MAX_XLSX_DESCOMPRIMIDO = 30 * 1024 * 1024
 FILAS_POR_LOTE_MIGRACION = 200
@@ -3900,20 +3901,77 @@ def _leer_xlsx_migracion(contenido):
     return filas
 
 
+class _TablasHTML(HTMLParser):
+    """Junta las filas (<tr>) de cada <table> de una página HTML. Solo lee texto: no ejecuta
+    ni guarda nada del archivo. Las tablas anidadas se leen como tablas aparte."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.tablas, self.abiertas, self.celda, self.ignorar = [], [], None, 0
+
+    def handle_starttag(self, etiqueta, atributos):
+        if etiqueta == 'table':
+            self.abiertas.append([])
+            self.tablas.append(self.abiertas[-1])
+        elif etiqueta == 'tr' and self.abiertas:
+            self.abiertas[-1].append([])
+        elif etiqueta in ('td', 'th') and self.abiertas and self.abiertas[-1]:
+            self.celda = []
+        elif etiqueta == 'br' and self.celda is not None:
+            self.celda.append(' ')
+        elif etiqueta in ('script', 'style'):
+            self.ignorar += 1
+
+    def handle_endtag(self, etiqueta):
+        if etiqueta in ('td', 'th') and self.celda is not None and self.abiertas and self.abiertas[-1]:
+            self.abiertas[-1][-1].append(' '.join(''.join(self.celda).split()))
+            self.celda = None
+        elif etiqueta == 'table' and self.abiertas:
+            self.abiertas.pop()
+            self.celda = None
+        elif etiqueta in ('script', 'style') and self.ignorar:
+            self.ignorar -= 1
+
+    def handle_data(self, texto):
+        if self.celda is not None and not self.ignorar:
+            self.celda.append(texto)
+
+
+def _leer_html_migracion(contenido):
+    """Filas de la tabla con más datos de una página HTML (por ejemplo, un listado exportado
+    o guardado desde el navegador)."""
+    try:
+        texto = contenido.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        texto = contenido.decode('cp1252', errors='replace')
+    lector = _TablasHTML()
+    lector.feed(texto)
+    lector.close()
+    tablas = [[fila for fila in tabla if any(fila)] for tabla in lector.tablas]
+    tabla = max(tablas, key=lambda t: sum(len(fila) for fila in t), default=[])
+    if not tabla:
+        raise ValueError('El archivo HTML no tiene ninguna tabla con datos.')
+    return tabla
+
+
 def _leer_archivo_migracion(archivo):
     """(títulos, filas) del archivo subido. Lanza ValueError con un mensaje para el usuario."""
     nombre = (archivo.filename or '').lower() if archivo else ''
     if not nombre:
         raise ValueError('Selecciona el archivo que quieres migrar.')
     contenido = archivo.read()
+    # Muchos sistemas exportan un «.xls» que en realidad es una tabla HTML.
+    es_html = contenido.lstrip(b'\xef\xbb\xbf \t\r\n')[:1] == b'<'
     if nombre.endswith('.xlsx'):
         filas = _leer_xlsx_migracion(contenido)
+    elif nombre.endswith(('.html', '.htm')) or (nombre.endswith('.xls') and es_html):
+        filas = _leer_html_migracion(contenido)
     elif nombre.endswith(('.csv', '.txt')):
         filas = _leer_csv_migracion(contenido)
     elif nombre.endswith('.xls'):
         raise ValueError('El formato .xls antiguo no se admite: abre el archivo en Excel y guárdalo como .xlsx o CSV.')
     else:
-        raise ValueError('Formato no admitido. Sube un archivo CSV (.csv) o Excel (.xlsx).')
+        raise ValueError('Formato no admitido. Sube un archivo CSV (.csv), Excel (.xlsx) o HTML (.html).')
     filas = [[str(celda or '').strip() for celda in fila] for fila in filas]
     filas = [fila for fila in filas if any(fila)]
     if len(filas) < 2:

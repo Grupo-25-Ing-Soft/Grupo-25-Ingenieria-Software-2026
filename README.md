@@ -68,7 +68,7 @@ como superusuario y puede crear los roles y usuarios.
 ## Migración de datos (RF-060)
 
 En **Sistema → Migración de datos** (`/migracion.html`) se cargan los archivos maestros de otro
-sistema desde un archivo CSV o Excel (.xlsx): zonas de venta, vendedores, clientes, colores, tallas,
+sistema desde un archivo CSV, Excel (.xlsx) o HTML (una tabla): zonas de venta, vendedores, clientes, colores, tallas,
 bodegas y productos. La pantalla permite descargar una plantilla por cada uno, validar el archivo sin
 guardar e importarlo. Los registros que ya existen (mismo RUT o código) se omiten y las filas con
 errores se informan con su número de fila. El acceso se da por rol con el módulo «Migración de datos».

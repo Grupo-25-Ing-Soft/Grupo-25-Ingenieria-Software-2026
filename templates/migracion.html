@@ -21,7 +21,7 @@
     <div>
       <div class="eyebrow">Sistema / Administración</div>
       <h1>Migración de datos</h1>
-      <p>Carga los archivos maestros de otro sistema desde un archivo CSV o Excel.</p>
+      <p>Carga los archivos maestros de otro sistema desde un archivo CSV, Excel o HTML.</p>
     </div>
   </div>
 
@@ -74,9 +74,9 @@
             </select>
           </div>
           <div class="col-md-8">
-            <label class="form-label" for="archivo">Archivo CSV (.csv) o Excel (.xlsx)</label>
-            <input type="file" class="form-control" id="archivo" name="archivo" accept=".csv,.txt,.xlsx" required>
-            <small class="text-muted">Hasta 2 MB y {{ max_filas }} filas. La primera fila debe tener los títulos de las columnas; en Excel se lee la primera hoja.</small>
+            <label class="form-label" for="archivo">Archivo CSV (.csv), Excel (.xlsx) o HTML (.html)</label>
+            <input type="file" class="form-control" id="archivo" name="archivo" accept=".csv,.txt,.xlsx,.html,.htm,.xls" required>
+            <small class="text-muted">Hasta 2 MB y {{ max_filas }} filas. La primera fila debe tener los títulos de las columnas; en Excel se lee la primera hoja y en HTML, la tabla con más datos.</small>
           </div>
         </div>
         <div class="d-flex gap-2 mt-3">

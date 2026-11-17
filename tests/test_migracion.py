@@ -105,6 +105,7 @@ def test_importa_productos_desde_excel(admin, base):
     ('clientes', 'datos.csv', 'Nombre;RUT\n', 'al menos una fila de datos'),
     ('clientes', 'datos.xls', 'x', 'El formato .xls antiguo no se admite'),
     ('clientes', 'datos.pdf', 'x', 'Formato no admitido'),
+    ('clientes', 'datos.html', '<html><body><p>Sin tablas</p></body></html>', 'no tiene ninguna tabla con datos'),
     ('clientes', 'datos.xlsx', 'esto no es un excel', 'No se pudo leer el archivo Excel'),
     ('otra_cosa', 'datos.csv', 'Nombre;RUT\nA;1\n', 'Elige qué datos trae el archivo'),
 ])
@@ -143,3 +144,34 @@ def test_plantilla_y_permisos(admin, base):
     assert admin.get('/migracion.html').headers['Location'] == '/'
     subir(admin, 'clientes', CLIENTES)
     assert len(base.tablas['clientes']) == 1
+
+
+PAGINA = """<!DOCTYPE html><html><head><meta charset="utf-8"><style>td { color: red }</style>
+<script>var x = "<td>no es una celda</td>";</script></head><body>
+<table><tr><td>Menú</td></tr></table>
+<h1>Listado de colores</h1>
+<table border="1">
+  <thead><tr><th>Descripci&oacute;n</th><th>C&oacute;digo de color</th><th>C&oacute;digo EAN del color</th></tr></thead>
+  <tbody>
+    <tr><td><b>Rojo</b> <br>italiano</td><td> RJ </td><td>0100</td></tr>
+    <tr><td>Azul &amp; blanco</td><td>AZ</td><td></td></tr>
+    <tr><td>BLANCO</td><td>BL</td><td>0001</td></tr>
+    <tr><td></td><td></td><td></td></tr>
+  </tbody>
+</table></body></html>"""
+
+
+@pytest.mark.parametrize('nombre', ['colores.html', 'COLORES.HTM', 'exportado.xls'])
+def test_importa_una_tabla_html(admin, base, nombre):
+    # Se lee la tabla con más datos (no el menú); un .xls que en realidad es HTML también sirve.
+    antes = len(base.tablas['colores'])
+    html = subir(admin, 'colores', PAGINA, nombre=nombre)
+    nuevos = [(c['descripcion'], c['codigo_color'], c['codigo_ean']) for c in base.tablas['colores'][antes:]]
+    assert nuevos == [('Rojo italiano', 'RJ', '0100'), ('Azul & blanco', 'AZ', None)]
+    assert 'Se crearon <strong>2</strong>' in html and 'ya existe' in html  # BLANCO ya estaba
+
+
+def test_html_en_windows_1252(admin, base):
+    pagina = '<table><tr><th>Descripción</th><th>Código</th></tr><tr><td>Bodega Ñuñoa</td><td>B1</td></tr></table>'
+    subir(admin, 'bodegas', pagina.encode('cp1252'), nombre='bodegas.html')
+    assert [(b['descripcion'], b['codigo']) for b in base.tablas['bodegas']] == [('Bodega Ñuñoa', 'B1')]
