@@ -24,6 +24,7 @@ Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
 Source: "dist\ComercialDNix\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: ".env"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Comercial D Nix"; Filename: "{app}\ComercialDNix.exe"
