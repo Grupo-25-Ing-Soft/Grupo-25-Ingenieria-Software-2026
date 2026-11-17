@@ -9,4 +9,4 @@ INSERT INTO colores (codigo_color, descripcion);
 VALUES (codigo, descripcion)
 
 
-Nota: En la carpeta supabase están los archivos .sql que contienen las instrucciones para crear y modificar las tablas de la propia base de datos.
+Nota: En la carpeta base de datos están los archivos .sql que contienen las instrucciones para crear y modificar las tablas de la propia base de datos., así como la adición de datos de prueba. Otros datos fueron añadidos vía la propia aplicación, o mediante la interfaz de Supabase.
