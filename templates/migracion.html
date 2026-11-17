@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <title>Migración de datos - Comercial D Nix</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='app.css', v='4') }}" rel="stylesheet">
+  <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+</head>
+<body>
+{% include '_flash_toast.html' %}
+{% include '_sidebar.html' %}
+<header class="shared-topbar">
+  <input class="shared-search" type="search" placeholder="Buscar en el sistema..." aria-label="Buscar en el sistema">
+</header>
+
+<div class="container-fluid">
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Sistema / Administración</div>
+      <h1>Migración de datos</h1>
+      <p>Carga los archivos maestros de otro sistema desde un archivo CSV o Excel.</p>
+    </div>
+  </div>
+
+  {% if resultado %}
+  {% set r = resultado %}
+  <div class="data-card mb-4" id="resultadoMigracion">
+    <div class="data-card-header">
+      <div><h2>{{ 'Resultado de la importación' if r.guardado else 'Resultado de la validación' }}</h2>
+        <span>{{ tipos[tipo].titulo }} · {{ nombre_archivo }} · {{ r.total }} fila{{ '' if r.total == 1 else 's' }} con datos</span></div>
+    </div>
+    <div class="modal-body">
+      {% if r.guardado %}
+      <div class="alert {{ 'alert-success' if r.creadas else 'alert-secondary' }}">Se crearon <strong>{{ r.creadas }}</strong> registros en {{ tipos[tipo].titulo }}.</div>
+      {% else %}
+      <div class="alert alert-info">Todavía no se guardó nada. {% if r.validas %}Hay <strong>{{ r.validas }}</strong> filas listas: vuelve a elegir el archivo y presiona «Importar».{% else %}No hay filas nuevas para importar.{% endif %}</div>
+      {% endif %}
+      <div class="row g-3 mb-3 text-center">
+        <div class="col-md-4"><div class="border rounded p-3"><div class="fs-3 fw-semibold">{{ r.creadas if r.guardado else r.validas }}</div><div class="text-muted">{{ 'Creadas' if r.guardado else 'Listas para importar' }}</div></div></div>
+        <div class="col-md-4"><div class="border rounded p-3"><div class="fs-3 fw-semibold">{{ r.omitidas|length }}</div><div class="text-muted">Omitidas porque ya existen</div></div></div>
+        <div class="col-md-4"><div class="border rounded p-3"><div class="fs-3 fw-semibold {{ 'text-danger' if r.errores }}">{{ r.errores|length }}</div><div class="text-muted">Con errores (no se importan)</div></div></div>
+      </div>
+      <p class="mb-1"><strong>Columnas reconocidas:</strong> {{ r.usadas|join(', ') }}.</p>
+      {% if r.ignoradas %}<p class="mb-1 text-warning-emphasis"><strong>Columnas que no se usaron</strong> (su título no coincide con ninguno): {{ r.ignoradas|join(', ') }}.</p>{% endif %}
+
+      {% for titulo, filas, clase in (('Filas con errores', r.errores, 'table-danger'), ('Filas omitidas', r.omitidas, '')) %}
+      {% if filas %}
+      <h3 class="fs-6 mt-4">{{ titulo }}{% if filas|length > 200 %} <small class="text-muted">(se muestran las primeras 200 de {{ filas|length }})</small>{% endif %}</h3>
+      <div class="data-table-wrap data-table-wrap--scroll">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th style="width: 8rem">Fila del archivo</th><th>Motivo</th></tr></thead>
+          <tbody>{% for f in filas[:200] %}<tr class="{{ clase }}"><td>{{ f.fila }}</td><td>{{ f.motivo }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="POST" enctype="multipart/form-data" action="{{ url_for('migracion') }}">
+    <div class="data-card mb-4">
+      <div class="data-card-header"><div><h2>Subir archivo</h2><span>Primero valida el archivo; cuando esté correcto, impórtalo</span></div></div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="tipo">Datos que trae el archivo</label>
+            <select class="form-select" id="tipo" name="tipo" required>
+              <option value="" {% if not tipo %}selected{% endif %} disabled>Seleccione</option>
+              {% for codigo, t in tipos.items() %}<option value="{{ codigo }}" {% if codigo == tipo %}selected{% endif %}>{{ t.titulo }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" for="archivo">Archivo CSV (.csv) o Excel (.xlsx)</label>
+            <input type="file" class="form-control" id="archivo" name="archivo" accept=".csv,.txt,.xlsx" required>
+            <small class="text-muted">Hasta 2 MB y {{ max_filas }} filas. La primera fila debe tener los títulos de las columnas; en Excel se lee la primera hoja.</small>
+          </div>
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <button type="submit" name="accion" value="validar" class="btn btn-outline-primary icon-button"><i class="bi bi-search" aria-hidden="true"></i><span>Validar archivo</span></button>
+          <button type="submit" name="accion" value="importar" class="btn btn-primary icon-button"><i class="bi bi-upload" aria-hidden="true"></i><span>Importar</span></button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="data-card mb-4">
+    <div class="data-card-header"><div><h2>Columnas de cada archivo</h2><span>Sigue este orden: los clientes usan las zonas de venta y los vendedores ya cargados</span></div></div>
+    <div class="modal-body">
+      <ul class="mb-3">
+        <li>Los títulos pueden ir en cualquier orden, con o sin tildes y en mayúsculas o minúsculas. Las columnas que no estén en la lista se ignoran.</li>
+        <li>Un registro que ya existe (mismo RUT o código) se omite: no se modifica ni se duplica, así que el mismo archivo se puede subir de nuevo.</li>
+        <li>El RUT va sin dígito verificador o con él (12.345.678-5): el sistema lo calcula.</li>
+        <li>Las filas con errores no se importan; las demás sí. Corrige el archivo y vuelve a subirlo.</li>
+      </ul>
+      <div class="data-table-wrap">
+        <table class="table align-middle mb-0">
+          <thead><tr><th>Datos</th><th>Columnas (<strong>obligatorias</strong> en negrita)</th><th class="text-end">Plantilla</th></tr></thead>
+          <tbody>
+            {% for codigo, t in tipos.items() %}
+            <tr>
+              <td class="text-nowrap">{{ loop.index }}. {{ t.titulo }}</td>
+              <td>{% for c in t.campos %}{% if c.obligatorio %}<strong>{{ c.titulo }}</strong>{% else %}{{ c.titulo }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-secondary icon-button" href="{{ url_for('migracionPlantilla', tipo=codigo) }}"><i class="bi bi-download" aria-hidden="true"></i><span>Descargar</span></a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

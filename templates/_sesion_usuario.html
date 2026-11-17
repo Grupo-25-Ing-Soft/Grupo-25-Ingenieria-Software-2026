@@ -1,7 +1,10 @@
 {# Va al final de cada .shared-sidebar: enlace a roles, usuario con sesión y cierre de sesión. #}
 {% if usuario_actual %}
-  {% if puede('roles_usuarios') or puede('configuracion') %}
+  {% if puede('roles_usuarios') or puede('configuracion') or puede('migracion') %}
     <div class="shared-caption">Sistema</div>
+  {% endif %}
+  {% if puede('migracion') %}
+    <a href="{{ url_for('migracion') }}"{% if request.endpoint == 'migracion' %} class="active"{% endif %} title="Migración de datos"><span class="shared-nav-icon"><i class="bi bi-database-fill-up" aria-hidden="true"></i></span><span>Migración de datos</span></a>
   {% endif %}
   {% if puede('configuracion') %}
     <a href="{{ url_for('configuracion') }}"{% if request.endpoint == 'configuracion' %} class="active"{% endif %} title="Configuración"><span class="shared-nav-icon"><i class="bi bi-sliders2" aria-hidden="true"></i></span><span>Configuración</span></a>

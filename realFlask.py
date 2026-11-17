@@ -1,11 +1,15 @@
+import csv
 import hmac
 import io
 import os
 import re
 import secrets
 import time
+import unicodedata
+import zipfile
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from xml.etree import ElementTree
 from flask import Flask
 from flask import flash
 from flask import request
@@ -192,6 +196,7 @@ MODULOS_SISTEMA = [
     ('codigos_ean', 'Códigos EAN y etiquetas', ['codigosEAN', 'emisionEAN']),
     ('configuracion', 'Configuración', ['configuracion']),
     ('roles_usuarios', 'Roles y usuarios', ['roles', 'usuarios']),
+    ('migracion', 'Migración de datos', ['migracion', 'migracionPlantilla']),
 ]
 CODIGOS_MODULO = [codigo for codigo, _, _ in MODULOS_SISTEMA]
 MODULO_POR_ENDPOINT = {
@@ -3744,6 +3749,350 @@ def emisionEAN():
 
     filas = [etiquetas[i:i + ETIQUETAS_POR_FILA] for i in range(0, len(etiquetas), ETIQUETAS_POR_FILA)]
     return render_template('etiquetasEAN.html', filas=filas, total=len(etiquetas))
+
+
+# ---------------------------------------------------------------------
+# Migración de datos desde otros sistemas (RF-060). Se sube un archivo CSV o Excel
+# (.xlsx) por cada archivo maestro; la primera fila trae los títulos de las columnas.
+# Cada fila pasa por las mismas reglas que los formularios; las que ya existen (por RUT
+# o código) se omiten, así que el mismo archivo se puede subir más de una vez.
+# No usa librerías extra: el .xlsx se lee con zipfile y xml (va en el instalador).
+MAX_FILAS_MIGRACION = 5000
+MAX_XLSX_DESCOMPRIMIDO = 30 * 1024 * 1024
+FILAS_POR_LOTE_MIGRACION = 200
+
+
+def _migracion_de_maestro(nombre, respaldo=None):
+    """Definición de migración de un maestro simple, con las reglas de MAESTROS_SIMPLES."""
+    maestro = MAESTROS_SIMPLES[nombre]
+    campos = []
+    for campo in maestro['campos']:
+        tipo = ('rut' if campo.get('rut') else 'porcentaje' if campo.get('porcentaje')
+                else 'ean' if campo.get('ean_parte') else 'digitos' if campo.get('numerico') else 'texto')
+        campos.append({'columna': campo['columna'], 'titulo': campo['etiqueta'], 'tipo': tipo,
+                       'obligatorio': bool(campo.get('obligatorio')), 'max': campo.get('max'),
+                       'unico': bool(campo.get('unico') or campo.get('ean_parte')),
+                       'ean_parte': campo.get('ean_parte')})
+    return {'titulo': maestro['plural'].capitalize(), 'tabla': maestro['tabla'], 'campos': campos,
+            'respaldo': respaldo, 'dv': 'digito_verificador' if nombre == 'vendedores' else None}
+
+
+def _texto_migracion(columna, titulo, max_largo=None, alias=(), **extra):
+    return {'columna': columna, 'titulo': titulo, 'tipo': 'texto', 'max': max_largo, 'alias': alias, **extra}
+
+
+# El orden es el sugerido para migrar: los clientes usan zonas y vendedores ya cargados.
+# 'unico': si el valor ya existe en la base, la fila se omite. 'respaldo': columna con que
+# se reconoce una fila ya cargada cuando no trae ningún valor único (por ejemplo, sin código).
+MIGRACIONES = {
+    'zonas_venta': _migracion_de_maestro('zonas_venta', respaldo='nombre'),
+    'vendedores': _migracion_de_maestro('vendedores'),
+    'clientes': {
+        'titulo': 'Clientes', 'tabla': 'clientes', 'dv': 'digito_verificador', 'respaldo': None,
+        'campos': [
+            _texto_migracion('nombre', 'Nombre', alias=('razón social', 'cliente', 'nombre completo'), obligatorio=True),
+            {'columna': 'rut', 'titulo': 'RUT', 'tipo': 'rut', 'obligatorio': True, 'unico': True},
+            _texto_migracion('codigo', 'Código', alias=('código de cliente', 'código cliente'), unico=True),
+            _texto_migracion('abreviacion', 'Abreviación', alias=('nombre de fantasía', 'fantasía')),
+            _texto_migracion('giro', 'Giro'),
+            _texto_migracion('direccion', 'Dirección'),
+            _texto_migracion('comuna', 'Comuna'),
+            _texto_migracion('ciudad', 'Ciudad'),
+            _texto_migracion('telefono', 'Teléfono', alias=('fono', 'teléfono 1')),
+            _texto_migracion('telefono_2', 'Teléfono 2', alias=('fono 2',)),
+            _texto_migracion('correo', 'Correo', alias=('email', 'e-mail', 'mail')),
+            _texto_migracion('condiciones_venta', 'Condiciones de venta'),
+            _texto_migracion('via_despacho', 'Vía de despacho'),
+            {'columna': 'descuento_1', 'titulo': 'Descuento 1', 'tipo': 'porcentaje', 'defecto': 0},
+            {'columna': 'descuento_2', 'titulo': 'Descuento 2', 'tipo': 'porcentaje', 'defecto': 0},
+            {'columna': 'descuento_3', 'titulo': 'Descuento 3', 'tipo': 'porcentaje', 'defecto': 0},
+            {'columna': 'porcentaje_comision', 'titulo': 'Comisión', 'tipo': 'porcentaje'},
+            {'columna': 'porcentaje_cobranza', 'titulo': 'Cobranza', 'tipo': 'porcentaje'},
+            {'columna': 'lista_precios', 'titulo': 'Lista de precios', 'tipo': 'entero', 'minimo': 1, 'defecto': 1},
+            {'columna': 'id_zona_venta', 'titulo': 'Código de zona', 'tipo': 'referencia', 'alias': ('zona', 'zona de venta'),
+             'referencia': ('zona_venta', 'codigo', 'id_zona_venta', 'una zona de venta')},
+            {'columna': 'id_vendedor', 'titulo': 'Código de vendedor', 'tipo': 'referencia', 'alias': ('vendedor',),
+             'referencia': ('vendedores', 'codigo', 'id_vendedor', 'un vendedor')},
+            _texto_migracion('observaciones', 'Observaciones', 256),
+        ],
+    },
+    'colores': _migracion_de_maestro('colores', respaldo='descripcion'),
+    'tallas': _migracion_de_maestro('tallas'),
+    'bodegas': _migracion_de_maestro('bodegas', respaldo='descripcion'),
+    'productos': {
+        'titulo': 'Productos', 'tabla': 'productos', 'dv': None, 'respaldo': 'descripcion',
+        'campos': [
+            {'columna': 'codigo', 'titulo': 'Código', 'tipo': 'codigo_producto', 'unico': True,
+             'alias': ('código de producto', 'código producto', 'artículo')},
+            _texto_migracion('descripcion', 'Descripción', 64, alias=('nombre', 'producto'), obligatorio=True),
+            _texto_migracion('abreviacion', 'Abreviación'),
+            {'columna': 'precio', 'titulo': 'Precio', 'tipo': 'entero', 'minimo': 0, 'alias': ('precio venta', 'precio de venta')},
+        ],
+    },
+}
+
+
+def _clave_texto(texto):
+    """Texto sin tildes, mayúsculas ni signos, para comparar títulos de columnas y valores."""
+    sin_tildes = unicodedata.normalize('NFKD', str(texto or '')).encode('ascii', 'ignore').decode()
+    return re.sub(r'[^a-z0-9]+', '', sin_tildes.lower())
+
+
+def _leer_csv_migracion(contenido):
+    # Los sistemas antiguos suelen exportar en Windows-1252; Excel moderno, en UTF-8 con BOM.
+    try:
+        texto = contenido.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        texto = contenido.decode('cp1252', errors='replace')
+    primera = next((linea for linea in texto.splitlines() if linea.strip()), '')
+    separador = max((';', ',', '\t', '|'), key=primera.count)
+    return [fila for fila in csv.reader(io.StringIO(texto, newline=''), delimiter=separador)]
+
+
+def _leer_xlsx_migracion(contenido):
+    """Filas de la primera hoja de un .xlsx (un zip con XML), sin librerías externas."""
+    espacio = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+    try:
+        with zipfile.ZipFile(io.BytesIO(contenido)) as libro:
+            if sum(i.file_size for i in libro.infolist()) > MAX_XLSX_DESCOMPRIMIDO:
+                raise ValueError('El archivo Excel es demasiado grande.')
+            hojas = sorted((n for n in libro.namelist() if re.fullmatch(r'xl/worksheets/sheet\d+\.xml', n)),
+                           key=lambda n: int(re.search(r'\d+', n.rsplit('/', 1)[1]).group()))
+            if not hojas:
+                raise ValueError('El archivo Excel no tiene hojas con datos.')
+            textos = []
+            if 'xl/sharedStrings.xml' in libro.namelist():
+                for item in ElementTree.fromstring(libro.read('xl/sharedStrings.xml')).iter(espacio + 'si'):
+                    textos.append(''.join(t.text or '' for t in item.iter(espacio + 't')))
+            hoja = ElementTree.fromstring(libro.read(hojas[0]))
+    except (zipfile.BadZipFile, ElementTree.ParseError, KeyError):
+        raise ValueError('No se pudo leer el archivo Excel. Guárdalo como «Libro de Excel (.xlsx)» o como CSV.')
+
+    filas = []
+    for fila_xml in hoja.iter(espacio + 'row'):
+        fila = []
+        for celda in fila_xml.iter(espacio + 'c'):
+            # r="C5": la columna sale de las letras (las celdas vacías no vienen en el XML).
+            letras = re.match(r'[A-Z]+', celda.get('r') or '')
+            indice = len(fila)
+            if letras:
+                indice = 0
+                for letra in letras.group():
+                    indice = indice * 26 + ord(letra) - 64
+                indice -= 1
+            tipo, valor = celda.get('t'), celda.find(espacio + 'v')
+            if tipo == 'inlineStr':
+                texto = ''.join(t.text or '' for t in celda.iter(espacio + 't'))
+            elif valor is None or valor.text is None:
+                texto = ''
+            elif tipo == 's':
+                texto = textos[int(valor.text)] if valor.text.isdigit() and int(valor.text) < len(textos) else ''
+            else:
+                texto = valor.text
+                # Excel guarda 12345678 como "12345678", pero a veces como 1.2345678E7 o 5.0.
+                if tipo in (None, 'n') and re.fullmatch(r'-?\d+(\.\d+)?([eE][+-]?\d+)?', texto):
+                    numero = float(texto)
+                    if numero.is_integer():
+                        texto = str(int(numero))
+            fila.extend([''] * (indice - len(fila) + 1))
+            fila[indice] = texto
+        filas.append(fila)
+    return filas
+
+
+def _leer_archivo_migracion(archivo):
+    """(títulos, filas) del archivo subido. Lanza ValueError con un mensaje para el usuario."""
+    nombre = (archivo.filename or '').lower() if archivo else ''
+    if not nombre:
+        raise ValueError('Selecciona el archivo que quieres migrar.')
+    contenido = archivo.read()
+    if nombre.endswith('.xlsx'):
+        filas = _leer_xlsx_migracion(contenido)
+    elif nombre.endswith(('.csv', '.txt')):
+        filas = _leer_csv_migracion(contenido)
+    elif nombre.endswith('.xls'):
+        raise ValueError('El formato .xls antiguo no se admite: abre el archivo en Excel y guárdalo como .xlsx o CSV.')
+    else:
+        raise ValueError('Formato no admitido. Sube un archivo CSV (.csv) o Excel (.xlsx).')
+    filas = [[str(celda or '').strip() for celda in fila] for fila in filas]
+    filas = [fila for fila in filas if any(fila)]
+    if len(filas) < 2:
+        raise ValueError('El archivo debe tener una fila de títulos y al menos una fila de datos.')
+    if len(filas) - 1 > MAX_FILAS_MIGRACION:
+        raise ValueError(f'El archivo tiene más de {MAX_FILAS_MIGRACION} filas: divídelo en partes.')
+    return filas[0], filas[1:]
+
+
+def _todas_las_filas(tabla, columnas='*'):
+    """Todas las filas de una tabla (la API de Supabase entrega de a 1000)."""
+    filas, inicio = [], 0
+    while True:
+        pagina = supabase.table(tabla).select(columnas).range(inicio, inicio + 999).execute().data or []
+        filas += pagina
+        if len(pagina) < 1000:
+            return filas
+        inicio += 1000
+
+
+def _valor_migracion(campo, texto, referencias):
+    """Valida un valor del archivo con la regla del campo. Devuelve (valor, error)."""
+    titulo = campo['titulo']
+    if not texto:
+        if campo.get('obligatorio'):
+            return None, f'falta «{titulo}»'
+        return campo.get('defecto'), None
+    tipo = campo['tipo']
+    if tipo == 'rut':
+        numero = _leer_rut(texto)
+        return (numero, None) if numero else (None, f'«{titulo}» no es un RUT válido ({texto})')
+    if tipo == 'porcentaje':
+        valor, error = _porcentaje(texto.replace('%', ''), f'«{titulo}»')
+        return valor, (error[:-1] if error else None)
+    if tipo == 'entero':
+        # Acepta $ 2.990 y 2990,00 (formatos habituales al exportar precios).
+        limpio = re.sub(r'[$\s.]', '', texto.split(',')[0])
+        if not limpio.isdigit() or int(limpio) < campo.get('minimo', 0):
+            return None, f'«{titulo}» debe ser un número entero mayor o igual a {campo.get("minimo", 0)} ({texto})'
+        return int(limpio), None
+    if tipo == 'referencia':
+        tabla, _, _, nombre = campo['referencia']
+        if _clave_texto(texto) not in referencias[campo['columna']]:
+            return None, f'«{titulo}»: no existe {nombre} con el código {texto} (cárgalo primero)'
+        return referencias[campo['columna']][_clave_texto(texto)], None
+    if tipo in ('digitos', 'ean') and not texto.isdigit():
+        return None, f'«{titulo}» solo puede tener números ({texto})'
+    maximo = _digitos_ean(campo['ean_parte']) if tipo == 'ean' else campo.get('max')
+    if tipo == 'codigo_producto':
+        maximo = _digitos_ean('producto') if texto.isdigit() else 16
+    if maximo and len(texto) > maximo:
+        return None, f'«{titulo}» admite hasta {maximo} caracteres ({texto})'
+    return texto, None
+
+
+def _procesar_migracion(spec, titulos, filas, guardar):
+    """Valida las filas del archivo contra la definición y, si guardar, inserta las nuevas.
+    Devuelve el resumen que muestra migracion.html. Lanza ValueError si faltan columnas."""
+    por_clave = {}
+    for campo in spec['campos']:
+        for nombre in (campo['titulo'], campo['columna'], *campo.get('alias', ())):
+            por_clave.setdefault(_clave_texto(nombre), campo)
+    posicion, ignoradas = {}, []
+    for indice, titulo in enumerate(titulos):
+        campo = por_clave.get(_clave_texto(titulo))
+        if campo and campo['columna'] not in posicion:
+            posicion[campo['columna']] = indice
+        elif titulo:
+            ignoradas.append(titulo)
+    faltan = [c['titulo'] for c in spec['campos'] if c.get('obligatorio') and c['columna'] not in posicion]
+    if faltan:
+        raise ValueError(f"Al archivo le faltan las columnas obligatorias: {', '.join(faltan)}. "
+                         'Revisa los títulos de la primera fila o descarga la plantilla.')
+
+    unicos = [c['columna'] for c in spec['campos'] if c.get('unico')]
+    comparadas = unicos + ([spec['respaldo']] if spec.get('respaldo') else [])
+    existentes = {columna: set() for columna in comparadas}
+    for fila in _todas_las_filas(spec['tabla']):
+        for columna in comparadas:
+            if fila.get(columna) not in (None, ''):
+                existentes[columna].add(_clave_texto(fila[columna]))
+    referencias = {}
+    for campo in spec['campos']:
+        if campo['tipo'] == 'referencia':
+            tabla, codigo, clave, _ = campo['referencia']
+            referencias[campo['columna']] = {_clave_texto(f[codigo]): f[clave] for f in
+                                             _todas_las_filas(tabla, f'{clave}, {codigo}') if f.get(codigo)}
+
+    titulo_de = {c['columna']: c['titulo'] for c in spec['campos']}
+    vistos = {columna: {} for columna in comparadas}
+    nuevas, omitidas, errores = [], [], []
+    for numero, fila in enumerate(filas, start=2):  # la fila 1 del archivo son los títulos
+        datos, problemas = {}, []
+        for campo in spec['campos']:
+            indice = posicion.get(campo['columna'])
+            texto = fila[indice] if indice is not None and indice < len(fila) else ''
+            datos[campo['columna']], error = _valor_migracion(campo, texto, referencias)
+            if error:
+                problemas.append(error)
+        if problemas:
+            errores.append({'fila': numero, 'motivo': '; '.join(problemas)})
+            continue
+        # Con algún valor único se compara por esos; si no trae ninguno, por la columna de respaldo.
+        claves = [c for c in unicos if datos.get(c) not in (None, '')] or \
+                 [c for c in comparadas if c not in unicos and datos.get(c) not in (None, '')]
+        ya_existe = next((c for c in claves if _clave_texto(datos[c]) in existentes[c]), None)
+        repetida = next((c for c in claves if _clave_texto(datos[c]) in vistos[c]), None)
+        if ya_existe:
+            omitidas.append({'fila': numero, 'motivo': f'ya existe ({titulo_de[ya_existe]} {datos[ya_existe]})'})
+            continue
+        if repetida:
+            errores.append({'fila': numero, 'motivo': f'{titulo_de[repetida]} {datos[repetida]} está repetido en el '
+                                                      f'archivo (fila {vistos[repetida][_clave_texto(datos[repetida])]})'})
+            continue
+        for columna in claves:
+            vistos[columna][_clave_texto(datos[columna])] = numero
+        if spec.get('dv'):
+            datos[spec['dv']] = digito_verificador_rut(datos['rut'])
+        nuevas.append((numero, datos))
+
+    creadas = 0
+    if guardar:
+        for inicio in range(0, len(nuevas), FILAS_POR_LOTE_MIGRACION):
+            lote = nuevas[inicio:inicio + FILAS_POR_LOTE_MIGRACION]
+            try:
+                supabase.table(spec['tabla']).insert([datos for _, datos in lote]).execute()
+                creadas += len(lote)
+            except APIError:
+                # La base rechazó el lote: se inserta fila por fila para ubicar cuál es.
+                for numero, datos in lote:
+                    try:
+                        supabase.table(spec['tabla']).insert(datos).execute()
+                        creadas += 1
+                    except APIError as error:
+                        app.logger.warning('Migración %s, fila %s: %s %s', spec['tabla'], numero, error.code, error.message)
+                        errores.append({'fila': numero, 'motivo': 'la base la rechazó: ' + (
+                            MENSAJES_BASE_DATOS.get(error.code) or error.message or 'error de la base de datos')})
+        errores.sort(key=lambda e: e['fila'])
+    return {'guardado': guardar, 'total': len(filas), 'validas': len(nuevas), 'creadas': creadas,
+            'omitidas': omitidas, 'errores': errores, 'ignoradas': ignoradas,
+            'usadas': [titulo_de[c] for c in titulo_de if c in posicion]}
+
+
+@app.route('/migracion.html', methods=['GET', 'POST'])
+def migracion():
+    # RF-060: carga de los archivos maestros de otro sistema desde un CSV o Excel.
+    tipo = request.values.get('tipo', '')
+    resultado, nombre_archivo = None, ''
+    if request.method == 'POST':
+        spec = MIGRACIONES.get(tipo)
+        archivo = request.files.get('archivo')
+        try:
+            if spec is None:
+                raise ValueError('Elige qué datos trae el archivo.')
+            titulos, filas = _leer_archivo_migracion(archivo)
+            resultado = _procesar_migracion(spec, titulos, filas, request.form.get('accion') == 'importar')
+            nombre_archivo = archivo.filename
+            if resultado['guardado']:
+                app.logger.info('Migración de %s por %s: %s creadas, %s omitidas, %s con error (%s)', tipo,
+                                g.usuario.get('nombre_usuario'), resultado['creadas'], len(resultado['omitidas']),
+                                len(resultado['errores']), nombre_archivo)
+        except ValueError as error:
+            flash(str(error), 'error')
+            return redirect(url_for('migracion', tipo=tipo if tipo in MIGRACIONES else None))
+    return render_template('migracion.html', tipos=MIGRACIONES, tipo=tipo, resultado=resultado,
+                           nombre_archivo=nombre_archivo, max_filas=MAX_FILAS_MIGRACION)
+
+
+@app.route('/migracionPlantilla.csv', methods=['GET'])
+def migracionPlantilla():
+    # Archivo vacío con los títulos de columna que reconoce la migración (se abre en Excel).
+    spec = MIGRACIONES.get(request.args.get('tipo', ''))
+    if spec is None:
+        flash('Elige qué plantilla quieres descargar.', 'error')
+        return redirect(url_for('migracion'))
+    salida = io.StringIO()
+    csv.writer(salida, delimiter=';').writerow([campo['titulo'] for campo in spec['campos']])
+    return send_file(io.BytesIO(salida.getvalue().encode('utf-8-sig')), mimetype='text/csv', as_attachment=True,
+                     download_name=f"plantilla_{request.args['tipo']}.csv")
 
 
 @app.route('/archivosMaestros.html', methods=['GET'])

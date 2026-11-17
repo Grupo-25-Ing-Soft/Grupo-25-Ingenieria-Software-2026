@@ -66,6 +66,7 @@ class ConsultaFalsa:
         self.valores = None
         self.orden = []
         self.limite = None
+        self.rango = None
         self._negar = False
 
     # ---------------------------------------------------- construcción (como supabase-py)
@@ -145,6 +146,10 @@ class ConsultaFalsa:
         self.orden.append((columna, desc))
         return self
 
+    def range(self, inicio, fin):
+        self.rango = (inicio, fin)
+        return self
+
     def limit(self, cantidad):
         self.limite = cantidad
         return self
@@ -173,9 +178,11 @@ class SupabaseFalso:
         if consulta.operacion == 'insert':
             nuevas = consulta.valores if isinstance(consulta.valores, list) else [consulta.valores]
             creadas = []
+            # Un insert de varias filas es una sola sentencia: si una falla, no entra ninguna.
+            for valores in nuevas:
+                self._validar(consulta.nombre, dict(valores))
             for valores in nuevas:
                 fila = dict(valores)
-                self._validar(consulta.nombre, fila)
                 self._calcular_generadas(consulta.nombre, fila)
                 for columna in (CLAVES_AUTOINCREMENTALES.get(consulta.nombre),
                                 IDENTIDADES_EXTRA.get(consulta.nombre)):
@@ -206,6 +213,8 @@ class SupabaseFalso:
         for columna, desc in reversed(consulta.orden):
             coincidentes = sorted(coincidentes, key=lambda f: (f.get(columna) is None, str(f.get(columna) or '')),
                                   reverse=desc)
+        if consulta.rango is not None:
+            coincidentes = coincidentes[consulta.rango[0]:consulta.rango[1] + 1]
         if consulta.limite is not None:
             coincidentes = coincidentes[:consulta.limite]
         return [dict(f) for f in coincidentes]
